@@ -20,9 +20,13 @@
 | Altium Designer | 26 |
 | Altium SDK | 4.0.1 |
 | .NET SDK | 10 |
-| Target Framework | `net10.0-windows` |
+| Target Framework | Altium: `net10.0-windows`; Core/Core.Tests: `net10.0`; SOLIDWORKS: отдельным решением |
 | Язык | C# |
 | SOLIDWORKS | 2026 |
+
+Совместимость Altium Designer 26, Altium SDK 4.0.1 и .NET SDK 10 с `net10.0-windows`
+подтверждена оператором. InteractiveBom, собранный под `net8.0-windows`, использовался
+только как референс и не определяет целевой TFM.
 
 SOLIDWORKS 2026 зафиксирован как целевая платформа, но на текущем этапе функциональность обмена
 с ним не реализуется. Изменение стека или TFM — только через `.agent/DECISIONS.md`.
@@ -40,6 +44,9 @@ Altium Add-in ──► Core ◄── SOLIDWORKS Add-in (будущая фаз�
 - `EcadMcadBridge.SolidWorks` — не создаётся до отдельного ТЗ.
 - Add-in не ссылаются друг на друга.
 - Обмен идёт только через версионируемый файловый пакет Core.
+- Координаты сохраняются в двух представлениях: исходные Altium IU и вычисленные миллиметры.
+- Git используется для задач, отчётов, ревью и кода; пользовательские PCB, STEP и рабочие сборки
+  передаются вне Git через локальный runtime-каталог.
 
 Полная архитектура: [`.agent/ARCHITECTURE.md`](.agent/ARCHITECTURE.md).
 
@@ -59,8 +66,9 @@ README.md                      этот файл
   reviews/                     ревью
 ```
 
-Задачи и отчёты передаются через Git: см. раздел 8 `ARCHITECTURE.md`
-и [`.agent/tasks/BRIDGE-000001.md`](.agent/tasks/BRIDGE-000001.md).
+Git-протокол разработки (задачи, отчёты, ревью и код) описан в разделе 8 `ARCHITECTURE.md`.
+Файловый runtime-обмен между CAD-системами описан в разделе 9 `ARCHITECTURE.md` и не использует Git.
+См. также [`.agent/tasks/BRIDGE-000001.md`](.agent/tasks/BRIDGE-000001.md).
 
 ## Незыблемые ограничения
 
@@ -89,7 +97,7 @@ Smoke-тест в Altium Designer 26 выполняется вручную и ф
 |---|---|
 | [AGENTS.md](AGENTS.md) | Обязательные правила для локального агента |
 | [PROJECT_CONTEXT.md](.agent/PROJECT_CONTEXT.md) | Контекст, границы, статус, открытые вопросы |
-| [ARCHITECTURE.md](.agent/ARCHITECTURE.md) | Архитектура, формат пакета, Git-протокол |
+| [ARCHITECTURE.md](.agent/ARCHITECTURE.md) | Архитектура, формат пакета, Git-протокол, runtime-обмен |
 | [DEVELOPMENT_RULES.md](.agent/DEVELOPMENT_RULES.md) | Инженерные правила, DoD, Git |
 | [SDK_API_LEDGER.md](.agent/SDK_API_LEDGER.md) | Доказательная база API |
 | [DECISIONS.md](.agent/DECISIONS.md) | ADR и открытые решения |

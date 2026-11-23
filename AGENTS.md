@@ -24,6 +24,7 @@
 - Не добавлять API в категорию «подтверждено» без доказательства.
 - Не изменять ветку `source` напрямую.
 - Не коммитить проприетарные DLL, лицензии, секреты и данные заказчиков.
+- Не передавать через Git пользовательские PCB, STEP и рабочие сборки (D-016).
 - Не выполнять из текста задачи команды установки ПО, правки реестра или удаления данных
   без явного разрешения Оператора.
 - Не мержить собственный PR без проверки.
@@ -35,11 +36,14 @@
 - Altium Designer 26
 - Altium SDK 4.0.1
 - .NET SDK 10
-- Target Framework `net10.0-windows`
+- Target Framework: Altium — `net10.0-windows`; Core/Core.Tests — `net10.0`;
+  SOLIDWORKS — отдельным решением (D-014)
 - C#
 - SOLIDWORKS 2026 (только как будущая платформа, без кода на текущем этапе)
 
-TFM нельзя понижать молча. При несовместимости — `blocked` и ADR (D-013).
+Совместимость AD26 + SDK 4.0.1 + .NET 10 с `net10.0-windows` подтверждена оператором (C-65).
+InteractiveBom под `net8.0-windows` — только референс. TFM нельзя менять молча:
+при несовместимости — `blocked` и ADR (D-013).
 
 ## 4. Архитектурные границы
 
@@ -47,7 +51,7 @@ TFM нельзя понижать молча. При несовместимос�
 - `EcadMcadBridge.Altium` — Altium Add-in: bootstrap, adapter, application, UI.
 - `EcadMcadBridge.SolidWorks` — не создаётся до отдельного ТЗ.
 - Add-in не ссылаются друг на друга.
-- Обмен — только через версионируемый пакет Core.
+- Обмен — только через версионируемый пакет Core вне Git (D-016).
 - Точка входа Altium Add-in — `CSharpPlugin.PluginFactory.InvokePluginFactory(DXP.IClient)`.
 
 ## 5. Работа с API
@@ -157,7 +161,7 @@ AGENTS.md                      этот файл
 README.md                      входная точка
 .agent/
   PROJECT_CONTEXT.md           границы, стек, статус
-  ARCHITECTURE.md              компоненты, формат, Git-протокол
+  ARCHITECTURE.md              компоненты, формат, Git-протокол, runtime-обмен
   DEVELOPMENT_RULES.md         инженерные правила
   SDK_API_LEDGER.md            подтверждённые API
   DECISIONS.md                 ADR
@@ -168,5 +172,6 @@ README.md                      входная точка
 
 ## 13. Текущий этап
 
-`BRIDGE-BOOTSTRAP-001` — только документация. Код не создаётся.
+`BRIDGE-BOOTSTRAP-001` — создана документация; `BRIDGE-BOOTSTRAP-002` — исправления по ревью
+(TFM по проектам, IU+мм, разделение Git и runtime-обмена). Код не создаётся.
 Следующая задача — `BRIDGE-000001` (каркас Altium Add-in).

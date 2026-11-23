@@ -25,7 +25,9 @@
 | Референсный Add-in | `InteractiveBomPlug` 1.0.0.0, `net8.0-windows` | `TargetFrameworkAttribute` и decompile |
 
 Вывод: **4.0.1 — это версия API-контракта**, а не версия конкретной сборки, которую грузит AD26.
-Выбор reference assemblies для `net10.0-windows` — открытый вопрос V-02.
+Совместимость AD26 + SDK 4.0.1 + .NET SDK 10 с `net10.0-windows` подтверждена оператором (C-65).
+InteractiveBom под `net8.0-windows` — только референс, не целевой TFM.
+Выбор reference assemblies для Altium `net10.0-windows` остаётся открытым вопросом V-02.
 
 ## 2. Подтверждено
 
@@ -119,8 +121,8 @@
 
 | ID | Сигнатура | Доказательство | Использование |
 |---|---|---|---|
-| C-57 | `static double EDP.Utils.CoordToMMs(int coord)` | `EDP.Util.cs`; InteractiveBom | Coord → мм |
-| C-58 | `static int EDP.Utils.MMsToCoord(double mm)` | `EDP.Util.cs`; InteractiveBom | мм → Coord |
+| C-57 | `static double EDP.Utils.CoordToMMs(int coord)` | `EDP.Util.cs`; InteractiveBom | IU → мм; IU сохраняется в `xIu/yIu` |
+| C-58 | `static int EDP.Utils.MMsToCoord(double mm)` | `EDP.Util.cs`; InteractiveBom | мм → IU; результат записывается в `xIu/yIu` |
 | C-59 | `static int EDP.Utils.MilsToCoord(double mils)` | `EDP.Util.cs` | Mils → Coord |
 | C-60 | `PCB.ICoordRect.GetLeft()` / `GetBottom()` / `GetRight()` / `GetTop()` | `EDP.PCB.Interfaces.cs`; InteractiveBom | Bounding box |
 
@@ -132,12 +134,12 @@
 | C-62 | `.Ins` может содержать `PL`-секции и `Insertion` для меню | `InteractiveBomPlug.Ins` |
 | C-63 | `.rcs` связывает PLID с командой, иконкой, caption и точкой вставки в меню | `InteractiveBomPlug.rcs` |
 | C-64 | Регистрация расширения выполняется элементом `Item` в `ExtensionsRegistry.xml` с `HRID`, `Guid`, `Path`, `Status`, `Title`, `Version`, `PlatformVersions` | `ExtensionsRegistry.xml` на стенде; инструкция предоставленного проекта |
+| C-65 | Подтверждена совместимость Altium Designer 26 + Altium SDK 4.0.1 + .NET SDK 10 с `net10.0-windows` для Altium Add-in | Подтверждение оператора в ревью `BRIDGE-BOOTSTRAP-002`; целевой TFM Altium, не InteractiveBom `net8.0-windows` |
 
 ## 3. Требует проверки
 
 | ID | Вопрос | Почему не подтверждено | Как проверить |
 |---|---|---|---|
-| V-01 | Загружает ли AD26 in-process сборку `net10.0-windows`? | Референсный Add-in и его SDK — `net8.0-windows`; официальный kit 4.0.1 — .NET Framework 4.0 | Собрать минимальный Add-in под `net10.0-windows`, загрузить в AD26, зафиксировать результат |
 | V-02 | Какие reference assemblies использовать: kit 4.0.1 (.NET Framework 4.0) или runtime-сборки AD26 (.NET 8, 1.0.7383.26074)? | Версии и TFM различаются; возможны несовместимости | Сравнить публичный API сборок, собрать оба варианта, проверить загрузку |
 | V-03 | Работает ли прямой типизированный вызов `IPCB_ServerInterface.Internal_GetCurrentPCBBoard()` в AD26? | Референсный Add-in вызывает `GetCurrentPCBBoard` через reflection/dynamic | Smoke-тест прямого вызова; при отказе — зафиксировать обход |
 | V-04 | Как официально получить активный документ/вид без reflection? | В `IServerDocumentView` нет `GetState`; референс использует reflection | Исследовать `IWorkspace.Internal_DM_FocusedDocument` и `IClient` API; проверить в хосте |
@@ -186,3 +188,4 @@
 | Дата | Изменение | Автор |
 |---|---|---|
 | 2026-11-23 | Создан реестр; подтверждены сигнатуры по SDK 4.0.1 и метаданным InteractiveBom | Bootstrap |
+| 2026-11-24 | BRIDGE-BOOTSTRAP-002: добавлен C-65, закрыт V-01, уточнены C-57/C-58 для пары IU/мм | Bootstrap |
