@@ -5,12 +5,12 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T00:00:00+03:00
-updated: 2026-11-24T00:35:00+03:00
+updated: 2026-11-24T01:10:00+03:00
 base: source
 branch: bootstrap/project-docs
-commit: f4365aeb9245b1f6ea81a9d33355f701e0d0b362
+commit: 2135d341d4fc53d2c2d8161cfa64b44f5541f97c
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/1
-related: [BRIDGE-000001, BRIDGE-BOOTSTRAP-002, BRIDGE-BOOTSTRAP-003]
+related: [BRIDGE-000001, BRIDGE-BOOTSTRAP-002, BRIDGE-BOOTSTRAP-003, BRIDGE-BOOTSTRAP-004]
 ---
 
 # BRIDGE-BOOTSTRAP-001 — Отчёт об инициализации документации
@@ -50,10 +50,38 @@ related: [BRIDGE-000001, BRIDGE-BOOTSTRAP-002, BRIDGE-BOOTSTRAP-003]
   диаметры отверстий/вий, радиусы дуг, размеры/толщина платы, высоты компонентов;
 - добавлено требование тестировать преобразование на контрольных значениях;
 - уточнён источник сведений об InteractiveBom: локальная копия с `README.md` и `publish_out`,
-  `.csproj` не найден, DLL `net8.0-windows`, загрузка через `.Ins`/`.rcs` и COM-фабрику;
-  состав исходного архива не проверялся;
+  DLL `net8.0-windows`, загрузка через `.Ins`/`.rcs` и COM-фабрику;
 - проверены все числовые примеры IU/mm, согласованность D-015/ARCHITECTURE/DEVELOPMENT_RULES,
   ссылки и front matter.
+
+В рамках `BRIDGE-BOOTSTRAP-004` дополнительно:
+
+- источник уточнён по заданию `BRIDGE-BOOTSTRAP-004` (архив `InteractiveBom.zip`): описан полный
+  исходный проект (`InteractiveBom.sln`, четыре проекта shim/Impl/Panels/Tests,
+  `PluginServerModule.cs`, `Commands.cs`, `Implementation.cs`, `Installation/InteractiveBom.ins`,
+  `.rcs`);
+- зафиксирован TFM: `Directory.Build.props` читает `X2.runtimeconfig.json` (AD 26.1 → `net8.0`,
+  AD 26.12 → `net10.0`), указанная Release-сборка — `bin/Release/net10.0-windows`;
+  отдельная DLL `InteractiveBomPlug.dll` под `net8.0-windows` — другой источник;
+- COM-контракт сверен с shim-шаблоном Altium SDK и данными задачи:
+  `[assembly: ComVisible(true)]`, `PluginFactory : IPluginFactory`, `AutoDispatch` на фабрике
+  и `PluginServerModule`; `ClassInterfaceType.None` исключён как вариант исходного проекта,
+  для Bridge принят D-017;
+- описана архитектура shim / Impl / Debug Hot Reload / Release и роль `.ins`/`.rcs`;
+  в Bridge берём shim и installation, но не копируем Hot Reload, панели и динамическую
+  диспетчеризацию `Cmd=…`;
+- обновлены README, AGENTS, PROJECT_CONTEXT, ARCHITECTURE, DEVELOPMENT_RULES, SDK_API_LEDGER,
+  DECISIONS, ТЗ `BRIDGE-000001` и этот отчёт; проверены ссылки и согласованность документов.
+
+Фактические источники сведений для `BRIDGE-BOOTSTRAP-004`:
+
+- постановка `BRIDGE-BOOTSTRAP-004` оператора — состав `InteractiveBom.zip`, имена проектов
+  и файлов, правила выбора TFM, Release-путь;
+- локальные исходники shim-шаблона Altium SDK: `framework/shim/PluginServerModule.cs`,
+  `framework/shim/Implementation.cs`, `Directory.Build.props` — COM-атрибуты, `IPluginFactory`,
+  Debug Hot Reload / Release и чтение `X2.runtimeconfig.json`;
+- метаданные отдельной DLL `publish_out/InteractiveBomPlug.dll` — только как доказательство
+  бинарной поставки `net8.0-windows`, не как источник TFM Bridge.
 
 Не выполнено (сознательно, вне scope):
 
@@ -66,15 +94,15 @@ related: [BRIDGE-000001, BRIDGE-BOOTSTRAP-002, BRIDGE-BOOTSTRAP-003]
 
 | Путь | Тип | Комментарий |
 |---|---|---|
-| `AGENTS.md` | создан; изменён BRIDGE-BOOTSTRAP-002 | Правила агента, ограничения, формат отчёта, PR-процесс; разделённый TFM и запрет runtime-данных в Git |
-| `README.md` | создан; изменён BRIDGE-BOOTSTRAP-002/003 | Входная точка проекта, стек, IU→мм, источник InteractiveBom, Git и runtime-обмен |
-| `.agent/PROJECT_CONTEXT.md` | создан; изменён BRIDGE-BOOTSTRAP-002/003 | Границы, стек, статус, словарь, вопросы Q-001…Q-009, все линейные IU/мм |
-| `.agent/ARCHITECTURE.md` | создан; изменён BRIDGE-BOOTSTRAP-002/003 | TFM, коэффициент и контрольные значения IU→мм, все линейные величины, Exchange Package, Git/runtime |
-| `.agent/DEVELOPMENT_RULES.md` | создан; изменён BRIDGE-BOOTSTRAP-002/003 | TFM, единицы IU/мм, контрольные тесты, Git/runtime-граница, источник InteractiveBom |
-| `.agent/SDK_API_LEDGER.md` | создан; изменён BRIDGE-BOOTSTRAP-002/003 | C-01…C-65, уточнённый источник DLL и C-57/C-58, вопросы V-02…V-17 |
-| `.agent/DECISIONS.md` | создан; изменён BRIDGE-BOOTSTRAP-002/003 | ADR D-001…D-016; D-015 распространён на все линейные величины IU |
-| `.agent/tasks/BRIDGE-000001.md` | создан; изменён BRIDGE-BOOTSTRAP-003 | ТЗ, источник InteractiveBom, контрольные IU/mm, требования R-01…R-10 |
-| `.agent/reports/BRIDGE-BOOTSTRAP-001-report.md` | создан; изменён BRIDGE-BOOTSTRAP-001/002/003 | Этот отчёт, история и SHA |
+| `AGENTS.md` | создан; изменён BRIDGE-BOOTSTRAP-002/004 | Правила агента, TFM по версии InteractiveBom, запрет runtime-данных в Git |
+| `README.md` | создан; изменён BRIDGE-BOOTSTRAP-002/003/004 | Стек, IU→мм, исходный InteractiveBom.zip и TFM, Git и runtime-обмен |
+| `.agent/PROJECT_CONTEXT.md` | создан; изменён BRIDGE-BOOTSTRAP-002/003/004 | Границы, стек, словарь, вопросы Q-001…Q-009, источник InteractiveBom |
+| `.agent/ARCHITECTURE.md` | создан; изменён BRIDGE-BOOTSTRAP-002/003/004 | TFM, IU→мм, shim/Impl/Hot Reload, COM-контракт, Exchange Package, Git/runtime |
+| `.agent/DEVELOPMENT_RULES.md` | создан; изменён BRIDGE-BOOTSTRAP-002/003/004 | TFM, IU/мм, COM-контракт D-017, Git/runtime-граница |
+| `.agent/SDK_API_LEDGER.md` | создан; изменён BRIDGE-BOOTSTRAP-002/003/004 | C-01…C-65, исходники InteractiveBom, C-02/C-57/C-58, вопросы V-02…V-17 |
+| `.agent/DECISIONS.md` | создан; изменён BRIDGE-BOOTSTRAP-002/003/004 | ADR D-001…D-017; D-015 и D-017 |
+| `.agent/tasks/BRIDGE-000001.md` | создан; изменён BRIDGE-BOOTSTRAP-003/004 | ТЗ, исходный InteractiveBom, COM D-017, контрольные IU/mm, R-01…R-10 |
+| `.agent/reports/BRIDGE-BOOTSTRAP-001-report.md` | создан; изменён BRIDGE-BOOTSTRAP-001/002/003/004 | Этот отчёт, история и SHA |
 | `.agent/reports/.gitkeep` | создан | Удержание пустого каталога в Git |
 | `.agent/reviews/.gitkeep` | создан | Удержание пустого каталога в Git |
 
@@ -102,6 +130,7 @@ related: [BRIDGE-000001, BRIDGE-BOOTSTRAP-002, BRIDGE-BOOTSTRAP-003]
 | D-014 | Разделение TFM: Altium `net10.0-windows`, Core/Core.Tests `net10.0`, SOLIDWORKS отдельно | Core и тесты не зависят от Windows-хоста CAD |
 | D-015 | Двойное представление всех линейных величин IU + мм | Сохранение исходной точности; 1 IU = 0.00000254 mm; контрольные тесты обязательны |
 | D-016 | Разделение Git-протокола разработки и runtime-обмена | Пользовательские PCB, STEP и сборки не попадают в Git |
+| D-017 | COM-контракт по исходному InteractiveBom (`ComVisible` на сборке, `IPluginFactory`, `AutoDispatch`) | Соответствие проверенному загрузчику AD; `None` не вариант исходника |
 
 Дополнительно принято D-010 в статусе **Proposed**: стабильные ID на базе
 `SourceUniqueId` с fallback-хешем. Перевод в `Accepted` — после эксперимента R-08
@@ -123,7 +152,7 @@ O-002…O-009 `DECISIONS.md` и не требуют действий в рамк
 | Q-007 / V-12 / O-008 | Условия распространения SDK-сборок | Требуется проверка лицензии | R-10 |
 | Q-008 / V-07 / O-007 | Стабильность `SourceUniqueId` | Нет эксперимента с ECO | R-08 |
 | V-02 / O-002 | kit SDK 4.0.1 (.NET Framework 4.0) против runtime AD26 (.NET 8, 1.0.7383.26074) | Разные TFM и версии сборок | R-02 |
-| Источник InteractiveBom | Наличие `.csproj` в исходном архиве | Проверялась локальная копия (`README.md`, `publish_out`); состав архива не проверялся | Уточнение при повторном предоставлении архива |
+| Источник InteractiveBom | Состав архива и TFM | Состав и Release-путь заданы оператором в `BRIDGE-BOOTSTRAP-004`; COM-контракт проверен по shim-шаблону SDK | Сведения включены в документацию; DLL `net8.0-windows` — отдельная поставка |
 | V-03 | Прямой вызов `Internal_GetCurrentPCBBoard()` | Референс использует reflection | R-03 |
 | V-04 | Получение активного документа без reflection | В `IServerDocumentView` нет `GetState` | R-04 |
 | V-05, V-08…V-10, V-16, V-17 | Документ, слои, высота, потоки, фильтры итератора | Сигнатуры есть, поведение не проверено | `BRIDGE-000001` |
@@ -166,7 +195,9 @@ FRONTMATTER_OK: task and report
 LINKS_OK
 NUMERIC_OK: 1 IU = 0.00000254 mm; 2.54 / 5.08 / 25.4 mm
 D015_OK: all linear IU quantities
-CONTENT_OK: BRIDGE-BOOTSTRAP-002 and -003 checks passed
+SOURCE_OK: InteractiveBom.zip, 4 projects, Release net10.0-windows
+COM_OK: assembly ComVisible + IPluginFactory + AutoDispatch, no ClassInterfaceType.None
+CONTENT_OK: BRIDGE-BOOTSTRAP-002, -003 and -004 checks passed
 ```
 
 Проверено: обязательные поля front matter задачи и отчёта, отсутствие незакрытых блоков кода,
@@ -174,7 +205,9 @@ CONTENT_OK: BRIDGE-BOOTSTRAP-002 and -003 checks passed
 наличие 11 обязательных путей, 9 ключевых строк правок `BRIDGE-BOOTSTRAP-002`
 (TFM, IU/мм, C-65, D-014…D-016, runtime-обмен) и контрольных правок `BRIDGE-BOOTSTRAP-003`:
 коэффициент 1 IU = 0.00000254 mm, значения 2.54 / 5.08 / 25.4 mm, расширение D-015
-на все линейные величины, источник DLL InteractiveBom.
+на все линейные величины, источник DLL InteractiveBom. Проверка `BRIDGE-BOOTSTRAP-004`
+дополнительно охватила описание состава архива, TFM по версии Altium, COM-атрибуты и отсутствие
+утверждения о `ClassInterfaceType.None` как варианте исходника.
 
 ### 5.3 Build / test / smoke
 
@@ -199,7 +232,7 @@ CONTENT_OK: BRIDGE-BOOTSTRAP-002 and -003 checks passed
 | Altium SDK | 4.0.1, `Altium Developer\\SDK4.0\\Version.txt`; SDK.ini: AD 18.0+ |
 | Altium SDK kit assembly | `Altium.SDK` 1.0.6542.30251, .NET Framework 4.0 |
 | AD26 runtime assembly | `Altium.SDK` 1.0.7383.26074, .NET 8 (из предоставленного InteractiveBom) |
-| Референсный Add-in | `InteractiveBomPlug` 1.0.0.0, опубликованная DLL под `net8.0-windows`; `.csproj` в локальной копии не найден |
+| Референсный Add-in | `InteractiveBom.zip`: исходный проект, Release `net10.0-windows`; отдельная DLL `InteractiveBomPlug` 1.0.0.0 под `net8.0-windows` — другой источник |
 | Altium Designer | 26, точный build не зафиксирован (Q-002); совместимость с .NET 10/`net10.0-windows` подтверждена оператором (C-65) |
 | SOLIDWORKS | 2026, не используется; TFM — O-009 |
 
@@ -217,17 +250,19 @@ CONTENT_OK: BRIDGE-BOOTSTRAP-002 and -003 checks passed
 | HEAD ветки на момент начала `BRIDGE-BOOTSTRAP-003` | `1b0a4d84af83c118bf6c788f0aea2496d82b9b67` |
 | Commit (BRIDGE-BOOTSTRAP-003 документация) | `2135d341d4fc53d2c2d8161cfa64b44f5541f97c` |
 | HEAD ветки после коммита `BRIDGE-BOOTSTRAP-003` | `2135d341d4fc53d2c2d8161cfa64b44f5541f97c` |
+| HEAD ветки на момент формирования отчёта `BRIDGE-BOOTSTRAP-004` | `35d525ba557119f393bf3e38c21105cccc933b1a` |
 | Pull Request | https://github.com/YOUASSBEE/EcadMcadBridge/pull/1 |
 | Заголовок PR | `BRIDGE-BOOTSTRAP-001: инициализация документации ECAD-MCAD Bridge` |
 
-Поле `commit` front matter сохраняет значение `f4365aeb9245b1f6ea81a9d33355f701e0d0b362` —
-это commit с **основными изменениями документации** `BRIDGE-BOOTSTRAP-002`. Он намеренно
-отличается от HEAD ветки: `1b0a4d84af83c118bf6c788f0aea2496d82b9b67` — более поздний коммит,
-который только добавил в отчёт SHA и ссылку на PR. После коммита правок
-`BRIDGE-BOOTSTRAP-003` HEAD ветки стал `2135d341d4fc53d2c2d8161cfa64b44f5541f97c`.
+Поле `commit` front matter сохраняет значение `2135d341d4fc53d2c2d8161cfa64b44f5541f97c` —
+это commit с **основными изменениями документации** `BRIDGE-BOOTSTRAP-003`. Он намеренно
+отличается от HEAD ветки на момент формирования отчёта `BRIDGE-BOOTSTRAP-004`:
+`35d525ba557119f393bf3e38c21105cccc933b1a` — более поздний коммит, который только добавил
+в отчёт SHA документации `BRIDGE-BOOTSTRAP-003`.
 Поле `commit` оставлено на основном документном коммите и не перезаписывается административными
-коммитами отчёта. Текущий HEAD после коммита обновления SHA виден в `git log` и сообщается
-в финальном ответе: SHA коммита не может быть записан внутрь этого же коммита.
+коммитами отчёта. Фактический SHA коммита документации `BRIDGE-BOOTSTRAP-004` и HEAD после него
+добавляются в этот раздел отдельным коммитом: SHA коммита не может быть записан внутрь этого же
+коммита.
 
 PR #1 остаётся открытым; merge в `source` не выполнялся.
 
@@ -241,3 +276,4 @@ PR #1 остаётся открытым; merge в `source` не выполнял
 | 2026-11-24 | Добавлены фактические commit SHA и ссылка на открытый PR #1 отдельным коммитом |
 | 2026-11-24 | BRIDGE-BOOTSTRAP-003: коэффициент IU→мм, контрольные значения, D-015 на все линейные величины, источник InteractiveBom; HEAD отделён от commit с основными изменениями |
 | 2026-11-24 | В отчёт добавлен SHA коммита BRIDGE-BOOTSTRAP-003 |
+| 2026-11-24 | BRIDGE-BOOTSTRAP-004: источник InteractiveBom, TFM по версии Altium, shim/Impl/Hot Reload, COM-контракт D-017, обновлены ссылки и отчёт |

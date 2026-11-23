@@ -120,6 +120,14 @@ Altium Add-in
 `net10.0-windows` не распространяется автоматически на Core и тесты. Изменение TFM любого проекта —
 только через `DECISIONS.md` (D-013, D-014).
 
+В исходном InteractiveBom, описанном в `BRIDGE-BOOTSTRAP-004`, TFM вычисляется в
+`Directory.Build.props` из `X2.runtimeconfig.json` установленного Altium:
+AD 26.1 → `net8.0`, AD 26.12 → `net10.0` (с суффиксом `-windows`).
+Указанная Release-сборка архива находится в `bin/Release/net10.0-windows`. Для Bridge применяется
+фиксированный `net10.0-windows` (C-65, D-014); автоматический выбор по версии хоста не используется.
+Отдельная бинарная поставка `InteractiveBomPlug.dll` под `net8.0-windows` — другой источник
+и не основа для TFM Bridge.
+
 ## 3. Направление зависимостей
 
 ```text
@@ -455,15 +463,52 @@ Runtime-обмен передаёт Exchange Package от ECAD Add-in к MCAD Ad
 
 ## 10. Установка и загрузка Altium Add-in
 
-Подтверждённая схема (по предоставленному InteractiveBom и SDK 4.0.1):
+### 10.1 Архитектура InteractiveBom по `BRIDGE-BOOTSTRAP-004`
 
-1. Add-in — .NET library с классом `CSharpPlugin.PluginFactory`, помеченным
-   `[ComVisible(true)]`, `[ClassInterface(ClassInterfaceType.None)]`.
-2. `InvokePluginFactory(DXP.IClient)` создаёт и возвращает наследника `DXP.ServerModule`.
-3. Рядом с DLL лежит `.Ins`-файл с секцией `Server` и объявлениями команд.
-4. Меню и команды описываются в `.rcs`-файле.
-5. Расширение размещается в каталоге Altium Extensions и регистрируется в `ExtensionsRegistry.xml`
-   (HRID, GUID, Path).
+Исходный проект, описанный в задании (`InteractiveBom.zip`, `InteractiveBom.sln`), состоит из четырёх проектов:
+
+| Проект | Роль |
+|---|---|
+| `InteractiveBom` | Загрузочный shim: COM-фабрика, `PluginServerModule`, `Commands.cs`, `Implementation.cs`, установка (`.ins`/`.rcs`); живёт в хосте постоянно |
+| `InteractiveBom.Impl` | Реализация команд и извлечения данных платы; в Debug загружается hot-reload хостом, в Release вызывается статически через ProjectReference |
+| `InteractiveBom.Panels` | UI-панели (server views) |
+| `InteractiveBom.Tests` | Тесты |
+
+shim — тонкий слой, который Altium загружает как расширение. `PluginFactory` создаёт
+`PluginServerModule`; `Implementation` — единственный маршрут из shim в `Impl` и единственное место,
+где различаются Debug и Release:
+
+- **Debug / Hot Reload.** `Implementation.Start()` поднимает `Altium.Designer.HotReload.HotReloadHost`
+  из build output `Impl`; команды `Reload`/`Status` доступны только под `#if DEBUG`. Код shim
+  (`OnCreated`) не выгружается при перезагрузке Impl.
+- **Release.** Hot-reload-код не компилируется; вызов идёт статически через ProjectReference.
+  Указанная сборка — `bin/Release/net10.0-windows`.
+
+`Installation/InteractiveBom.ins` объявляет сервер, исполняемый файл и команды;
+`Installation/InteractiveBom.rcs` связывает PLID с caption/иконкой и точкой вставки в меню.
+Расширение размещается в каталоге Altium Extensions и регистрируется в `ExtensionsRegistry.xml`.
+
+### 10.2 COM-контракт (по заданию `BRIDGE-BOOTSTRAP-004` и shim-шаблону Altium SDK)
+
+- `[assembly: ComVisible(true)]` задаётся на уровне сборки, а не только на классе фабрики.
+- `CSharpPlugin.PluginFactory` реализует `IPluginFactory` и помечен
+  `[ClassInterface(ClassInterfaceType.AutoDispatch)]`.
+- `PluginServerModule` также помечен `[ClassInterface(ClassInterfaceType.AutoDispatch)]`.
+- `InvokePluginFactory(DXP.IClient)` возвращает наследника `DXP.ServerModule`.
+
+`ClassInterfaceType.None` не является вариантом исходного проекта InteractiveBom; прежняя запись
+в документации была ошибкой. Для Bridge принято следовать тому же образцу; это зафиксировано
+отдельным проектным решением D-017.
+
+### 10.3 Что берём в Bridge, а что пока нет
+
+Используем: shim с фабрикой/модулем, разделение installation (`.ins`/`.rcs`), COM-контракт
+из 10.2, минимальный слой адаптера вместо `Impl` и явную одну команду.
+
+Не копируем автоматически: Debug Hot Reload и команды `Reload`/`Status`, `InteractiveBom.Panels`
+и зависимости от UI-панелей, динамическую диспетчеризацию `Cmd=…` через параметры команды,
+а также автоматический выбор TFM по версии хоста. Это усложняет каркас без необходимости
+для `BRIDGE-000001` и может быть добавлено отдельным решением.
 
 Детали сигнатур и доказательства — в `SDK_API_LEDGER.md`. Автоматизация установки не входит
 в текущий scope (Q-006).

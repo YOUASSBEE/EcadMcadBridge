@@ -62,6 +62,9 @@ tests/
   исходный файл SDK, метаданные сборки или успешный smoke-тест.
 - Если сигнатура не подтверждена, она попадает только в раздел «Требует проверки».
 - Reflection и `dynamic` допустимы только как временный адаптер, с записью в ledger и планом замены.
+- COM-контракт Add-in — по исходному InteractiveBom: `[assembly: ComVisible(true)]`,
+  `PluginFactory : IPluginFactory` и `PluginServerModule` с `ClassInterfaceType.AutoDispatch` (D-017).
+  `ClassInterfaceType.None` не является вариантом исходного проекта.
 
 ## 5. Работа с API и данными
 
@@ -187,7 +190,7 @@ chore(repo): pin .NET SDK
 | Altium SDK | 4.0.1, найден в `Altium Developer\SDK4.0` |
 | Altium Designer | 26 (точный build — Q-002); совместимость с .NET 10/`net10.0-windows` подтверждена оператором |
 | SOLIDWORKS | 2026 (не используется на текущем этапе; TFM — O-009) |
-| Референсный Add-in | `InteractiveHtmlBom_ADPlug-master`: локальная копия с `README.md` и `publish_out` (DLL `InteractiveBomPlug.dll`, `net8.0-windows`); `.csproj` в копии не найден |
+| Референсный Add-in | `InteractiveBom.zip`: исходный проект `InteractiveBom.sln` (shim/Impl/Panels/Tests), Release `net10.0-windows`; отдельная DLL `InteractiveBomPlug.dll` `net8.0-windows` — другой источник |
 
 Пути установки в документации приведены как ориентир; в коде и скриптах использовать
 настраиваемые свойства, а не жёстко прописанные каталоги.

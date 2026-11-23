@@ -42,8 +42,9 @@
 - SOLIDWORKS 2026 (только как будущая платформа, без кода на текущем этапе)
 
 Совместимость AD26 + SDK 4.0.1 + .NET 10 с `net10.0-windows` подтверждена оператором (C-65).
-InteractiveBom под `net8.0-windows` — только референс. TFM нельзя менять молча:
-при несовместимости — `blocked` и ADR (D-013).
+Исходный InteractiveBom из `InteractiveBom.zip` выбирает TFM по версии Altium
+(AD 26.1 → `net8.0`, AD 26.12 → `net10.0`); его Release-сборка — `net10.0-windows`.
+TFM Bridge зафиксирован. TFM нельзя менять молча: при несовместимости — `blocked` и ADR (D-013).
 
 ## 4. Архитектурные границы
 

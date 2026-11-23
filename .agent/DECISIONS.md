@@ -25,6 +25,7 @@
 | D-014 | Разделение Target Framework по проектам | Accepted | 2026-11-24 |
 | D-015 | Двойное представление всех линейных величин в IU и мм | Accepted | 2026-11-24 |
 | D-016 | Разделение Git-протокола разработки и runtime-обмена | Accepted | 2026-11-24 |
+| D-017 | COM-контракт Bridge по образцу InteractiveBom (assembly-level `ComVisible`, `AutoDispatch`, `IPluginFactory`) | Accepted | 2026-11-24 |
 
 ---
 
@@ -362,6 +363,28 @@ IU не округляются. Неподтверждённые значени�
 - Пользовательские PCB, STEP и рабочие сборки не попадают в историю Git.
 - Каталоги runtime задаются конфигурацией хоста, не коммитятся.
 - D-005 и ARCHITECTURE (разделы 8–9) обновлены согласованно.
+
+---
+
+## D-017 — COM-контракт Altium Add-in
+
+**Статус:** Accepted (решение ревью `BRIDGE-BOOTSTRAP-004`).
+
+**Контекст.** В документации bootstrap было указано `[ClassInterface(ClassInterfaceType.None)]`
+как свойство исходного InteractiveBom. По данным архива `InteractiveBom.zip` (`PluginServerModule.cs`)
+это неверно: `ComVisible(true)` задан на уровне сборки, `PluginFactory` реализует `IPluginFactory`
+и использует `ClassInterfaceType.AutoDispatch`; `PluginServerModule` также использует `AutoDispatch`.
+
+**Решение.** Bridge следует проверенному образцу: assembly-level `[ComVisible(true)]`,
+`PluginFactory : IPluginFactory` с `[ClassInterface(ClassInterfaceType.AutoDispatch)]`,
+`PluginServerModule` с тем же атрибутом. `ClassInterfaceType.None` не рассматривается как вариант
+исходного проекта; если он когда-либо предлагается для Bridge, требуется отдельный ADR с обоснованием.
+
+**Последствия.**
+
+- C-02, `BRIDGE-000001` и раздел установки ARCHITECTURE приведены к исходному контракту.
+- TFM Bridge остаётся `net10.0-windows`; COM-атрибуты не меняют целевой framework.
+- Hot Reload и UI-панели не копируются: это отдельные проектные решения.
 
 ---
 

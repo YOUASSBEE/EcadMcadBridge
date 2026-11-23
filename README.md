@@ -25,16 +25,23 @@
 | SOLIDWORKS | 2026 |
 
 Совместимость Altium Designer 26, Altium SDK 4.0.1 и .NET SDK 10 с `net10.0-windows`
-подтверждена оператором. Опубликованная DLL InteractiveBom (`InteractiveBomPlug.dll`) собрана
-под `net8.0-windows` и использовалась только как референс; она не определяет целевой TFM.
+подтверждена оператором. Целевой TFM нашего Altium Add-in — `net10.0-windows`.
 
-Источник InteractiveBom разделён по типам данных:
+Источник InteractiveBom по заданию `BRIDGE-BOOTSTRAP-004` — архив `InteractiveBom.zip` с полным исходным проектом:
 
-- исходный проект с `.csproj` — в локально доступной копии не найден; состав исходного архива
-  не проверялся, декомпилированные файлы не являются исходным кодом;
-- опубликованная DLL — `publish_out/InteractiveBomPlug.dll`, `net8.0-windows`, версия 1.0.0.0;
-- загрузка в Altium — через `.Ins` (`EditorExePath = 'InteractiveBomPlug.dll'`), `.rcs`
-  и COM-фабрику `CSharpPlugin.PluginFactory.InvokePluginFactory(DXP.IClient)`.
+- `InteractiveBom.sln` содержит четыре проекта: `InteractiveBom` (загрузочный shim и COM-фабрика),
+  `InteractiveBom.Impl` (реализация извлечения данных платы и команд), `InteractiveBom.Panels`
+  (UI-панели) и `InteractiveBom.Tests` (тесты);
+- `PluginServerModule.cs`, `Commands.cs`, `Implementation.cs`, `Installation/InteractiveBom.ins`
+  и `Installation/InteractiveBom.rcs` — исходники фабрики/модуля, команд и регистрации в Altium;
+- `Directory.Build.props` выбирает TFM по `X2.runtimeconfig.json` установленного Altium:
+  AD 26.1 → `net8.0`, AD 26.12 → `net10.0`;
+- указанная Release-сборка архива находится в `bin/Release/net10.0-windows`.
+
+Отдельная локальная бинарная поставка `InteractiveHtmlBom_ADPlug-master/publish_out/InteractiveBomPlug.dll`
+(версия 1.0.0.0, `net8.0-windows`) не смешивается с Release-сборкой архива и не определяет TFM Bridge.
+Загрузка в Altium — через `.Ins`/`.rcs` и COM-фабрику
+`CSharpPlugin.PluginFactory.InvokePluginFactory(DXP.IClient)`.
 
 SOLIDWORKS 2026 зафиксирован как целевая платформа, но на текущем этапе функциональность обмена
 с ним не реализуется. Изменение стека или TFM — только через `.agent/DECISIONS.md`.

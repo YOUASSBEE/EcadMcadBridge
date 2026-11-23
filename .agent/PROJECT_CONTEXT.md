@@ -70,10 +70,14 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 - Legacy API Altium не используется.
 - Неподтверждённые API не попадают в категорию подтверждённых в `SDK_API_LEDGER.md`.
 - Совместимость AD26 + SDK 4.0.1 + .NET SDK 10 + `net10.0-windows` подтверждена оператором;
-  опубликованная DLL InteractiveBom под `net8.0-windows` — только референс, не целевой TFM.
+  целевой TFM Altium Add-in — `net10.0-windows`.
 - Все линейные величины из Altium IU сохраняются парой IU/мм (D-015); потеря исходных IU недопустима.
-- Состав исходного проекта InteractiveBom: в локальной копии `.csproj` не найден; выводы об исходном
-  архиве не делаются. Загрузка идёт через `.Ins`/`.rcs` и COM-фабрику.
+- Источник InteractiveBom по заданию `BRIDGE-BOOTSTRAP-004` — архив `InteractiveBom.zip` с полным исходным проектом: `InteractiveBom.sln`
+  с проектами shim, Impl, Panels и Tests; `Directory.Build.props` выбирает TFM по
+  `X2.runtimeconfig.json` (AD 26.1 → `net8.0`, AD 26.12 → `net10.0`); указанная Release-сборка —
+  `bin/Release/net10.0-windows`. Отдельная бинарная поставка `net8.0-windows` — другой источник.
+- Загрузка идёт через `.Ins`/`.rcs` и COM-фабрику с assembly-level `ComVisible(true)`,
+  `AutoDispatch` и `IPluginFactory`.
 
 ## 5. Структура репозитория
 
@@ -142,7 +146,7 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 
 | ID | Вопрос | Статус | Почему важно |
 |---|---|---|---|
-| Q-001 | Загружает ли AD26 in-process сборку `net10.0-windows`? | **Закрыт:** подтверждено оператором (C-65) | InteractiveBom под .NET 8 — только референс, не целевой TFM |
+| Q-001 | Загружает ли AD26 in-process сборку `net10.0-windows`? | **Закрыт:** подтверждено оператором (C-65) | TFM InteractiveBom выбирается по версии Altium; TFM Bridge зафиксирован как `net10.0-windows` |
 | Q-002 | Какая точная сборка Altium Designer 26 используется на стенде? | Открыт | Разные build могут отличаться набором SDK-интерфейсов |
 | Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | Открыт | Нужно для будущей передачи в SOLIDWORKS, API не проверен |
 | Q-004 | Какой interop-пакет и API использовать для SOLIDWORKS 2026? | Открыт | Не проверено; в реестр не вносится до проверки |

@@ -22,11 +22,13 @@
 | SDK kit assembly | `Altium.SDK` 1.0.6542.30251, .NET Framework 4.0 | Метаданные `SDK4.0\CSharp\Altium.SDK.dll` |
 | AD26 runtime assembly | `Altium.SDK` 1.0.7383.26074, .NET 8 | Метаданные `Altium.SDK.dll` из предоставленного InteractiveBom |
 | AD26 runtime interfaces | `Altium.SDK.Interfaces` 1.0.0.0, .NET 8 | Метаданные `Altium.SDK.Interfaces.dll` из предоставленного InteractiveBom |
-| Референсный Add-in | `InteractiveBomPlug` 1.0.0.0, опубликованная DLL под `net8.0-windows` | `TargetFrameworkAttribute` (`.NETCoreApp,Version=v8.0`, `net8.0-windows`) в `publish_out/InteractiveBomPlug.dll`; декомпиляция DLL; `.csproj` в локальной копии не найден |
+| Референсный Add-in (исходники) | `InteractiveBom.zip`: `InteractiveBom.sln` с проектами shim / Impl / Panels / Tests; указанная Release-сборка `bin/Release/net10.0-windows` | Состав и TFM по заданию `BRIDGE-BOOTSTRAP-004`; COM-контракт и hot-reload-схема сверены с shim-шаблоном Altium SDK (`framework/shim/PluginServerModule.cs`, `Implementation.cs`, `Directory.Build.props`) |
+| Отдельная бинарная поставка | `InteractiveBomPlug` 1.0.0.0, DLL под `net8.0-windows` | `TargetFrameworkAttribute` (`.NETCoreApp,Version=v8.0`, `net8.0-windows`) в локальной копии `publish_out/InteractiveBomPlug.dll`; другой источник, не Release-сборка архива |
 
 Вывод: **4.0.1 — это версия API-контракта**, а не версия конкретной сборки, которую грузит AD26.
 Совместимость AD26 + SDK 4.0.1 + .NET SDK 10 с `net10.0-windows` подтверждена оператором (C-65).
-InteractiveBom под `net8.0-windows` — только референс, не целевой TFM.
+TFM InteractiveBom зависит от версии Altium: `Directory.Build.props` читает `X2.runtimeconfig.json`
+(AD 26.1 → `net8.0`, AD 26.12 → `net10.0`). TFM Bridge зафиксирован как `net10.0-windows`.
 Выбор reference assemblies для Altium `net10.0-windows` остаётся открытым вопросом V-02.
 
 ## 2. Подтверждено
@@ -35,8 +37,8 @@ InteractiveBom под `net8.0-windows` — только референс, не �
 
 | ID | Сигнатура | Доказательство | Использование |
 |---|---|---|---|
-| C-01 | `object CSharpPlugin.PluginFactory.InvokePluginFactory(DXP.IClient client)` | Decompile `InteractiveBomPlug.dll`; SDK 4.0.1 `Examples\Server Template\Source Code\Main.cs` | Точка входа Add-in |
-| C-02 | `[ComVisible(true)]`, `[ClassInterface(ClassInterfaceType.None)]` на классе фабрики | Decompile `InteractiveBomPlug.dll`; Server Template | COM-видимость фабрики |
+| C-01 | `object CSharpPlugin.PluginFactory.InvokePluginFactory(DXP.IClient client)` | Задание `BRIDGE-BOOTSTRAP-004` по исходному shim `InteractiveBom.zip`; shim-шаблон Altium SDK `framework/shim/PluginServerModule.cs`; SDK 4.0.1 `Examples\Server Template\Source Code\Main.cs` | Точка входа Add-in |
+| C-02 | Assembly-level `[ComVisible(true)]`; `PluginFactory : IPluginFactory` с `[ClassInterface(ClassInterfaceType.AutoDispatch)]`; `PluginServerModule` тоже `AutoDispatch` | shim-шаблон Altium SDK `framework/shim/PluginServerModule.cs`; `IPluginFactory` из SDK 4.0.1; задание `BRIDGE-BOOTSTRAP-004` по `InteractiveBom.zip` | COM-видимость фабрики и модуля по образцу исходного проекта |
 | C-03 | `public DXP.ServerModule(DXP.IClient client, string moduleName)` | `DXP.Classes.cs`, класс `ServerModule` | Базовый конструктор модуля |
 | C-04 | `protected abstract DXP.IServerDocument NewDocumentInstance(string kind, string fileName)` | `DXP.Classes.cs` | Обязательная реализация; для add-in вернуть `null` |
 | C-05 | `protected virtual void InitializeCommands()` | `DXP.Classes.cs` | Регистрация команд |
