@@ -5,7 +5,7 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T00:00:00+03:00
-updated: 2026-11-24T00:00:00+03:00
+updated: 2026-11-24T00:30:00+03:00
 base: source
 branch: bootstrap/project-docs
 commit: <fill after commit>
@@ -170,8 +170,8 @@ CONTENT_OK: 15 checks passed
 |---|---|
 | Ветка | `bootstrap/project-docs` |
 | База | `source` |
-| Commit (документация) | `<fill after commit>` |
-| Pull Request | `<fill after PR>` |
+| Commit (документация) | `8321a578ee3dee59ee47466750d24b15caba51b1` |
+| Pull Request | https://github.com/YOUASSBEE/EcadMcadBridge/pull/1 |
 | Заголовок PR | `BRIDGE-BOOTSTRAP-001: инициализация документации ECAD-MCAD Bridge` |
 
 ## 7. История изменений
