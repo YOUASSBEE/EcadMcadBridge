@@ -215,15 +215,19 @@ CONTENT_OK: BRIDGE-BOOTSTRAP-002 and -003 checks passed
 | Commit (BRIDGE-BOOTSTRAP-002 отчёт: SHA документации) | `d07e78cba3e6ab1095eeeb6313ab9dddb1ed88ae` |
 | Commit (BRIDGE-BOOTSTRAP-002 отчёт: SHA и PR) | `1b0a4d84af83c118bf6c788f0aea2496d82b9b67` |
 | HEAD ветки на момент начала `BRIDGE-BOOTSTRAP-003` | `1b0a4d84af83c118bf6c788f0aea2496d82b9b67` |
+| Commit (BRIDGE-BOOTSTRAP-003 документация) | `2135d341d4fc53d2c2d8161cfa64b44f5541f97c` |
+| HEAD ветки после коммита `BRIDGE-BOOTSTRAP-003` | `2135d341d4fc53d2c2d8161cfa64b44f5541f97c` |
 | Pull Request | https://github.com/YOUASSBEE/EcadMcadBridge/pull/1 |
 | Заголовок PR | `BRIDGE-BOOTSTRAP-001: инициализация документации ECAD-MCAD Bridge` |
 
 Поле `commit` front matter сохраняет значение `f4365aeb9245b1f6ea81a9d33355f701e0d0b362` —
 это commit с **основными изменениями документации** `BRIDGE-BOOTSTRAP-002`. Он намеренно
-отличается от HEAD ветки: `1b0a4d84af83c118bf6c788f0aea2496d82b9b67` — это более поздний
-коммит, который только добавил в отчёт SHA и ссылку на PR. Текущий HEAD после коммита
-`BRIDGE-BOOTSTRAP-003` сообщается в финальном ответе и виден в `git log`; SHA самого
-отчётного коммита не может быть записан внутрь этого же коммита.
+отличается от HEAD ветки: `1b0a4d84af83c118bf6c788f0aea2496d82b9b67` — более поздний коммит,
+который только добавил в отчёт SHA и ссылку на PR. После коммита правок
+`BRIDGE-BOOTSTRAP-003` HEAD ветки стал `2135d341d4fc53d2c2d8161cfa64b44f5541f97c`.
+Поле `commit` оставлено на основном документном коммите и не перезаписывается административными
+коммитами отчёта. Текущий HEAD после коммита обновления SHA виден в `git log` и сообщается
+в финальном ответе: SHA коммита не может быть записан внутрь этого же коммита.
 
 PR #1 остаётся открытым; merge в `source` не выполнялся.
 
