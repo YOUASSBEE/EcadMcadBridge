@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T00:00:00+03:00
-updated: 2026-11-24T00:22:00+03:00
+updated: 2026-11-24T00:26:00+03:00
 base: source
 branch: bootstrap/project-docs
-commit: <fill after commit>
-pr: <fill after PR>
+commit: f4365aeb9245b1f6ea81a9d33355f701e0d0b362
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/1
 related: [BRIDGE-000001, BRIDGE-BOOTSTRAP-002]
 ---
 
@@ -192,9 +192,12 @@ CONTENT_OK: 9 review checks passed
 | Commit (BRIDGE-BOOTSTRAP-001 документация) | `8321a578ee3dee59ee47466750d24b15caba51b1` |
 | Commit (BRIDGE-BOOTSTRAP-001 отчёт SHA/PR) | `c2d8f4775c750523e4983c08683788d10cdc37c0` |
 | Commit (BRIDGE-BOOTSTRAP-002 документация) | `f4365aeb9245b1f6ea81a9d33355f701e0d0b362` |
-| Commit (BRIDGE-BOOTSTRAP-002 отчёт SHA/PR) | `<fill after commit>` |
+| Commit (BRIDGE-BOOTSTRAP-002 отчёт: SHA документации) | `d07e78cba3e6ab1095eeeb6313ab9dddb1ed88ae` |
 | Pull Request | https://github.com/YOUASSBEE/EcadMcadBridge/pull/1 |
 | Заголовок PR | `BRIDGE-BOOTSTRAP-001: инициализация документации ECAD-MCAD Bridge` |
+
+Поле `commit` front matter указывает на основной commit документации `BRIDGE-BOOTSTRAP-002`.
+PR #1 остаётся открытым; merge в `source` не выполнялся.
 
 ## 7. История изменений
 
@@ -203,3 +206,4 @@ CONTENT_OK: 9 review checks passed
 | 2026-11-24 | Создан начальный набор документации и отчёт; заполнены все разделы, кроме SHA/PR |
 | 2026-11-24 | Добавлены commit SHA и ссылка на PR отдельным коммитом |
 | 2026-11-24 | BRIDGE-BOOTSTRAP-002: TFM по проектам, IU+мм, разделение Git/runtime; отчёт дополнен |
+| 2026-11-24 | Добавлены фактические commit SHA и ссылка на открытый PR #1 отдельным коммитом |
