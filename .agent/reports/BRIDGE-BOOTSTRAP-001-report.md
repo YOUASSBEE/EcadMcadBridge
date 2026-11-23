@@ -191,7 +191,7 @@ CONTENT_OK: 9 review checks passed
 | База | `source` |
 | Commit (BRIDGE-BOOTSTRAP-001 документация) | `8321a578ee3dee59ee47466750d24b15caba51b1` |
 | Commit (BRIDGE-BOOTSTRAP-001 отчёт SHA/PR) | `c2d8f4775c750523e4983c08683788d10cdc37c0` |
-| Commit (BRIDGE-BOOTSTRAP-002 документация) | `<fill after commit>` |
+| Commit (BRIDGE-BOOTSTRAP-002 документация) | `f4365aeb9245b1f6ea81a9d33355f701e0d0b362` |
 | Commit (BRIDGE-BOOTSTRAP-002 отчёт SHA/PR) | `<fill after commit>` |
 | Pull Request | https://github.com/YOUASSBEE/EcadMcadBridge/pull/1 |
 | Заголовок PR | `BRIDGE-BOOTSTRAP-001: инициализация документации ECAD-MCAD Bridge` |
