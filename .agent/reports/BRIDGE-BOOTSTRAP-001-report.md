@@ -251,6 +251,8 @@ CONTENT_OK: BRIDGE-BOOTSTRAP-002, -003 and -004 checks passed
 | Commit (BRIDGE-BOOTSTRAP-003 документация) | `2135d341d4fc53d2c2d8161cfa64b44f5541f97c` |
 | HEAD ветки после коммита `BRIDGE-BOOTSTRAP-003` | `2135d341d4fc53d2c2d8161cfa64b44f5541f97c` |
 | HEAD ветки на момент формирования отчёта `BRIDGE-BOOTSTRAP-004` | `35d525ba557119f393bf3e38c21105cccc933b1a` |
+| Commit (BRIDGE-BOOTSTRAP-004 документация) | `9678855d193f217a4bcb90a4d8c593de73cf296f` |
+| HEAD ветки после коммита документации `BRIDGE-BOOTSTRAP-004` | `9678855d193f217a4bcb90a4d8c593de73cf296f` |
 | Pull Request | https://github.com/YOUASSBEE/EcadMcadBridge/pull/1 |
 | Заголовок PR | `BRIDGE-BOOTSTRAP-001: инициализация документации ECAD-MCAD Bridge` |
 
@@ -260,9 +262,10 @@ CONTENT_OK: BRIDGE-BOOTSTRAP-002, -003 and -004 checks passed
 `35d525ba557119f393bf3e38c21105cccc933b1a` — более поздний коммит, который только добавил
 в отчёт SHA документации `BRIDGE-BOOTSTRAP-003`.
 Поле `commit` оставлено на основном документном коммите и не перезаписывается административными
-коммитами отчёта. Фактический SHA коммита документации `BRIDGE-BOOTSTRAP-004` и HEAD после него
-добавляются в этот раздел отдельным коммитом: SHA коммита не может быть записан внутрь этого же
-коммита.
+коммитами отчёта. Фактический SHA коммита документации `BRIDGE-BOOTSTRAP-004` —
+`9678855d193f217a4bcb90a4d8c593de73cf296f`; HEAD после него совпадает с этим SHA. Коммит, который
+добавил эту запись в отчёт, является административным: его SHA указывается в PR и финальном ответе,
+но не внутри самого файла.
 
 PR #1 остаётся открытым; merge в `source` не выполнялся.
 
@@ -277,3 +280,4 @@ PR #1 остаётся открытым; merge в `source` не выполнял
 | 2026-11-24 | BRIDGE-BOOTSTRAP-003: коэффициент IU→мм, контрольные значения, D-015 на все линейные величины, источник InteractiveBom; HEAD отделён от commit с основными изменениями |
 | 2026-11-24 | В отчёт добавлен SHA коммита BRIDGE-BOOTSTRAP-003 |
 | 2026-11-24 | BRIDGE-BOOTSTRAP-004: источник InteractiveBom, TFM по версии Altium, shim/Impl/Hot Reload, COM-контракт D-017, обновлены ссылки и отчёт |
+| 2026-11-24 | В отчёт добавлены SHA документации `BRIDGE-BOOTSTRAP-004` и HEAD после него |
