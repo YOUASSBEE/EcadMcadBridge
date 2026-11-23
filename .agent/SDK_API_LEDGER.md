@@ -20,12 +20,20 @@
 |---|---|---|
 | API contract | Altium SDK 4.0.1 | `Altium Developer\SDK4.0\Version.txt`: `Altium Designer SDK Version 4.0.1`; `SDK.ini`: `Version=4.0.1 (AD 18.0+)` |
 | SDK kit assembly | `Altium.SDK` 1.0.6542.30251, .NET Framework 4.0 | Метаданные `SDK4.0\CSharp\Altium.SDK.dll` |
-| AD26 runtime assembly | `Altium.SDK` 1.0.7383.26074, .NET 8 | Метаданные `Altium.SDK.dll` из предоставленного InteractiveBom |
-| AD26 runtime interfaces | `Altium.SDK.Interfaces` 1.0.0.0, .NET 8 | Метаданные `Altium.SDK.Interfaces.dll` из предоставленного InteractiveBom |
+| AD26 runtime assembly (установленный AD) | `Altium.SDK` 1.0.7383.26074; встречены варианты .NET 8 (`ActiveRoute`, `Draftsman`) и .NET 10 (`Tasklist`, `Mixed Simulation`) | Метаданные DLL из `C:\ProgramData\Altium\Altium Designer {…}\Extensions\...\Altium.SDK.dll`; **не из `InteractiveBom.zip`** |
+| AD26 runtime interfaces (установленный AD) | `Altium.SDK.Interfaces` 1.0.0.0; варианты .NET 8 и .NET 10 | Метаданные DLL из `...\Extensions\...\Altium.SDK.Interfaces.dll`; **не из `InteractiveBom.zip`** |
+| Копия runtime-сборок в бинарной поставке | `Altium.SDK` 1.0.7383.26074, .NET 8; `Altium.SDK.Interfaces` 1.0.0.0, .NET 8 | Метаданные `InteractiveHtmlBom_ADPlug-master/publish_out/Altium.SDK.dll` и `Altium.SDK.Interfaces.dll`; совпадает с .NET 8-вариантом установленных extension |
+| Источник runtime-сборок в исходном проекте | `$(AltiumSystemDir)\Altium.SDK.dll` и `$(AltiumSystemDir)\Altium.SDK.Interfaces.dll`, `Private=false` | Общие MSBuild-файлы шаблона Altium SDK (`Directory.Build.targets`, строка 35 и ниже): сборки предоставляются запущенным AD и не копируются в выход проекта |
 | Референсный Add-in (исходники) | `InteractiveBom.zip`: `InteractiveBom.sln` с проектами shim / Impl / Panels / Tests; указанная Release-сборка `bin/Release/net10.0-windows` | Состав и TFM по заданию `BRIDGE-BOOTSTRAP-004`; COM-контракт и hot-reload-схема сверены с shim-шаблоном Altium SDK (`framework/shim/PluginServerModule.cs`, `Implementation.cs`, `Directory.Build.props`) |
 | Отдельная бинарная поставка | `InteractiveBomPlug` 1.0.0.0, DLL под `net8.0-windows` | `TargetFrameworkAttribute` (`.NETCoreApp,Version=v8.0`, `net8.0-windows`) в локальной копии `publish_out/InteractiveBomPlug.dll`; другой источник, не Release-сборка архива |
 
 Вывод: **4.0.1 — это версия API-контракта**, а не версия конкретной сборки, которую грузит AD26.
+Архив `InteractiveBom.zip` не содержит `Altium.SDK.dll` и `Altium.SDK.Interfaces.dll`; в исходном
+проекте они подключаются из `AltiumSystemDir` с `Private=false`. Фактический источник метаданных —
+установленные extension-сборки AD26 в `C:\ProgramData\Altium\Altium Designer {…}\Extensions`
+(номер сборки 1.0.7383.26074 / 1.0.0.0, встречаются .NET 8 и .NET 10 варианты). Копия в
+`publish_out` — отдельная бинарная поставка, а не содержимое архива. Конкретный набор сборок,
+который грузит целевой стенд, остаётся открытым (V-13).
 Совместимость AD26 + SDK 4.0.1 + .NET SDK 10 с `net10.0-windows` подтверждена оператором (C-65).
 TFM InteractiveBom зависит от версии Altium: `Directory.Build.props` читает `X2.runtimeconfig.json`
 (AD 26.1 → `net8.0`, AD 26.12 → `net10.0`). TFM Bridge зафиксирован как `net10.0-windows`.
@@ -142,7 +150,7 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 
 | ID | Вопрос | Почему не подтверждено | Как проверить |
 |---|---|---|---|
-| V-02 | Какие reference assemblies использовать: kit 4.0.1 (.NET Framework 4.0) или runtime-сборки AD26 (.NET 8, 1.0.7383.26074)? | Версии и TFM различаются; возможны несовместимости | Сравнить публичный API сборок, собрать оба варианта, проверить загрузку |
+| V-02 | Какие reference assemblies использовать: kit 4.0.1 (.NET Framework 4.0) или runtime-сборки AD26 (`Altium.SDK` 1.0.7383.26074, .NET 8 и .NET 10 варианты)? | Версии и TFM различаются; установленные extension содержат оба варианта, какой грузит целевой хост — не зафиксировано | Сравнить публичный API сборок, собрать оба варианта, проверить загрузку |
 | V-03 | Работает ли прямой типизированный вызов `IPCB_ServerInterface.Internal_GetCurrentPCBBoard()` в AD26? | Референсный Add-in вызывает `GetCurrentPCBBoard` через reflection/dynamic | Smoke-тест прямого вызова; при отказе — зафиксировать обход |
 | V-04 | Как официально получить активный документ/вид без reflection? | В `IServerDocumentView` нет `GetState`; референс использует reflection | Исследовать `IWorkspace.Internal_DM_FocusedDocument` и `IClient` API; проверить в хосте |
 | V-05 | Как определить несохранённые изменения и хеш `.PcbDoc`? | `GetModified`, `GetFileName` объявлены, но поведение не проверено | Smoke-тест на новом/изменённом/сохранённом документе |
@@ -153,7 +161,7 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | V-10 | Семантика `GetState_Height()` и bounding box компонента | Не проверено, в каких единицах и с учётом чего считается | Сравнить с UI Altium на эталонной плате |
 | V-11 | Автоматизация установки расширения и правки `ExtensionsRegistry.xml` | Известен только ручной путь | Отдельная задача; учесть права администратора и блокировку файла |
 | V-12 | Лицензирование и допустимость поставки SDK-сборок Altium вместе с Add-in | Требуется проверка лицензии; в репозиторий DLL не коммитятся | Юридическая/техническая проверка, решение в `DECISIONS.md` |
-| V-13 | Точный build AD26 и версия runtime-сборок | На стенде разные версии assembly; build не зафиксирован | Записать `Help → About`, версии DLL, дату проверки |
+| V-13 | Точный build AD26 и набор runtime-сборок на целевом стенде | В установленных extension найдены варианты .NET 8 и .NET 10 при одной версии 1.0.7383.26074; используемый хостом вариант не зафиксирован | Записать `Help → About`, версии/TFM DLL из `AltiumSystemDir`, дату проверки |
 | V-14 | API SOLIDWORKS 2026 (interop, версия, загрузка Add-in) | Ничего не проверено; в проекте нет кода | Отдельная задача MCAD-фазы |
 | V-15 | Поддержка WPF/WinForms внутри AD26 и тема оформления | Референс использует WPF и DevExpress, но это не согласованный стек | Минимальный UI-smoke-тест |
 | V-16 | Требования к потоку и COM-апартаменту для вызовов PCB API | Не проверено; возможны UI-thread-only ограничения | Smoke-тест с фоновым потоком и без него |
@@ -192,3 +200,4 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | 2026-11-23 | Создан реестр; подтверждены сигнатуры по SDK 4.0.1 и метаданным InteractiveBom | Bootstrap |
 | 2026-11-24 | BRIDGE-BOOTSTRAP-002: добавлен C-65, закрыт V-01, уточнены C-57/C-58 для пары IU/мм | Bootstrap |
 | 2026-11-24 | BRIDGE-BOOTSTRAP-003: уточнён коэффициент IU→мм и источник сведений об InteractiveBom | Bootstrap |
+| 2026-11-24 | BRIDGE-BOOTSTRAP-005: исправлено происхождение runtime-сборок — установленные extension AD26 и копия `publish_out`, не архив; уточнены V-02/V-13 | Bootstrap |
