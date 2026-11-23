@@ -22,7 +22,7 @@
 | SDK kit assembly | `Altium.SDK` 1.0.6542.30251, .NET Framework 4.0 | Метаданные `SDK4.0\CSharp\Altium.SDK.dll` |
 | AD26 runtime assembly | `Altium.SDK` 1.0.7383.26074, .NET 8 | Метаданные `Altium.SDK.dll` из предоставленного InteractiveBom |
 | AD26 runtime interfaces | `Altium.SDK.Interfaces` 1.0.0.0, .NET 8 | Метаданные `Altium.SDK.Interfaces.dll` из предоставленного InteractiveBom |
-| Референсный Add-in | `InteractiveBomPlug` 1.0.0.0, `net8.0-windows` | `TargetFrameworkAttribute` и decompile |
+| Референсный Add-in | `InteractiveBomPlug` 1.0.0.0, опубликованная DLL под `net8.0-windows` | `TargetFrameworkAttribute` (`.NETCoreApp,Version=v8.0`, `net8.0-windows`) в `publish_out/InteractiveBomPlug.dll`; декомпиляция DLL; `.csproj` в локальной копии не найден |
 
 Вывод: **4.0.1 — это версия API-контракта**, а не версия конкретной сборки, которую грузит AD26.
 Совместимость AD26 + SDK 4.0.1 + .NET SDK 10 с `net10.0-windows` подтверждена оператором (C-65).
@@ -121,8 +121,8 @@ InteractiveBom под `net8.0-windows` — только референс, не �
 
 | ID | Сигнатура | Доказательство | Использование |
 |---|---|---|---|
-| C-57 | `static double EDP.Utils.CoordToMMs(int coord)` | `EDP.Util.cs`; InteractiveBom | IU → мм; IU сохраняется в `xIu/yIu` |
-| C-58 | `static int EDP.Utils.MMsToCoord(double mm)` | `EDP.Util.cs`; InteractiveBom | мм → IU; результат записывается в `xIu/yIu` |
+| C-57 | `static double EDP.Utils.CoordToMMs(int coord)` | `EDP.Util.cs`; InteractiveBom | IU → мм; 1 IU = 0.00000254 mm; исходное IU сохраняется в `*Iu` для всех линейных величин |
+| C-58 | `static int EDP.Utils.MMsToCoord(double mm)` | `EDP.Util.cs`; InteractiveBom | мм → IU; результат записывается в `*Iu`; тесты на контрольных значениях обязательны |
 | C-59 | `static int EDP.Utils.MilsToCoord(double mils)` | `EDP.Util.cs` | Mils → Coord |
 | C-60 | `PCB.ICoordRect.GetLeft()` / `GetBottom()` / `GetRight()` / `GetTop()` | `EDP.PCB.Interfaces.cs`; InteractiveBom | Bounding box |
 
@@ -189,3 +189,4 @@ InteractiveBom под `net8.0-windows` — только референс, не �
 |---|---|---|
 | 2026-11-23 | Создан реестр; подтверждены сигнатуры по SDK 4.0.1 и метаданным InteractiveBom | Bootstrap |
 | 2026-11-24 | BRIDGE-BOOTSTRAP-002: добавлен C-65, закрыт V-01, уточнены C-57/C-58 для пары IU/мм | Bootstrap |
+| 2026-11-24 | BRIDGE-BOOTSTRAP-003: уточнён коэффициент IU→мм и источник сведений об InteractiveBom | Bootstrap |
