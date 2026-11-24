@@ -520,6 +520,139 @@ Core рассматривает ID как непрозрачную непуст�
   пользователю показываются путь, package id, counts и warnings, но в лог не
   попадают absolute user paths.
 
+### 6.3 3D-модели Altium — исследование BRIDGE-000010 (предложение)
+
+**Статус:** исследование и предложение. Производственный экспорт, изменение Core
+schema и attachments в пакете не реализованы; контракт требует отдельного решения.
+
+Подтверждено на AD26.12.2.9 / SDK 4.0.1 (см. C-94…C-98 и отчёт
+`BRIDGE-000010-3d-model-research`):
+
+- Тела перечисляются board iterator с `TObjectId.eComponentBodyObject`;
+  `IPCB_ComponentBody` реализует `IPCB_Region` и `IPCB_Primitive`, модель тела
+  возвращает `IPCB_ComponentBodyHelper.GetModel`.
+- На cutout/Bluetooth: 152 тела (151 Extruded, 1 Generic embedded), 152 модели;
+  MiniPC: 1 055 тел (1 035 Generic embedded, 20 Extruded), 1 055 моделей. У J1 —
+  4 тела, у C26 — 3; тела без модели не найдены. `GetState_UniqueId` у тел пуст,
+  `UniqueName` повторяется, поэтому ordinal модели — не стабильный ID.
+- `model.ExportToStep(path)` и `body.SaveModelToFile(path)` дают STEP AP214 B-Rep
+  (`MANIFOLD_SOLID_BREP`, `ADVANCED_FACE`); `SaveModelToFile(".x_t")` даёт Parasolid;
+  `.sat`, `.igs`, `.stl` возвращают `COMException`. Для одного тела point set
+  `ExportToStep` и `SaveModelToFile` совпадает; component-level API объединяет
+  несколько тел и для multi-body компонента неоднозначен.
+- Для embedded generic STEP/X_T `SaveModelToFile` с исходным расширением дал размер,
+  равный `GetDataSize`; побайтовая идентичность исходному embedded-файлу **не
+  проверена**. Это кандидат на сохранение исходных данных, а не доказанное
+  побайтовое копирование. Другое расширение/`ExportToStep` дают reserialized STEP.
+  V-32 остаётся открытым.
+- `GetModelSource` на проверенных платах всегда `Undefined`; `GetEmbed=true`
+  подтверждает embedded-признак только для проверенных объектов, а `GetEmbed=false`
+  **не доказывает** linked-файл. Linked-модель в реальном PCB не проверена.
+  Extruded/native-модель может не иметь внешнего файла вообще. Искусственно
+  созданная через `ModelFactory_FromFilename` модель получает `GetEmbed=true` и
+  absolute `GetFileName`; `SetEmbed(false)` меняет флаг, но не доказывает linked
+  в сохранённой плате. Абсолютный путь нельзя переносить в пакет.
+- `GetOrigin()` — точка начала модели в координатах платы (не обязательно центр
+  bbox): на B2 (`747540101.stp`) origin смещён от центра body bbox на ~17.4 мм по Y,
+  `GetState` даёт `(0,0,90)` и `dz`; `GetRotation()` не эквивалентен `GetState`.
+- `GetStandoffHeight`/`GetOverallHeight` дают Z-диапазон тела; `Component.GetState_Height`
+  не является высотой модели (J1: 4.57 мм при body overall 4.1 мм).
+- Body projection (`GetGeometricPolygon`) переведён в координаты платы по model origin,
+  но сохраняет локальную ориентацию модели: для всех 151 extruded-тел cutout/Bluetooth
+  размеры body bbox совпали с локальной STEP bbox без применения component rotation
+  (R16 rot0 и R15 rot180 — одинаковые модели/размеры; R14 rot90 — локальные 0.55×0.225
+  без поворота). Component rotation нужно применять отдельно. Для generic-моделей
+  `model.ExportToStep` содержит часть собственной ориентации источника; поэтому
+  композицию «component rotation × model state» нельзя применять вслепую. Точная
+  формула для generic/extruded и Bottom mirror остаётся V-27/V-29/V-30.
+
+**Предлагаемый контракт assets (не реализован):**
+
+```text
+<package-id>/
+├── manifest.json
+├── board.snapshot.json
+├── checksums.sha256
+├── models/
+│   └── models.json
+└── assets/3d/<sha256>/<safe-name>.<ext>
+```
+
+`models/models.json` — **Proposed** отдельная версионируемая схема
+`ecad-mcad-bridge/models` 1.0.0; имена полей ниже не являются финальным
+JSON-контрактом. Массив `models` с записями:
+
+- `id` — производный `componentId` + `bodyOrdinal` (не выдавать за стабильный ID);
+- `componentId` — ID из `board.snapshot.json`;
+- `bodyOrdinal`, `modelIndex` — порядок в компоненте;
+- `modelType` (`extruded`/`generic`/`cylinder`/`sphere`);
+- `sourceOrigin` — происхождение модели в контексте Altium:
+  - `embedded` — `GetEmbed=true`; для исследованных embedded-моделей это
+    подтверждённый признак;
+  - `native` — известный native/procedural тип модели (например Extruded) без
+    внешнего файла;
+  - `linked` — только если реальная внешняя ссылка подтверждена экспериментально
+    на сохранённом PCB; текущее исследование linked-сценарий не подтвердило;
+  - `unknown` — если имеющихся данных недостаточно для одного из подтверждённых
+    состояний.
+
+  Приоритет классификации:
+  1. `GetEmbed=true` → `embedded`.
+  2. Известный native/procedural тип без внешнего файла → `native`.
+  3. `linked` нельзя назначать только по `GetEmbed=false`.
+  4. `GetModelSource=Undefined` — отсутствие дополнительной информации, а не
+     самостоятельное основание для `unknown`.
+  5. `GetModelSource=Undefined` не переопределяет подтверждённый `GetEmbed=true`
+     и известный native/procedural тип.
+  6. При противоречивых или недостаточных признаках → `unknown`; не делать
+     предположений.
+- `assetAcquisition` — способ получения asset: `original` (исходное расширение;
+  побайтовая идентичность не подтверждена), `exported`, `converted`. Это отдельное
+  поле, не заменяющее `sourceOrigin`;
+- `sourceFileName` — только basename, без absolute path;
+- `assetPath`, `assetSha256`, `assetSize`, `format` (`step-ap214`/`parasolid-x_t`),
+  `units`;
+- `transform`: `originMm` (board XY), `rotationDeg` (X/Y/Z из `GetState`), `dzMm`,
+  `bodyStandoffMm`, `bodyOverallHeightMm`, `componentSide`, `bodyProjection`
+  (outer/hole контуры) и ссылка на component placement в snapshot;
+- `result`/`warnings` для Unsupported/Error.
+
+**Текущие возможности пакета (BRIDGE-000004…BRIDGE-000009):**
+
+- `ExchangePackageReader` рекурсивно обнаруживает обычные вложенные файлы,
+  проверяет наличие/отсутствие лишних файлов, размер и SHA-256 по
+  manifest/checksums, безопасные относительные POSIX-пути. Он **не**
+  интерпретирует содержимое `models/models.json` и не знает семантику 3D-assets.
+- `ExchangePackageWriter` сейчас пишет только `board.snapshot.json`,
+  `manifest.json` и `checksums.sha256`; он не принимает произвольные
+  дополнительные файлы, не копирует assets и не формирует для них inventory.
+  Возможности Reader проверять nested files **не означают**, что production
+  Writer уже поддерживает asset-пакет.
+
+**Что потребуется для реализации (после отдельного одобрения):**
+
+- входной список дополнительных файлов с безопасными относительными путями;
+- безопасное копирование во временный каталог пакета;
+- вычисление SHA-256 и размера каждого asset;
+- включение записей в `manifest.files` и `checksums.sha256` для всех файлов;
+- проверка целостности до атомарной публикации;
+- явная ошибка при попытке выйти за package root или использовать absolute path.
+
+Правила:
+
+- assets адресуются по SHA-256 и дедуплицируются; имена файлов генерируются из
+  хеша/формата, исходное имя только как санитизированный basename;
+- `models.json` и assets должны входить в `manifest.files`; `checksums.sha256`
+  покрывает nested files, reader проверяет размер/SHA и безопасные POSIX-пути;
+- capability `3d-models`; текущий Reader не интерпретирует `models/models.json`
+  и выполняет только общую проверку файлов/manifest/checksums. Будущий
+  model-aware Reader должен сохранять совместимость с пакетами без `models/`:
+  отсутствие каталога означает отсутствие описанных 3D assets, а не ошибку
+  пакета; `board.snapshot.json` остаётся 1.0.0;
+- при необходимости ссылок из snapshot — отдельный minor bump BoardSnapshot
+  (1.1.0) и ADR; сейчас предлагается не менять Core-модель;
+- ZIP/attachments, абсолютные пути, внешние ссылки и STL-подмена B-Rep запрещены.
+
 ## 7. Обработка ошибок и логирование
 
 - Все ошибки Core имеют стабильный код `EMB-<AREA>-<NNN>` и сообщение без привязки к UI.
