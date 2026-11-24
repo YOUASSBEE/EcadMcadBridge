@@ -185,6 +185,10 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | C-97 | `IPCB_Model.GetOrigin()` (`CoordPoint.X/Y`); `IPCB_Model.GetState`; `IPCB_Component.GetState_XLocation/YLocation/Rotation/Layer`; `IPCB_ComponentBody.GetStandoffHeight/GetOverallHeight`; `IPCB_ComponentBody.BoundingRectangle()`; `IPCB_RegionHelper.GetGeometricPolygon` | На простых моделях `GetOrigin` совпадает с центром body bbox; на MiniPC B2 (`747540101.stp`) origin смещён от центра bbox на `(-0.350, -17.420) mm`, state `(0,0,90)`, dz `-1.223 mm`; J1 body 1: standoff `4.0 mm`, overall `4.1 mm` при локальном z `0…0.1 mm`; body projection 151 extruded тел совпал по размерам с локальной STEP bbox **без** component rotation (R16 rot0, R15 rot180, R14 rot90); `Component.GetState_Height` не является высотой модели (J1 4.57 mm при max body 4.1 mm) | Трансформации; component rotation применять отдельно; точная композиция generic/bottom — V-27/V-30 |
 | C-98 | `IPCB_ComponentBodyHelper.ModelFactory_FromFilename(this IPCB_ComponentBody, string fileName, bool watchDirectory)`; `IPCB_Model.SetEmbed(bool)`; `IPCB_Model.GetEmbed` | Временная копия cutout-платы: `FromFilename(..., false/true)` создал Generic-модель с `GetEmbed=true` и `GetFileName` = absolute temp path; `SetEmbed(false)` → `GetEmbed=false`, `GetModelSource` остался Undefined; linked model в исходных платах не найден | Кандидат для linked/embedded; absolute path нельзя переносить в пакет (V-26) |
 
+Источник сигнатур C-94…C-98 — metadata `Altium.SDK.Interfaces.dll` / IL
+`Altium.SDK.Interfaces.il` из AD26.12.2.9; вызовы выполнены временным
+типизированным probe в AD26 на трёх платах, probe удалён до PR.
+
 Подтверждено smoke-тестом на `MiniPC.PcbDoc`: 31 слой, 1046 компонентов, 6004 пада,
 837 сетей, 245 multi-layer PadStack с 16 shapes, 9669 форм; `rotations` включают
 `135°`, стороны Top/Bottom представлены. На `Bluetooth_Sentinel.PcbDoc` подтверждены
