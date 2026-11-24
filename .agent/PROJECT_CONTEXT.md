@@ -5,9 +5,9 @@
 | Проект | ECAD-MCAD Bridge |
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
-| Текущая ветка | `agent/BRIDGE-000009-complete-altium-snapshot` |
-| Статус | `BRIDGE-000007` слит; `BRIDGE-000009` дополняет BoardSnapshot tracks/vias/regions/texts |
-| Дата фиксации | 2026-11-24 |
+| Текущая ветка | `agent/BRIDGE-000010-altium-3d-model-research` |
+| Статус | `BRIDGE-000009` слит; текущая задача — `BRIDGE-000010`, исследование извлечения 3D-моделей Altium |
+| Дата фиксации | 2026-11-25 |
 | Владелец продукта | Оператор проекта (человек) |
 
 ## 1. Назначение
@@ -204,6 +204,9 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   отклоняет несохранённые документы; package root задаётся env/`LOCALAPPDATA`.
   `BRIDGE-000009`: adapter заполняет Tracks, Vias, Regions и Texts; region geometry
   использует geometric polygon line fallback с явным warning (Q-010 частично открыт).
+  `BRIDGE-000010`: исследованы 3D Body/Model API, STEP/X_T экспорт, embedded/linked
+  признаки и трансформации; производственный экспорт моделей не реализован, контракт
+  asset-файлов остаётся предложением.
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
   и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.

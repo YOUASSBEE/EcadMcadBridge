@@ -520,6 +520,88 @@ Core рассматривает ID как непрозрачную непуст�
   пользователю показываются путь, package id, counts и warnings, но в лог не
   попадают absolute user paths.
 
+### 6.3 3D-модели Altium — исследование BRIDGE-000010 (предложение)
+
+**Статус:** исследование и предложение. Производственный экспорт, изменение Core
+schema и attachments в пакете не реализованы; контракт требует отдельного решения.
+
+Подтверждено на AD26.12.2.9 / SDK 4.0.1 (см. C-94…C-98 и отчёт
+`BRIDGE-000010-3d-model-research`):
+
+- Тела перечисляются board iterator с `TObjectId.eComponentBodyObject`;
+  `IPCB_ComponentBody` реализует `IPCB_Region` и `IPCB_Primitive`, модель тела
+  возвращает `IPCB_ComponentBodyHelper.GetModel`.
+- На cutout/Bluetooth: 152 тела (151 Extruded, 1 Generic embedded), 152 модели;
+  MiniPC: 1 055 тел (1 035 Generic embedded, 20 Extruded), 1 055 моделей. У J1 —
+  4 тела, у C26 — 3; тела без модели не найдены. `GetState_UniqueId` у тел пуст,
+  `UniqueName` повторяется, поэтому ordinal модели — не стабильный ID.
+- `model.ExportToStep(path)` и `body.SaveModelToFile(path)` дают STEP AP214 B-Rep
+  (`MANIFOLD_SOLID_BREP`, `ADVANCED_FACE`); `SaveModelToFile(".x_t")` даёт Parasolid;
+  `.sat`, `.igs`, `.stl` возвращают `COMException`. Для одного тела point set
+  `ExportToStep` и `SaveModelToFile` совпадает; component-level API объединяет
+  несколько тел и для multi-body компонента неоднозначен.
+- Для embedded generic STEP/X_T `SaveModelToFile` с исходным расширением сохраняет
+  размер исходных данных (`GetDataSize`); другое расширение/`ExportToStep` дают
+  reserialized STEP. Это предпочтительный путь сохранения исходной B-Rep.
+- `GetModelSource` на проверенных платах всегда `Undefined`; embedded/linked
+  различается только `GetEmbed`/`GetFileName`. Linked-модели в реальных платах не
+  найдены; искусственно созданная через `ModelFactory_FromFilename` модель получает
+  `GetEmbed=true` и absolute `GetFileName`, `SetEmbed(false)` меняет флаг. Абсолютный
+  путь нельзя переносить в пакет.
+- `GetOrigin()` — точка начала модели в координатах платы (не обязательно центр
+  bbox): на B2 (`747540101.stp`) origin смещён от центра body bbox на ~17.4 мм по Y,
+  `GetState` даёт `(0,0,90)` и `dz`; `GetRotation()` не эквивалентен `GetState`.
+- `GetStandoffHeight`/`GetOverallHeight` дают Z-диапазон тела; `Component.GetState_Height`
+  не является высотой модели (J1: 4.57 мм при body overall 4.1 мм).
+- Body projection (`GetGeometricPolygon`) переведён в координаты платы по model origin,
+  но сохраняет локальную ориентацию модели: для всех 151 extruded-тел cutout/Bluetooth
+  размеры body bbox совпали с локальной STEP bbox без применения component rotation
+  (R16 rot0 и R15 rot180 — одинаковые модели/размеры; R14 rot90 — локальные 0.55×0.225
+  без поворота). Component rotation нужно применять отдельно. Для generic-моделей
+  `model.ExportToStep` содержит часть собственной ориентации источника; поэтому
+  композицию «component rotation × model state» нельзя применять вслепую. Точная
+  формула для generic/extruded и Bottom mirror остаётся V-27/V-29/V-30.
+
+**Предлагаемый контракт assets (не реализован):**
+
+```text
+<package-id>/
+├── manifest.json
+├── board.snapshot.json
+├── checksums.sha256
+├── models/
+│   └── models.json
+└── assets/3d/<sha256>/<safe-name>.<ext>
+```
+
+`models/models.json` — отдельная версионируемая схема
+`ecad-mcad-bridge/models` 1.0.0; массив `models` с записями:
+
+- `id` — производный `componentId` + `bodyOrdinal` (не выдавать за стабильный ID);
+- `componentId` — ID из `board.snapshot.json`;
+- `bodyOrdinal`, `modelIndex` — порядок в компоненте;
+- `modelType` (`extruded`/`generic`/`cylinder`/`sphere`), `sourceKind`
+  (`embedded`/`linked`/`converted`);
+- `sourceFileName` — только basename, без absolute path;
+- `assetPath`, `assetSha256`, `assetSize`, `format` (`step-ap214`/`parasolid-x_t`),
+  `units`;
+- `transform`: `originMm` (board XY), `rotationDeg` (X/Y/Z из `GetState`), `dzMm`,
+  `bodyStandoffMm`, `bodyOverallHeightMm`, `componentSide`, `bodyProjection`
+  (outer/hole контуры) и ссылка на component placement в snapshot;
+- `result`/`warnings` для Unsupported/Error.
+
+Правила:
+
+- assets адресуются по SHA-256 и дедуплицируются; имена файлов генерируются из
+  хеша/формата, исходное имя только как санитизированный basename;
+- `models.json` и assets добавляются в `manifest.files`; `checksums.sha256` уже
+  покрывает nested files, reader проверяет размер/SHA и безопасные POSIX-пути;
+- capability `3d-models`; старая версия пакета без `models/` читается как
+  «модели отсутствуют», `board.snapshot.json` остаётся 1.0.0;
+- при необходимости ссылок из snapshot — отдельный minor bump BoardSnapshot
+  (1.1.0) и ADR; сейчас предлагается не менять Core-модель;
+- ZIP/attachments, абсолютные пути, внешние ссылки и STL-подмена B-Rep запрещены.
+
 ## 7. Обработка ошибок и логирование
 
 - Все ошибки Core имеют стабильный код `EMB-<AREA>-<NNN>` и сообщение без привязки к UI.
