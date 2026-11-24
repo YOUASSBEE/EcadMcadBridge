@@ -133,9 +133,14 @@ internal static class AltiumOutlineReader
                         for (var loopIndex = 0; loopIndex < loops.Count; loopIndex++)
                         {
                             var loop = loops[loopIndex];
-                            var clipBounds = FormatBounds(
-                                CutoutRegionMatcher.GetBounds(
-                                    CutoutRegionMatcher.SampleLoop(loop, CutoutRegionMatcher.ArcSamples)));
+                            var analyticBounds = AnalyticBounds.GetAnalyticBounds(loop);
+                            var sampledBounds = CutoutRegionMatcher.GetBounds(
+                                CutoutRegionMatcher.SampleLoop(loop, CutoutRegionMatcher.ArcSamples));
+                            var clipBounds = FormatBounds(sampledBounds);
+                            var boundsText =
+                                $"analyticBounds={FormatBounds(analyticBounds)} " +
+                                $"sampledBounds={clipBounds} analyticBoundsExact={analyticBounds.IsExact} " +
+                                $"boundsTolerance={CutoutRegionMatcher.BoundsToleranceIu}";
                             var match = CutoutRegionMatcher.Match(loop, cutoutSources, assigned);
 
                             if (match.Status == CutoutRegionMatchStatus.Ambiguous)
@@ -143,7 +148,7 @@ internal static class AltiumOutlineReader
                                 diagnostics.ClipAmbiguousCutoutRegions++;
                                 warnings.Add(
                                     $"Clipped cutout shape {i} loop {loopIndex} is ambiguous: {match.Reason}; " +
-                                    $"clipBounds={clipBounds}; candidates=" + FormatCandidates(match.Candidates) +
+                                    $"{boundsText}; candidates=" + FormatCandidates(match.Candidates) +
                                     "; it was not exported.");
                                 continue;
                             }
@@ -153,7 +158,7 @@ internal static class AltiumOutlineReader
                                 diagnostics.ClipUnmatchedCutoutRegions++;
                                 warnings.Add(
                                     $"Clipped cutout shape {i} loop {loopIndex} is unmatched: {match.Reason}; " +
-                                    $"clipBounds={clipBounds}; it was not exported.");
+                                    $"{boundsText}; it was not exported.");
                                 continue;
                             }
 
@@ -163,8 +168,8 @@ internal static class AltiumOutlineReader
                             warnings.Add(
                                 $"Clipped cutout shape {i} loop {loopIndex} matched Board Cutout region " +
                                 $"{owner.RegionIndex} contour {owner.ContourIndex} " +
-                                $"(uniqueId='{owner.RegionUniqueId}', bounds={FormatBounds(owner)}, " +
-                                $"clipBounds={clipBounds}, {match.Reason}).");
+                                $"(uniqueId='{owner.RegionUniqueId}', regionBounds={FormatBounds(owner)}, " +
+                                $"{boundsText}, {match.Reason}).");
 
                             var duplicate = CutoutDeduplicator.Evaluate(loop, existingHoles);
                             if (duplicate.Status == CutoutDuplicateStatus.Duplicate)
@@ -172,7 +177,7 @@ internal static class AltiumOutlineReader
                                 diagnostics.DuplicateCutoutContours++;
                                 warnings.Add(
                                     $"Clipped cutout shape {i} loop {loopIndex} duplicates geometric Hole " +
-                                    $"{duplicate.ExistingHoleIndex} (clipBounds={clipBounds}, {duplicate.Reason}); " +
+                                    $"{duplicate.ExistingHoleIndex} ({boundsText}, {duplicate.Reason}); " +
                                     "it was not exported twice.");
                                 continue;
                             }
@@ -181,7 +186,7 @@ internal static class AltiumOutlineReader
                             {
                                 warnings.Add(
                                     $"Clipped cutout shape {i} loop {loopIndex} has only a partial match with " +
-                                    $"geometric Hole {duplicate.ExistingHoleIndex} (clipBounds={clipBounds}, " +
+                                    $"geometric Hole {duplicate.ExistingHoleIndex} ({boundsText}, " +
                                     $"{duplicate.Reason}); duplicate export was not suppressed.");
                             }
 
@@ -328,6 +333,10 @@ internal static class AltiumOutlineReader
 
     private static string FormatBounds((int MinX, int MinY, int MaxX, int MaxY) bounds) =>
         $"({bounds.MinX},{bounds.MinY})-({bounds.MaxX},{bounds.MaxY})";
+
+    private static string FormatBounds(AnalyticBoundsResult bounds) =>
+        FormatBounds((bounds.MinX, bounds.MinY, bounds.MaxX, bounds.MaxY))
+        + (bounds.Error is null ? string.Empty : " (error: " + bounds.Error + ")");
 
     private static IReadOnlyList<GeometricContour> ReadGeometricContours(
         IPCB_BoardOutline outline,

@@ -184,6 +184,11 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   `(RegionIndex, ContourIndex)` и исправлена трактовка дуг CCW при переходе через 0°.
   На операторской плате сохранены оба Hole; на MiniPC/Bluetooth ложных cutout нет.
   Altium.Tests: 43; V-22 остаётся закрытым.
+- `BRIDGE-000003-FIX-006`: bounds аналитических дуг вычисляются по Start/End и
+  кардинальным экстремумам внутри sweep; broad phase больше не отбрасывает Region
+  (geometry-first). Дедупликация дуговых Hole использует отдельный approximation
+  tolerance и двустороннюю проверку. На операторской плате сохранены оба Hole;
+  Altium.Tests: 60; V-22 закрыт.
 - Tracks, vias, regions, text items и Exchange Package в адаптере не реализованы.
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
   и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.

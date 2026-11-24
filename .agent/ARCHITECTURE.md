@@ -374,12 +374,19 @@ Core рассматривает ID как непрозрачную непуст�
   только диагностикой. Реальный `board with cutout.PcbDoc` дал 2 выреза, включая дуги
   (V-22 закрыт в `BRIDGE-000003-FIX-004`).
 - Дедупликация cutout сравнивает **фактические точки geometric Hole** с clip loop;
-  самосравнение clip loop устранено. Только доказанно одинаковый замкнутый контур
-  подавляет повторный экспорт; partial overlap не считается дубликатом.
-- Сопоставление clip loop ↔ `IPCB_Region`: bounding box 10 IU — только broad phase;
-  затем вершины Region-контура (3500 IU), площадь (5%) и centroid (1000 IU).
-  Результат — `Matched` / `Unmatched` / `Ambiguous`; связь хранится по паре
-  `(RegionIndex, ContourIndex)`, один source contour не назначается повторно.
+  самосравнение clip loop устранено. Сначала применяется exact tolerance 2 IU, затем
+  отдельная approximation-проверка для полигонального Hole против аналитической дуги:
+  двустороннее покрытие с допуском 3500 IU, площадь 5%, centroid 100 IU. Partial
+  overlap не считается дубликатом; сомнительное совпадение не подавляет export.
+- Bounds аналитического clip loop вычисляются по Start/End и кардинальным экстремумам,
+  которые реально входят в sweep дуги (CW/CCW, переход 0°/360°, дуги >180°).
+  Sampling не используется для точных bounds. Поэтому broad phase не может отбросить
+  корректный Region из-за пропущенного экстремума.
+- Сопоставление clip loop ↔ `IPCB_Region` — geometry-first: проверяются все
+  BoardCutout source contours, bounds используются только для диагностики/ранжирования.
+  Геометрия: вершины Region-контура 3500 IU, площадь 5%, centroid 1% диагонали
+  (минимум 100 IU). Результат — `Matched` / `Unmatched` / `Ambiguous`; связь хранится
+  по паре `(RegionIndex, ContourIndex)`, один source contour не назначается повторно.
   `Ambiguous` и `Unmatched` не экспортируются и диагностируются с индексами и bounds.
 - Для analytic loop дополнительно проверяются середины дуг/линий самого loop, поэтому
   дуга не может «выпучиваться» за polyline и получать ложный exact.
@@ -389,7 +396,7 @@ Core рассматривает ID как непрозрачную непуст�
 - Полное соответствие Core всем структурам Altium не утверждается; adapter проверен на
   `MiniPC.PcbDoc`, `Bluetooth_Sentinel.PcbDoc` и `board with cutout.PcbDoc`
   в AD26.12.2.9 (см. отчёты `BRIDGE-000003`, `BRIDGE-000003-FIX-004`,
-  `BRIDGE-000003-FIX-005`).
+  `BRIDGE-000003-FIX-005`, `BRIDGE-000003-FIX-006`).
 
 ## 6. Формат Exchange Package
 

@@ -221,6 +221,12 @@ FIX-001 уточнения:
   Результат различает `Matched` / `Unmatched` / `Ambiguous`; связь хранится по
   паре `(RegionIndex, ContourIndex)`, повторное назначение контура запрещено.
   Неоднозначность не разрешается произвольным выбором.
+- FIX-006: bounds аналитической дуги вычисляются по Start/End и кардинальным
+  экстремумам, реально входящим в sweep (CW/CCW, переход 0°/360°, >180°); sampling
+  не используется для точных bounds. Broad phase переведён в geometry-first:
+  bounds остаются диагностикой/ранжированием и не отбрасывают Region. Dedup
+  дуговых Hole использует отдельный approximation tolerance 3500 IU, двустороннее
+  покрытие, площадь 5% и centroid 100 IU; exact tolerance остаётся 2 IU.
 
 ### 2.10 Доказательства, полученные в smoke-тесте BRIDGE-000001
 
@@ -308,3 +314,4 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | 2026-11-24 | BRIDGE-000003-FIX-003: arc angular/midpoint matching; новый cutout-файл снова 0 holes, V-22 открыт | local-agent |
 | 2026-11-24 | BRIDGE-000003-FIX-004: добавлены C-85…C-88 (IPCB_Region, ClipWithPolyRegShapes, cutout shapes); реальный Board Cutout подтверждён, V-22 закрыт | local-agent |
 | 2026-11-24 | BRIDGE-000003-FIX-005: исправлены dedup по geometric.Points, Region matching с uniqueness/association и трактовка дуг CCW при переходе через 0° | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-006: analytic arc bounds, geometry-first Region matching, отдельный approximation tolerance для дуговых Hole | local-agent |

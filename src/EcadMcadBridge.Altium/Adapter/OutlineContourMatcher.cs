@@ -289,7 +289,7 @@ internal static class OutlineContourMatcher
         return false;
     }
 
-    private static double DistanceToPolyline(Point2D point, IReadOnlyList<Point2D> contour)
+    internal static double DistanceToPolyline(Point2D point, IReadOnlyList<Point2D> contour)
     {
         var distance = double.PositiveInfinity;
         for (var i = 0; i < contour.Count; i++)

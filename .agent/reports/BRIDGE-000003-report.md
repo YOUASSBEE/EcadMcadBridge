@@ -5,7 +5,7 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T12:45:00+03:00
-updated: 2026-11-24T16:41:41+03:00
+updated: 2026-11-24T17:00:00+03:00
 base: source
 branch: task/BRIDGE-000003-altium-board-adapter
 commit: cb509bc62b01609abe74d46d83236b0691a5f7bc
@@ -294,6 +294,20 @@ Smoke выполнен в AD26.12.2.9 через реальный Add-in и ко
 - На операторской плате оба Hole сохранены; на MiniPC/Bluetooth ложных cutout нет.
   Altium.Tests: 43/43, Core.Tests: 41/41.
 
+## 7.6 FIX-006 — analytic bounds и дуговой dedup
+
+- Bounds аналитической дуги вычисляются по Start/End и кардинальным экстремумам,
+  которые реально входят в sweep; sampling не используется. Поддержаны CW/CCW,
+  переход 0°/360°, дуги менее 90°, более 180° и несколько дуг.
+- Broad phase переведён в geometry-first: bounds остаются диагностикой/ранжированием
+  и не могут отбросить корректный Region из-за пропущенного экстремума.
+- Region matching: вершины 3500 IU, площадь 5%, centroid 1% диагонали с минимумом
+  100 IU; это отделяет tessellation от переноса всей фигуры.
+- Dedup дуговых Hole: exact 2 IU, затем отдельный approximation 3500 IU с
+  двусторонним покрытием, площадью 5% и centroid 100 IU. Partial не подавляет export.
+- Добавлены A6–A10 и B1–B12; Altium.Tests: 60/60, Core.Tests: 41/41.
+- На операторской плате сохранены оба Hole; на MiniPC/Bluetooth ложных cutout нет.
+
 ## 8. Проверки
 
 ```text
@@ -304,11 +318,11 @@ dotnet build -c Release
 
 dotnet test -c Release
 Core.Tests: 41/41
-Altium.Tests: 43/43
+Altium.Tests: 60/60
 ```
 
-Текущее состояние: 41 Core + 43 Altium = 84 теста. Добавлены FIX-004/FIX-005
-тесты дедупликации, Region matching, arc matching и arc-angle wrap.
+Текущее состояние: 41 Core + 60 Altium = 101 тест. Добавлены FIX-004/FIX-005/FIX-006
+тесты дедупликации, Region matching, analytic bounds, arc matching и arc-angle wrap.
 
 ## 9. Commit SHA и PR
 
