@@ -317,6 +317,9 @@ EcadMcadBridge.Core ────────► BCL только
 - проверяются уникальность ID, обязательные атрибуты, ссылки, пары IU/мм, конечность чисел,
   отрицательные размеры, дуги, замкнутость и непрерывность контуров, роли контуров и наличие
   внешнего контура;
+- `TextItem.RotationDeg` — optional: `null` даёт `MissingOptionalData` warning, конечное
+  значение проверяется в `[-180, 180)`, `NaN`/`Infinity` остаются ошибками;
+  `Pad` и `ComponentInstance` по-прежнему требуют конечный угол;
 - пространственная вложенность отверстий и контуров не проверяется геометрическим
   point-in-polygon тестом; это известное ограничение текущей версии.
 
@@ -327,13 +330,13 @@ Core рассматривает ID как непрозрачную непуст�
 и не считается доказанно стабильным; D-010 остаётся `Proposed`. ID не выводятся из Designator
 или координат внутри модели. Стратегия стабильных идентификаторов — отдельная задача.
 
-### 5.4 Altium adapter — BRIDGE-000003
+### 5.4 Altium adapter — BRIDGE-000003 / BRIDGE-000007 / BRIDGE-000009
 
 Реализация: `EcadMcadBridge.Altium/Adapter/AltiumBoardSnapshotAdapter` и
 `AltiumOutlineReader`. Adapter только читает `PCB.IPCB_*`, не содержит JSON и не меняет
-плату. Команда `EcadMcadBridge:ExportBoardSnapshot` вызывает adapter, затем
-`BoardSnapshotValidator` и `BoardSnapshotJson.SerializeToUtf8`; файл пишется в
-`%TEMP%\EcadMcadBridge\board-snapshot-<UTC>.json`.
+плату. Команда `EcadMcadBridge:ExportBoardSnapshot` вызывает adapter, затем Core
+`ExchangePackageWriter`; snapshot пишется в Exchange Package через
+`BoardSnapshotJson`, JSON-контракт не дублируется.
 
 | Altium | Core |
 |---|---|
@@ -342,6 +345,10 @@ Core рассматривает ID как непрозрачную непуст�
 | `IPCB_Component` | `ComponentInstance` + `Transform` + `SourceUniqueId` |
 | `IPCB_Pad` + copper layer shapes | `Pad` + `PadStack` + `PadShape` (per-layer width/height) |
 | `IPCB_Net` | `Net` |
+| `IPCB_Track` (`eTrackObject`) | `Track` (start/end/width/layer/net) |
+| `IPCB_Via` (`eViaObject`) | `Via` (position/diameter/hole/start+end layer/net) |
+| `IPCB_Region` (`eRegionObject`) | `Region` (layer/net/kind/contours); Board Cutout остаётся в outline |
+| `IPCB_Text` (`eTextObject`) | `TextItem` (position/layer/rotation/text/height/stroke); designator/comment не дублируются |
 | `IPCB_BoardOutline.BoardOutline_GeometricPolygon()` | контуры и роли outer/hole |
 | `IPCB_BoardOutline` как `IPCB_Polygon.GetState_Segments()` | `LineSegment`/`ArcSegment` с сохранением `Angle1/Angle2` |
 
@@ -364,6 +371,28 @@ Core рассматривает ID как непрозрачную непуст�
   подтверждённого corner radius, oval через rounded rectangle radius=min/2;
   неподдерживаемые и не подменяемые — `eRotatedRectShape`, `eArcShape`, `eTerminator`,
   `eCustomShape`, `eNoShape`.
+- Region geometry в BRIDGE-000009 экспортируется из
+  `IPCB_Region.GetGeometricPolygon()` как line segments: analytic region arc API
+  не подтверждён безопасным вызовом, поэтому adapter выдаёт явный warning
+  `RegionGeometryFallbacks`; вопрос Q-010 по аналитическим дугам регионов остаётся
+  открытым. Board Cutout по-прежнему идёт через существующий clip-механизм и не
+  дублируется в `Regions`.
+- Text designator/comment (`IsDesignator`/`IsComment`) не дублируются в `TextItem`;
+  barcode-тексты не представляются и пропускаются с warning; остальные тексты
+  используют `IPCB_RectangularPrimitive` position/rotation. Неизвестный rotation не
+  подменяется нулём: `TextItem.RotationDeg` остаётся `null`, validator выдаёт
+  `MissingOptionalData` warning, а adapter считает `TextUnknownRotations`.
+- Altium API предоставляет для текста `Bold`/`Italic`, но Core `TextItem` 1.0.0 не
+  содержит полей для этих параметров; текущий adapter их не экспортирует. Font outline
+  (TrueType) и barcode также не представляются контрактом Core 1.0.0 и не переносятся.
+- Track/via/region/text IDs используют `GetState_UniqueId`, если он непустой, иначе
+  deterministic fallback по порядку итерации; дубликаты внутри коллекции
+  разводятся суффиксом. На проверенных платах `GetState_UniqueId` для этих
+  примитивов вернул пустую строку, поэтому фактически использован fallback.
+  Стабильность ID между сессиями не утверждается (D-010 остаётся Proposed).
+- `TRegionKind.eRegionKind_NamedRegion/Cutout/Cavity` не имеют представления в Core
+  1.0.0 и экспортируются как `RegionKind.Other` с диагностическим счётчиком и warning;
+  unknown enum также даёт `Other`.
 - Внутренние вырезы контура извлекаются из `IPCB_Region` с
   `TRegionKind.eRegionKind_BoardCutout` и подтверждаются
   `IPCB_BoardOutline.ClipWithPolyRegShapes(false,false)`; параметры `false,false`
@@ -430,7 +459,7 @@ Core рассматривает ID как непрозрачную непуст�
   "files": [
     { "path": "board.snapshot.json", "sha256": "…", "size": 1234 }
   ],
-  "capabilities": ["board-outline", "component-placement"]
+  "capabilities": ["board-outline", "component-placement", "layers", "nets", "pads", "regions", "texts", "tracks", "vias"]
 }
 ```
 
@@ -484,7 +513,9 @@ Core рассматривает ID как непрозрачную непуст�
 - Package root: `ECAD_MCAD_BRIDGE_PACKAGE_ROOT` (absolute), иначе
   `%LOCALAPPDATA%\EcadMcadBridge\Packages`.
 - `PackageId` — новый GUID, `CreatedAtUtc` — UTC, producer — `EcadMcadBridge.Altium`
-  `0.3.0`, capabilities — только реально извлекаемые данные.
+  `0.3.0`, capabilities — только реально извлекаемые данные. В `BRIDGE-000009`
+  объявляются `board-outline`, `component-placement`, `layers`, `nets`, `pad-stacks`,
+  `pads`, `regions`, `texts`, `tracks`, `vias`.
 - Writer создаёт пакет атомарно и не перезаписывает существующий каталог;
   пользователю показываются путь, package id, counts и warnings, но в лог не
   попадают absolute user paths.

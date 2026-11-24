@@ -10,9 +10,9 @@
 - сохранить прослеживаемость каждой передачи данных;
 - обеспечить возможность развития обмена в обе стороны без переделки архитектуры.
 
-> **Текущий этап:** `BRIDGE-000007` — Altium `ExportBoardSnapshot` формирует полноценный
-> Exchange Package через Core Writer. Пакет содержит manifest, snapshot и checksums;
-> требуется сохранённая плата без несохранённых изменений. Полный обмен с SOLIDWORKS
+> **Текущий этап:** `BRIDGE-000009` — Altium BoardSnapshot дополняется Tracks, Vias,
+> Regions и Texts; `ExportBoardSnapshot` формирует Exchange Package через Core Writer.
+> Требуется сохранённая плата без несохранённых изменений. Полный обмен с SOLIDWORKS
 > не реализуется.
 
 ## Согласованный стек

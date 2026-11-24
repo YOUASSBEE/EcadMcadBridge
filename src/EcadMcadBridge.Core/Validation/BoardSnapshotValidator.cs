@@ -395,7 +395,7 @@ public static class BoardSnapshotValidator
             RequireString(text.Text, path + ".text", "Text content is required.", diagnostics);
             ValidateOptionalLength(text.Height, path + ".height", allowNegative: false, "Text height is unknown.", diagnostics);
             ValidateOptionalLength(text.StrokeWidth, path + ".strokeWidth", allowNegative: false, "Text stroke width is unknown.", diagnostics);
-            ValidateRequiredDouble(text.RotationDeg, path + ".rotationDeg", diagnostics);
+            ValidateOptionalAngle(text.RotationDeg, path + ".rotationDeg", diagnostics);
         }
     }
 
@@ -605,6 +605,24 @@ public static class BoardSnapshotValidator
 
         if (value.HasProvidedMm && value.ProvidedMm is double provided && !double.IsFinite(provided))
             Error(BoardDiagnosticCodes.NonFiniteNumber, path, "Millimetre value must be finite.", diagnostics);
+    }
+
+    private static void ValidateOptionalAngle(double? value, string path, List<BoardDiagnostic> diagnostics)
+    {
+        if (value is null)
+        {
+            Warning(BoardDiagnosticCodes.MissingOptionalData, path, "Text rotation is unknown.", diagnostics);
+            return;
+        }
+
+        if (!double.IsFinite(value.Value))
+        {
+            Error(BoardDiagnosticCodes.NonFiniteNumber, path, "Value must be finite.", diagnostics);
+            return;
+        }
+
+        if (value.Value is < -180 or >= 180)
+            Error(BoardDiagnosticCodes.InvalidGeometry, path, "Rotation must be in [-180, 180).", diagnostics);
     }
 
     private static void ValidateRequiredDouble(double? value, string path, List<BoardDiagnostic> diagnostics)

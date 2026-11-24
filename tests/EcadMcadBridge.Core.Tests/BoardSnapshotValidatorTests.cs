@@ -111,6 +111,59 @@ public sealed class BoardSnapshotValidatorTests
     }
 
     [Fact]
+    public void TextWithoutRotation_IsWarningNotError()
+    {
+        var valid = BoardSnapshotFixture.CreateValid();
+        var text = new TextItem
+        {
+            Id = "text-without-rotation",
+            LayerId = "layer-top",
+            Position = Point2D.FromIu(1_000_000, 1_000_000),
+            Text = "R1",
+            Height = LengthValue.FromIu(500_000),
+            StrokeWidth = LengthValue.FromIu(100_000),
+            RotationDeg = null,
+        };
+        var snapshot = BoardSnapshotFixture.With(valid, texts: new[] { text });
+
+        var result = BoardSnapshotValidator.Validate(snapshot);
+
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Errors, diagnostic => diagnostic.Path == "texts[0].rotationDeg");
+        Assert.Contains(
+            result.Warnings,
+            diagnostic => diagnostic.Code == BoardDiagnosticCodes.MissingOptionalData
+                && diagnostic.Path == "texts[0].rotationDeg");
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void NonFiniteTextRotation_IsAnError(double rotation)
+    {
+        var valid = BoardSnapshotFixture.CreateValid();
+        var text = new TextItem
+        {
+            Id = "text-non-finite-rotation",
+            LayerId = "layer-top",
+            Position = Point2D.FromIu(1_000_000, 1_000_000),
+            Text = "R1",
+            Height = LengthValue.FromIu(500_000),
+            StrokeWidth = LengthValue.FromIu(100_000),
+            RotationDeg = rotation,
+        };
+        var snapshot = BoardSnapshotFixture.With(valid, texts: new[] { text });
+
+        var result = BoardSnapshotValidator.Validate(snapshot);
+
+        Assert.Contains(
+            result.Errors,
+            diagnostic => diagnostic.Code == BoardDiagnosticCodes.NonFiniteNumber
+                && diagnostic.Path == "texts[0].rotationDeg");
+    }
+
+    [Fact]
     public void MissingRequiredTrackWidth_IsAnError()
     {
         var valid = BoardSnapshotFixture.CreateValid();

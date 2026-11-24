@@ -22,6 +22,10 @@ internal static class ExportBoardSnapshotHandler
         "nets",
         "pad-stacks",
         "pads",
+        "regions",
+        "texts",
+        "tracks",
+        "vias",
     };
 
     public static void Execute(IServerDocumentView view, ref string parameters)
