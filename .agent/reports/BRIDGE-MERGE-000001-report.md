@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T11:42:07+03:00
-updated: 2026-11-24T11:42:07+03:00
+updated: 2026-11-24T11:42:39+03:00
 base: source
 branch: agent/BRIDGE-MERGE-000001-report
-commit: pending
-pr: pending
+commit: 0ec2ca3d864905aa5fb66baaa96c93a8fc3df1dd
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/4
 related: [BRIDGE-MERGE-000001, BRIDGE-000001, BRIDGE-000002]
 ---
 
@@ -181,13 +181,16 @@ GitHub подтверждает:
 
 ## 8. Commit SHA и PR
 
-- Report commit: `pending` (будет заполнен после коммита).
-- Report PR: `pending` (ветка `agent/BRIDGE-MERGE-000001-report`, база `source`).
+- Report commit: `0ec2ca3d864905aa5fb66baaa96c93a8fc3df1dd`.
+- Report PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/4 — база `source`,
+  ветка `agent/BRIDGE-MERGE-000001-report`, открыт и не слит.
 - PR #2: https://github.com/YOUASSBEE/EcadMcadBridge/pull/2 — merged.
 - PR #3: https://github.com/YOUASSBEE/EcadMcadBridge/pull/3 — merged.
+- Отчёт не изменяет `source` напрямую; после проверки его можно слить отдельным PR.
 
 ## 9. История изменений
 
 | Дата | Изменение |
 |---|---|
 | 2026-11-24 | Первая версия отчёта: последовательное слияние PR #2 и PR #3, проверки и итоговые SHA. |
+| 2026-11-24 | Добавлены SHA отчётного коммита и URL PR #4. |
