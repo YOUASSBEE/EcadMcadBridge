@@ -10,8 +10,9 @@
 - сохранить прослеживаемость каждой передачи данных;
 - обеспечить возможность развития обмена в обе стороны без переделки архитектуры.
 
-> **Текущий этап:** `BRIDGE-000001` — каркас Altium Add-in собран, загружается в AD26
-> и проходит smoke-тест с диагностическим JSON. Полный обмен с SOLIDWORKS не реализуется.
+> **Текущий этап:** `BRIDGE-000003` — Altium BoardSnapshot adapter извлекает слои, компоненты,
+> пады, nets и контур, включая Board Cutout, в нейтральную модель Core; полный обмен
+> с SOLIDWORKS не реализуется.
 
 ## Согласованный стек
 
@@ -128,11 +129,12 @@ dotnet test -c Release
 2. В `ExtensionsRegistry.xml` добавьте/проверьте элемент `Item` с `HRID=EcadMcadBridge`,
    `Guid=f2c9b1a4-6d5e-4c8b-9a31-7e0f2b8d4c10`, `Path` на каталог из шага 1 и `Status=0`.
    Перед правкой сделайте резервную копию файла.
-3. Перезапустите Altium Designer. В открытом `.PcbDoc` появится `PCB → Tools → Export Smoke Snapshot`.
-4. После выполнения команды путь к JSON показывается в диалоге Altium. Файл пишется в
-   `%TEMP%\EcadMcadBridge\smoke-snapshot-<UTC>.json`; лог — в `%TEMP%\EcadMcadBridge\logs\bridge.log`.
-   Содержимое пользовательской платы в JSON не попадает: только имя файла, счётчики и одна контрольная
-   пара IU/мм.
+3. Перезапустите Altium Designer. В открытом `.PcbDoc` появятся `PCB → Tools → Export Smoke Snapshot`
+   и `PCB → Tools → Export Board Snapshot`.
+4. `Export Board Snapshot` записывает нейтральный `BoardSnapshot` в
+   `%TEMP%\EcadMcadBridge\board-snapshot-<UTC>.json`; `Export Smoke Snapshot` оставляет
+   диагностический файл `smoke-snapshot-<UTC>.json`. Лог — в `%TEMP%\EcadMcadBridge\logs\bridge.log`.
+   В JSON не попадает содержимое пользовательской платы сверх согласованной модели.
 
 Автоматизация шага 2 и перенос расширения на другой стенд не реализованы в этой задаче
 (открытый вопрос O-006). Smoke-тест выполняется вручную и фиксируется в report задачи.

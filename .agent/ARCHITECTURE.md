@@ -165,9 +165,10 @@ EcadMcadBridge.Core ────────► BCL только
 ```
 
 На этапе `BRIDGE-000002` реализованы нейтральная модель Core, JSON и валидатор (раздел 5).
-Шаги 1–4 остаются ограничены диагностическим снимком из `BRIDGE-000001`: полное извлечение
-объектов Altium и преобразование в `BoardSnapshot` не реализованы. Шаги 6–8 (Exchange Package
-и MCAD-сторона) также не реализованы.
+На этапе `BRIDGE-000003` реализован read-only Altium adapter для слоёв, компонентов и placement,
+падов/PadStacks, nets и контура платы, включая аналитические дуги; команда Add-in —
+`ExportBoardSnapshot`. Tracks, vias, regions и text items остаются вне scope. Шаги 6–8
+(Exchange Package и MCAD-сторона) по-прежнему не реализованы.
 
 ## 5. Модель данных
 
@@ -325,6 +326,81 @@ Core рассматривает ID как непрозрачную непуст�
 коллизий в `BRIDGE-000002` не реализованы. `SourceUniqueId` сохраняется только как provenance
 и не считается доказанно стабильным; D-010 остаётся `Proposed`. ID не выводятся из Designator
 или координат внутри модели. Стратегия стабильных идентификаторов — отдельная задача.
+
+### 5.4 Altium adapter — BRIDGE-000003
+
+Реализация: `EcadMcadBridge.Altium/Adapter/AltiumBoardSnapshotAdapter` и
+`AltiumOutlineReader`. Adapter только читает `PCB.IPCB_*`, не содержит JSON и не меняет
+плату. Команда `EcadMcadBridge:ExportBoardSnapshot` вызывает adapter, затем
+`BoardSnapshotValidator` и `BoardSnapshotJson.SerializeToUtf8`; файл пишется в
+`%TEMP%\EcadMcadBridge\board-snapshot-<UTC>.json`.
+
+| Altium | Core |
+|---|---|
+| `IPCB_Board.LayerIterator()` / `IPCB_LayerObject` | `LayerRef` (V6-ID как opaque `altium:layer:<id>`, имя, kind, side) |
+| `IPCB_Board.GetState_MasterStack().Get_ZTop/ZBottom` | `BoardProperties.Thickness` |
+| `IPCB_Component` | `ComponentInstance` + `Transform` + `SourceUniqueId` |
+| `IPCB_Pad` + copper layer shapes | `Pad` + `PadStack` + `PadShape` (per-layer width/height) |
+| `IPCB_Net` | `Net` |
+| `IPCB_BoardOutline.BoardOutline_GeometricPolygon()` | контуры и роли outer/hole |
+| `IPCB_BoardOutline` как `IPCB_Polygon.GetState_Segments()` | `LineSegment`/`ArcSegment` с сохранением `Angle1/Angle2` |
+
+Ограничения текущего adapter:
+
+- Core `LayerKind` не различает signal и internal plane; оба представлены как `Copper`.
+  Механические слои определяются по V6-ID, а не по имени.
+- В Core 1.0.0 нет полей pad hole, pin designator, локальных координат пада, stack order
+  и признака 3D-модели; adapter не выдумывает эти значения и пишет предупреждения.
+- `GeometricPolygon` — источник полного набора контуров и ролей. Аналитические сегменты
+  сопоставляются с каждым контуром отдельно. Exact допускается только при замкнутом и
+  непрерывном цикле, совпадении уникальных вершин с geometric polyline и покрытии всех
+  geometric points аналитическими линиями/дугами; одной общей точки недостаточно.
+  Для дуг проверяется ограниченный угловой диапазон (CW/CCW и переход 0°/360°),
+  а также середины сегментов geometric polyline, а не только вершины. При
+  частичном/неоднозначном совпадении контур не теряется, а экспортируется
+  line-fallback с предупреждением о возможной потере дуг.
+- `TShape`: точные — `eRectangular`, `eCircleShape`, `eRounded` с равными размерами;
+  упрощённые с warning — `eOctagonal` (chamfered rectangle), rounded rectangles без
+  подтверждённого corner radius, oval через rounded rectangle radius=min/2;
+  неподдерживаемые и не подменяемые — `eRotatedRectShape`, `eArcShape`, `eTerminator`,
+  `eCustomShape`, `eNoShape`.
+- Внутренние вырезы контура извлекаются из `IPCB_Region` с
+  `TRegionKind.eRegionKind_BoardCutout` и подтверждаются
+  `IPCB_BoardOutline.ClipWithPolyRegShapes(false,false)`; параметры `false,false`
+  исключают pad/via holes. `GeometricPolygon.GetState_IsHole` на проверенных платах
+  вырезов не дал и не является источником cutout. Тип региона без clip result
+  недостаточен: `MiniPC.PcbDoc` содержит `eRegionKind_BoardCutout`
+  («Layer Stack Region 1»), но клиппер возвращает 0 вырезов, поэтому регион остаётся
+  только диагностикой. Реальный `board with cutout.PcbDoc` дал 2 выреза, включая дуги
+  (V-22 закрыт в `BRIDGE-000003-FIX-004`).
+- Дедупликация cutout сравнивает **фактические точки geometric Hole** с clip loop;
+  самосравнение clip loop устранено. Сначала применяется exact tolerance 2 IU, затем
+  отдельная approximation-проверка для полигонального Hole против аналитической дуги:
+  двустороннее покрытие с допуском 3500 IU, площадь 5% и centroid характерных точек.
+  Каждая вершина Hole проецируется на clip loop; сравниваются centroid Hole и
+  centroid проекций. Это scale-independent: разная плотность полилинии не меняет
+  решение, а перенос независимого контура даёт реальное смещение. Raw centroid
+  остаётся диагностикой. Допуск matched-centroid 100 IU. Partial overlap не
+  считается дубликатом; сомнительное совпадение не подавляет export.
+- Bounds аналитического clip loop вычисляются по Start/End и кардинальным экстремумам,
+  которые реально входят в sweep дуги (CW/CCW, переход 0°/360°, дуги >180°).
+  Sampling не используется для точных bounds. Поэтому broad phase не может отбросить
+  корректный Region из-за пропущенного экстремума.
+- Сопоставление clip loop ↔ `IPCB_Region` — geometry-first: проверяются все
+  BoardCutout source contours, bounds используются только для диагностики/ранжирования.
+  Геометрия: вершины Region-контура 3500 IU, площадь 5%, centroid 1% диагонали
+  (минимум 100 IU). Результат — `Matched` / `Unmatched` / `Ambiguous`; связь хранится
+  по паре `(RegionIndex, ContourIndex)`, один source contour не назначается повторно.
+  `Ambiguous` и `Unmatched` не экспортируются и диагностируются с индексами и bounds.
+- Для analytic loop дополнительно проверяются середины дуг/линий самого loop, поэтому
+  дуга не может «выпучиваться» за polyline и получать ложный exact.
+- `PolySegment.Angle1/Angle2` для `ePolySegmentArc` задают обход CCW; `Angle2 < Angle1`
+  означает переход через 0°. Это исправлено в `FIX-005`; ранее такой arc ошибочно
+  трактовался как CW-дуга 270°.
+- Полное соответствие Core всем структурам Altium не утверждается; adapter проверен на
+  `MiniPC.PcbDoc`, `Bluetooth_Sentinel.PcbDoc` и `board with cutout.PcbDoc`
+  в AD26.12.2.9 (см. отчёты `BRIDGE-000003`, `BRIDGE-000003-FIX-004`,
+  `BRIDGE-000003-FIX-005`, `BRIDGE-000003-FIX-006`).
 
 ## 6. Формат Exchange Package
 

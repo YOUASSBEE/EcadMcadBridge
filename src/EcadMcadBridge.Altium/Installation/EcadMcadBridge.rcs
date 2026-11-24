@@ -8,7 +8,21 @@ PL PLEcadMcadBridge:ExportSmokeSnapshot
     Description='Write a diagnostic PCB snapshot to %TEMP%'
 End
 
-// PCB Tools: the single command is available while a PCB document is active.
+PL PLEcadMcadBridge:ExportBoardSnapshot
+    Command='EcadMcadBridge:ExportBoardSnapshot'
+    Caption='Export Board Snapshot'
+    Image=''
+    ShortCut1=''
+    ShortCut2=''
+    Params=''
+    Description='Export the active PCB to neutral BoardSnapshot JSON'
+End
+
+// PCB Tools: commands are available while a PCB document is active.
 Insertion _MNPCB_EB_Tools1 TargetID='MNPCB_Tools10' InsertType='Before' RefID0='MNPCB_Tools100'
     Link MNPCB_EB_ExportSmokeSnapshot PLID='PLEcadMcadBridge:ExportSmokeSnapshot' End
+End
+
+Insertion _MNPCB_EB_Tools2 TargetID='MNPCB_Tools10' InsertType='Before' RefID0='MNPCB_Tools100'
+    Link MNPCB_EB_ExportBoardSnapshot PLID='PLEcadMcadBridge:ExportBoardSnapshot' End
 End

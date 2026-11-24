@@ -150,7 +150,89 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | C-64 | Регистрация расширения выполняется элементом `Item` в `ExtensionsRegistry.xml` с `HRID`, `Guid`, `Path`, `Status`, `Title`, `Version`, `PlatformVersions` | `ExtensionsRegistry.xml` на стенде; инструкция предоставленного проекта |
 | C-65 | Подтверждена совместимость Altium Designer 26 + Altium SDK 4.0.1 + .NET SDK 10 с `net10.0-windows` для Altium Add-in | Подтверждение оператора в ревью `BRIDGE-BOOTSTRAP-002`; целевой TFM Altium, не InteractiveBom `net8.0-windows` |
 
-### 2.9 Доказательства, полученные в smoke-тесте BRIDGE-000001
+### 2.9 Altium BoardSnapshot adapter — BRIDGE-000003
+
+Сигнатуры проверены по метаданным `Altium.SDK.Interfaces.dll` установленного AD26
+(`ildasm`) и фактическим вызовом в AD26.12.2.9. Контракт SDK 4.0.1 остаётся источником
+назначения API; для adapter использованы только типизированные вызовы, без reflection.
+
+| ID | API | Назначение / ограничение |
+|---|---|---|
+| C-73 | `PCB.IPCB_BoardHelper.LayerIterator()` → `IPCB_LayerObjectIterator`; `First()`, `Next()`, `LayerObject()` | Перебор слоёв платы |
+| C-74 | `IPCB_LayerObject.GetState_LayerName()`, `Internal_V6_LayerID()`, `IsInLayerStack()`, `GetState_UsedByPrims()`, `V7_LayerID()` | Имя, V6-ID, признак stackup и использования слоя |
+| C-75 | `PCB.IPCB_BoardHelper.GetState_MasterStack()`; `IPCB_LayerStackBaseHelper.Get_ZTop/ZBottom(IPCB_LayerObject)` | Толщина платы по master stack; значения могут быть 0/недоступны |
+| C-76 | `IPCB_Board.BoardIterator_Create/Destroy`; `AddFilter_ObjectSet(TObjectSet)`, `AddFilter_Method(TIterationMethod.eProcessAll)`, `FirstPCBObject/NextPCBObject` | Перебор `eComponentObject`, `eNetObject` |
+| C-77 | `IPCB_Component.GetState_Name()`, `GetState_Comment()`, `GetState_Pattern()`, `GetState_SourceUniqueId()`, `GetState_UniqueId()`, `GetState_Layer()`, `GetState_FlippedOnLayer()`, `GetState_XLocation/YLocation()`, `GetState_Rotation()`, `GetState_Height()` | Компоненты, designator/comment/footprint, placement, сторона, высота |
+| C-78 | `IPCB_Group.GroupIterator_Create/Destroy`; `AddFilter_ObjectSet`, `AddFilter_AllLayers`, `FirstPCBObject/NextPCBObject` | Перебор падов компонента |
+| C-79 | `IPCB_Pad.GetState_Name/UniqueId/Layer/XLocation/YLocation/Rotation/HoleSize/Net`; `GetState_ShapeOnLayer`, `GetState_XSizeOnLayer/YSizeOnLayer`, `GetState_XStackSizeOnLayer/YStackSizeOnLayer` | Пады, слои, формы, размеры, net, отверстия (только чтение) |
+| C-80 | `IPCB_Net.GetState_Name()`, `GetState_UniqueId()` | Nets |
+| C-81 | `IPCB_BoardOutline.BoardOutline_GeometricPolygon()`; `IPCB_GeometricPolygon.GetState_Count/GetState_Contour/GetState_IsHole`; `IPCB_Contour.GetState_Count/PointX/PointY` | Контуры, роли outer/hole и геометрический fallback |
+| C-82 | `IPCB_BoardOutline` как `IPCB_Polygon`: `GetState_PointCount()`, `GetState_Segments(int)`; `PolySegment.Kind/Vx/Vy/Cx/Cy/Radius/Angle1/Angle2` | Контур с аналитическими дугами (`ePolySegmentArc`) |
+| C-83 | `TObjectId.eComponentObject/eNetObject/ePadObject/eTrackObject`; `TV6_Layer`; `TShape`; `TPolySegmentType` | Фильтры и преобразование layer/shape/segment |
+| C-84 | `DXP.IServerDocumentView.GetOwnerDocument()`; `IServerDocument.GetKind()`; `IPCB_Board.GetState_FileName()` | Проверка активного PCB и имени документа; ранее C-19/C-67/C-68 |
+| C-85 | `static PCB.TRegionKind PCB.IPCB_RegionHelper.GetState_Kind(this PCB.IPCB_Region region)`; `PCB.TRegionKind.eRegionKind_BoardCutout` / `eRegionKind_Copper` / `eRegionKind_Cutout` / `eRegionKind_NamedRegion` / `eRegionKind_Cavity` | Тип региона; enum проверен по `Altium.SDK.Interfaces.dll` AD26 |
+| C-86 | `PCB.IPCB_Region.GetState_Name()`, `GetState_Area()` (`int64`), `GetState_UniqueId()`; `static PCB.IPCB_GeometricPolygon PCB.IPCB_RegionHelper.GetGeometricPolygon(this PCB.IPCB_Region)`; `GetMainContour`, `GetHoleCount`, `GetHole(int)` | Инвентаризация регионов и их контуров; только чтение |
+| C-87 | `static PCB.IPCB_PolyRegShapesClipResult PCB.IPCB_BoardOutlineHelper.ClipWithPolyRegShapes(this PCB.IPCB_BoardOutline outline, bool useHolesFromViaPad, bool useEmbedded)` | Неразрушающее вычисление вырезов контура; `false,false` исключает pad/via holes |
+| C-88 | `static PCB.IPCB_Shapes PCB.IPCB_PolyRegShapesClipResultHelper.GetCutouts/GetNewPrims/GetInoperablePrims(this PCB.IPCB_PolyRegShapesClipResult)`; `int PCB.IPCB_Shapes.Count()`; `static PCB.IPCB_RegionShape PCB.IPCB_ShapesHelper.Items(this PCB.IPCB_Shapes, int)`; `int PCB.IPCB_RegionShape.GetState_ShapeSegmentCount()`; `static PCB.PolySegment PCB.IPCB_RegionShapeHelper.GetState_ShapeSegment(this PCB.IPCB_RegionShape, int)` | Извлечение клипованных Board Cutout как линий/дуг |
+
+Подтверждено smoke-тестом на `MiniPC.PcbDoc`: 31 слой, 1046 компонентов, 6004 пада,
+837 сетей, 245 multi-layer PadStack с 16 shapes, 9669 форм; `rotations` включают
+`135°`, стороны Top/Bottom представлены. На `Bluetooth_Sentinel.PcbDoc` подтверждены
+2 аналитические дуги в контуре и 12 сегментов (10 линий + 2 дуги).
+
+FIX-001 уточнения:
+
+- `GeometricPolygon` является источником полного набора контуров и ролей `GetState_IsHole`;
+  `IPCB_Polygon.GetState_Segments()` используется только как источник аналитических
+  линий/дуг и может не покрывать все циклы (на `PC4-SODIMM` получены незамкнутые циклы).
+  Adapter сопоставляет каждый geometric contour с аналитическим циклом; при отсутствии
+  совпадения контур не теряется, а экспортируется line-fallback с предупреждением.
+- `TShape`:
+  - точные: `eRectangular`, `eCircleShape`, `eRounded` при равных размерах;
+  - упрощённые (warning): `eOctagonal` (chamfered rectangle → Core Octagonal),
+    `eRoundRectShape`/`eRoundedRectangular` (corner radius API не подтверждён),
+    `eRounded` с разными размерами (oval → rounded rectangle radius=min/2);
+  - неподдерживаемые (warning, не подменяются): `eRotatedRectShape`, `eArcShape`,
+    `eTerminator`, `eCustomShape`, `eNoShape`.
+- `TShape.eCustomShape` и pad holes не имеют полноценного представления в Core 1.0.0;
+  adapter пишет предупреждение и не выдумывает геометрию.
+- `LayerKind` Core не различает signal и internal plane: оба `Copper`.
+- Локальные координаты падов, pin designator, stack order и наличие 3D-модели в Core
+  отсутствуют; adapter их не подменяет.
+- Внутренние вырезы контура: `GeometricPolygon.GetState_IsHole` на проверенных
+  платах не дал hole-контуров, поэтому вырезы извлекаются из `IPCB_Region` с
+  `eRegionKind_BoardCutout` и подтверждаются `ClipWithPolyRegShapes(false,false)`
+  (C-85…C-88). Тип региона сам по себе недостаточен: `MiniPC.PcbDoc` содержит
+  `eRegionKind_BoardCutout` («Layer Stack Region 1»), но клиппер возвращает 0
+  вырезов; такие регионы остаются только диагностикой и не экспортируются.
+  Реальный `board with cutout.PcbDoc` дал 2 выреза, включая дуги; V-22 закрыт.
+  Pad/via holes исключены параметром `useHolesFromViaPad=false` и проверены
+  платой с 6004 падами, где клиппер вернул 0 вырезов.
+- `PolySegment.Angle1/Angle2` для `ePolySegmentArc` задают обход **против часовой
+  стрелки**; `Angle2 < Angle1` означает переход через 0°. Это подтверждено на
+  cutout-регионе: arc `270°→0°` является короткой четвертью, а не CW-дугой 270°.
+  После исправления (FIX-005) geometric contour региона 0 совпадает с clip loop:
+  area Δ 0.14%, centroid Δ 692.61 IU, max vertex Δ 3096.57 IU.
+- FIX-005 дедупликация сравнивает **фактические `geometric.Points`** Hole-контура
+  с clip loop; самосравнение clip loop устранено. Partial overlap не подавляет
+  экспорт.
+- FIX-005 Region matching: bounding box 10 IU — только broad phase; затем
+  вершины Region-контура (3500 IU), площадь (5%) и centroid (1000 IU).
+  Результат различает `Matched` / `Unmatched` / `Ambiguous`; связь хранится по
+  паре `(RegionIndex, ContourIndex)`, повторное назначение контура запрещено.
+  Неоднозначность не разрешается произвольным выбором.
+- FIX-006: bounds аналитической дуги вычисляются по Start/End и кардинальным
+  экстремумам, реально входящим в sweep (CW/CCW, переход 0°/360°, >180°); sampling
+  не используется для точных bounds. Broad phase переведён в geometry-first:
+  bounds остаются диагностикой/ранжированием и не отбрасывают Region. Dedup
+  дуговых Hole использует отдельный approximation tolerance 3500 IU, двустороннее
+  покрытие, площадь 5% и centroid 100 IU; exact tolerance остаётся 2 IU.
+- FIX-007: для approximation-dedup centroid сравнивается по характерным точкам
+  (вершины Hole, спроецированные на clip loop), а не по raw polygon centroid.
+  Это устраняет ложный отказ при большой дуге и разной плотности полилинии;
+  перенос независимого контура остаётся диагностируемым.
+
+### 2.10 Доказательства, полученные в smoke-тесте BRIDGE-000001
 
 | ID | Сигнатура / вызов | Доказательство | Использование |
 |---|---|---|---|
@@ -175,8 +257,8 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-05 | Как определить несохранённые изменения и хеш `.PcbDoc`? | `GetModified`, `GetFileName` объявлены, но поведение не проверено | Smoke-тест на новом/изменённом/сохранённом документе |
 | V-06 | Как извлекать 3D-модели и высоты для MCAD? | `SaveModelToFile`, `DefaultPCB3DModel` объявлены, поведение и формат не проверены | Отдельная задача MCAD-фазы; не использовать до проверки |
 | V-07 | Стабилен ли `SourceUniqueId` между сессиями и ECO? | Не проверено; возможны пустые/меняющиеся значения | Экспорт одного проекта до/после ECO, сравнение |
-| V-08 | Как получить толщину платы и стек слоёв? | Интерфейсы слоёв объявлены, но нужный путь не подтверждён | Исследовать `LayerStack`/`BoardLayerSetManager` |
-| V-09 | Как корректно перечислять механические слои и их назначение? | `TV6_Layer` известен, семантика механических слоёв не проверена | Smoke-тест на тестовой плате |
+| V-08 | Как получить толщину платы и стек слоёв? | Частично закрыт в `BRIDGE-000003`: `GetState_MasterStack().Get_ZTop/Get_ZBottom` дали ненулевые значения на vendor-платах (`790552 IU`, `313581 IU`). Точная семантика Z-значений и порядок stackup не подтверждены | Сравнить с Layer Stack Manager; при необходимости отдельный ADR |
+| V-09 | Как корректно перечислять механические слои и их назначение? | Частично закрыт в `BRIDGE-000003`: `LayerIterator` + V6-ID дают Top/Mid/Bottom/Plane/Mechanical; механические слои классифицируются по ID, не по имени. Назначение конкретного mechanical-слоя не формализовано | Smoke-тест на плате с именованными mechanical-слоями |
 | V-10 | Семантика `GetState_Height()` и bounding box компонента | Не проверено, в каких единицах и с учётом чего считается | Сравнить с UI Altium на эталонной плате |
 | V-11 | Автоматизация установки расширения и правки `ExtensionsRegistry.xml` | Известен только ручной путь | Отдельная задача; учесть права администратора и блокировку файла |
 | V-12 | Лицензирование и допустимость поставки SDK-сборок Altium вместе с Add-in | Требуется проверка лицензии; в репозиторий DLL не коммитятся | Юридическая/техническая проверка, решение в `DECISIONS.md` |
@@ -185,6 +267,14 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-15 | Поддержка WPF/WinForms внутри AD26 и тема оформления | Частично закрыт в `BRIDGE-000001`: хост-диалог `DXP.Utils.ShowInfo` (C-69) и минимальная WinForms-панель (C-72) работают в AD26; полноценные панели не создавались | Отдельный smoke-тест полноценной панели; для текущей команды кастомный UI не нужен |
 | V-16 | Требования к потоку и COM-апартаменту для вызовов PCB API | Не проверено; возможны UI-thread-only ограничения | Smoke-тест с фоновым потоком и без него |
 | V-17 | Поведение `TIterationMethod.eProcessAll` на всех типах объектов | Значение известно, полный набор объектов не проверен | Сравнить счётчики с UI/отчётом Altium |
+| V-18 | Как различать signal и internal plane в Core `LayerKind`? | Core не имеет отдельного `Plane`; adapter классифицирует оба как `Copper` | Отдельное расширение Core или дополнительный слой метаданных |
+| V-19 | Как представлять отверстия падов, pin designator и локальные координаты пада? | В Core 1.0.0 нет соответствующих полей; adapter не подменяет данные | Отдельное решение/ADR до расширения Core |
+| V-20 | Как представлять oval и custom pad shapes? | `eRounded` с разными размерами отображён в rounded rectangle с предупреждением; `eCustomShape` не имеет вершин в API | Отдельная задача по PadShape; сейчас ограничение зафиксировано |
+| V-21 | Как сохранять порядок слоёв stackup и наличие 3D-модели? | Core не содержит этих полей; adapter их не заполняет | Расширение Core отдельным решением |
+| V-22 | ~~Поддержаны ли внутренние вырезы контура на реальной плате?~~ | Закрыт в `BRIDGE-000003-FIX-004`, уточнён в `FIX-005`: `board with cutout.PcbDoc` (SHA256 `ED624C…`) содержит 5 `eRegionKind_BoardCutout`; `ClipWithPolyRegShapes(false,false)` вернул 2 cutout-контура / 16 сегментов, экспортированы 2 hole-контура (7 линий; 6 линий + 3 дуги), все вершины внутри outer. FIX-005 исправил дедупликацию и Region matching, а также трактовку дуг CCW с переходом через 0°; после этого оба выреза сохраняются. `GetState_IsHole` остаётся 0, источник — clip result | См. C-85…C-88, reports `BRIDGE-000003-FIX-004` и `BRIDGE-000003-FIX-005` |
+| V-23 | Почему `IPCB_Pad.DefinitionLayerIterator` иногда возвращает V7-ID, не совпадающие с V6? | Adapter обходит это перебором copper-слоёв board layer iterator; высокие V7-ID не используются как V6 | Отдельное исследование V7 layer mapping при необходимости |
+| V-24 | Гарантирует ли `IPCB_Polygon.GetState_Segments()` все циклы Board Outline? | Нет: на `PC4-SODIMM` циклы не замкнулись, adapter перешёл на line-fallback для geometric contour. `GeometricPolygon` остаётся источником количества/ролей; Board Cutout берётся из `ClipWithPolyRegShapes`, а не из этого API | Отдельное исследование API сегментов при необходимости |
+| V-25 | Можно ли достоверно отличить `eRotatedRectShape`/`eArcShape`/`eTerminator` от поддерживаемых форм? | Семантика не подтверждена; adapter не преобразует их в круг/прямоугольник и выдаёт warning | Отдельный эксперимент с известными pad shape |
 
 ## 4. Запрещено
 
@@ -222,3 +312,11 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | 2026-11-24 | BRIDGE-BOOTSTRAP-005: исправлено происхождение runtime-сборок — установленные extension AD26 и копия `publish_out`, не архив; уточнены V-02/V-13 | Bootstrap |
 | 2026-11-24 | BRIDGE-000001: добавлены C-66…C-72 и доказательства хоста; закрыты V-02/V-03/V-04, уточнены V-13/V-15 | local-agent |
 | 2026-11-24 | BRIDGE-000002: новых Altium API нет; Core-модель, JSON и валидатор не используют SDK | local-agent |
+| 2026-11-24 | BRIDGE-000003: добавлены C-73…C-84 и ограничения V-18…V-23; Adapter проверен в AD26.12.2.9 | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-001: geometric contours сохраняются все, fallback диагностируется; уточнены TShape V-24/V-25 | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-002: exact outline matcher отвергает partial/ambiguous; cutout-файл оператора без вырезов, V-22 открыт | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-003: arc angular/midpoint matching; новый cutout-файл снова 0 holes, V-22 открыт | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-004: добавлены C-85…C-88 (IPCB_Region, ClipWithPolyRegShapes, cutout shapes); реальный Board Cutout подтверждён, V-22 закрыт | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-005: исправлены dedup по geometric.Points, Region matching с uniqueness/association и трактовка дуг CCW при переходе через 0° | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-006: analytic arc bounds, geometry-first Region matching, отдельный approximation tolerance для дуговых Hole | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-007: scale-independent matched-centroid dedup для дуговых Hole | local-agent |

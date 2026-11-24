@@ -5,8 +5,8 @@
 | Проект | ECAD-MCAD Bridge |
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
-| Текущая ветка | `agent/BRIDGE-000002-core-model` |
-| Статус | Нейтральная модель `BoardSnapshot`, детерминированный JSON и валидатор Core реализованы; идёт подготовка PR с базой `task/BRIDGE-000001` |
+| Текущая ветка | `task/BRIDGE-000003-altium-board-adapter` |
+| Статус | Altium BoardSnapshot adapter реализован; слои, компоненты, пады, nets и контур проверены в AD26.12.2.9; готовится PR в `source` |
 | Дата фиксации | 2026-11-24 |
 | Владелец продукта | Оператор проекта (человек) |
 
@@ -43,7 +43,9 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 - каркас Altium Add-in (`Core`, `Altium`, `Core.Tests`) и одна диагностическая команда;
 - минимальный smoke-снимок активной `.PcbDoc` через подтверждённые `PCB.IPCB_*` API;
 - нейтральная модель платы `BoardSnapshot`, геометрия, электрические ссылки, JSON-контракт
-  и CAD-независимый валидатор в Core.
+  и CAD-независимый валидатор в Core;
+- read-only Altium adapter для слоёв, компонентов, падов/PadStacks, nets и контура платы,
+  команда `Export Board Snapshot` и smoke-проверка на vendor-платах AD26.
 
 Не входит в scope текущего этапа:
 
@@ -155,8 +157,45 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   проводников, переходных отверстий, регионов и текста; дуги хранятся аналитически.
 - `BoardSnapshotJson` обеспечивает UTF-8 без BOM, LF, фиксированный порядок и round-trip;
   `BoardSnapshotValidator` возвращает структурированные ошибки и предупреждения.
-- Извлечение полного `BoardSnapshot` из Altium и Exchange Package не реализованы; модель
-  проверена только синтетическими данными Core.Tests.
+- `AltiumBoardSnapshotAdapter` извлекает слои, компоненты, пады/PadStacks, nets и контур;
+  команда `Export Board Snapshot` пишет валидированный JSON в `%TEMP%`.
+- Smoke-тест `MiniPC.PcbDoc`: 31 слой, 1046 компонентов, 6004 пада, 837 сетей, 9669 форм,
+  rotation до 135°; `Bluetooth_Sentinel.PcbDoc`: контур с 2 аналитическими дугами.
+  SHA256 обеих vendor-плат до/после экспорта совпал.
+- `BRIDGE-000003-FIX-001`: Board Outline сохраняет все контуры `GeometricPolygon`;
+  несопоставленные аналитические циклы дают line-fallback с warning, а не удаление.
+  `TShape` разделён на exact/simplified/unsupported; добавлены `Altium.Tests` (19 тестов).
+- `BRIDGE-000003-FIX-002`: exact matcher отвергает частичное совпадение (Bluetooth
+  переведён с ложного exact на fallback с warning); исходный файл оператора
+  `minipc.PcbDoc` оказался byte-identical vendor-копией без вырезов, поэтому V-22
+  остаётся открытым.
+- `BRIDGE-000003-FIX-003`: matcher учитывает угловой диапазон дуг и середины
+  polyline-сегментов; новая плата оператора снова дала 1 outer-contour/0 holes.
+- `BRIDGE-000003-FIX-004`: реальный Board Cutout извлечён из `IPCB_Region`
+  (`eRegionKind_BoardCutout`) и `ClipWithPolyRegShapes(false,false)`. На
+  `board with cutout.PcbDoc` получены 2 hole-контура (7 линий; 6 линий + 3 дуги),
+  все вершины внутри outer; `ClipWithPolyRegShapes(false,false)` не включает pad/via
+  holes. `MiniPC.PcbDoc` содержит BoardCutout-регион, но клиппер вернул 0 вырезов,
+  поэтому регион не экспортируется. Matcher дополнительно проверяет середины
+  дуг/линий самого loop.
+- `BRIDGE-000003-FIX-005`: исправлена дедупликация (сравниваются реальные точки
+  geometric Hole, а не clip loop с самим собой), добавлено строгое Region matching
+  с `Matched`/`Unmatched`/`Ambiguous`, association tracking по паре
+  `(RegionIndex, ContourIndex)` и исправлена трактовка дуг CCW при переходе через 0°.
+  На операторской плате сохранены оба Hole; на MiniPC/Bluetooth ложных cutout нет.
+  Altium.Tests: 43; V-22 остаётся закрытым.
+- `BRIDGE-000003-FIX-006`: bounds аналитических дуг вычисляются по Start/End и
+  кардинальным экстремумам внутри sweep; broad phase больше не отбрасывает Region
+  (geometry-first). Дедупликация дуговых Hole использует отдельный approximation
+  tolerance и двустороннюю проверку. На операторской плате сохранены оба Hole;
+  Altium.Tests: 60; V-22 закрыт.
+- `BRIDGE-000003-FIX-007`: approximation-dedup сравнивает centroid характерных
+  точек (вершины Hole, спроецированные на clip loop), а не raw centroid полигона.
+  Исправлен ложный отказ при большой дуге и разной плотности полилинии; перенос
+  независимого контура по-прежнему отклоняется. Altium.Tests: 65.
+- Tracks, vias, regions, text items и Exchange Package в адаптере не реализованы.
+  Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
+  и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.
   `BRIDGE-000002` новых Altium API не добавляет.
 - Git-протокол и runtime-обмен разделены: Git не используется для пользовательских PCB, STEP
@@ -178,6 +217,9 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 | Q-009 | Какой Target Framework у SOLIDWORKS Add-in? | Открыт | Определяется отдельным решением (D-014, O-009) |
 | Q-010 | Полно ли `BoardSnapshot` покрывает данные, которые Altium отдаёт через подтверждённые `IPCB_*`? | Открыт | Извлечение в `BRIDGE-000002` не реализовано; нужна проверка на синтетическом adapter-экспорте |
 | Q-011 | Как проверять пространственную вложенность отверстий и контуров? | Открыт | Валидатор проверяет роли, замкнутость и непрерывность, но не point-in-polygon |
+| Q-012 | Как расширить Core для отверстий падов, pin designator, локальных координат и stack order? | Открыт | Требует отдельного решения до изменения публичного контракта |
+| Q-013 | Как различать signal и internal plane в `LayerKind`? | Открыт | Сейчас оба представлены как `Copper`; Plane-тип отсутствует |
+| Q-014 | Как подтвердить внутренние вырезы контура на реальной плате? | **Закрыт:** `BRIDGE-000003-FIX-004` | `IPCB_Region` + `ClipWithPolyRegShapes(false,false)` дали 2 выреза на `board with cutout.PcbDoc`; pad/via holes исключены и проверены на `MiniPC.PcbDoc` |
 
 Полные формулировки и способы проверки — в `SDK_API_LEDGER.md` и `DECISIONS.md`.
 
