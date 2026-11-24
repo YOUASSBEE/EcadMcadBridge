@@ -5,8 +5,8 @@
 | Проект | ECAD-MCAD Bridge |
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
-| Текущая ветка | `task/BRIDGE-000001` |
-| Статус | Каркас Altium Add-in создан и загружается в AD26; smoke-снимок проверен, PR в `source` готовится |
+| Текущая ветка | `agent/BRIDGE-000002-core-model` |
+| Статус | Нейтральная модель `BoardSnapshot`, детерминированный JSON и валидатор Core реализованы; идёт подготовка PR с базой `task/BRIDGE-000001` |
 | Дата фиксации | 2026-11-24 |
 | Владелец продукта | Оператор проекта (человек) |
 
@@ -41,7 +41,9 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 - описание файлового runtime-обмена между CAD-системами вне Git;
 - техническое задание `BRIDGE-000001` на исследование и подготовку каркаса Altium Add-in;
 - каркас Altium Add-in (`Core`, `Altium`, `Core.Tests`) и одна диагностическая команда;
-- минимальный smoke-снимок активной `.PcbDoc` через подтверждённые `PCB.IPCB_*` API.
+- минимальный smoke-снимок активной `.PcbDoc` через подтверждённые `PCB.IPCB_*` API;
+- нейтральная модель платы `BoardSnapshot`, геометрия, электрические ссылки, JSON-контракт
+  и CAD-независимый валидатор в Core.
 
 Не входит в scope текущего этапа:
 
@@ -91,10 +93,10 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 ├── Directory.Build.props
 ├── global.json
 ├── src/
-│   ├── EcadMcadBridge.Core/        домен, диагностика, Core-модель; net10.0
+│   ├── EcadMcadBridge.Core/        Model, Serialization, Validation, Diagnostics; net10.0
 │   └── EcadMcadBridge.Altium/      bootstrap, adapter, application, installation; net10.0-windows
 ├── tests/
-│   └── EcadMcadBridge.Core.Tests/  тесты сериализации и преобразований; net10.0
+│   └── EcadMcadBridge.Core.Tests/  модель, JSON, валидатор, преобразования; net10.0
 └── .agent/
     ├── PROJECT_CONTEXT.md
     ├── ARCHITECTURE.md
@@ -141,14 +143,22 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 
 ## 8. Текущий статус
 
-- `source` содержит bootstrap-документацию; код добавляется веткой `task/BRIDGE-000001` через PR.
+- `source` содержит bootstrap-документацию; код добавляется ветками `task/BRIDGE-000001`
+  и `agent/BRIDGE-000002-core-model` через PR.
 - Созданы `EcadMcadBridge.Core`, `EcadMcadBridge.Altium` и `EcadMcadBridge.Core.Tests`;
   TFM — `net10.0`, `net10.0-windows` и `net10.0` соответственно (D-014).
 - Add-in загружается в AD26 26.12.2.9; команда `Export Smoke Snapshot` видна в PCB → Tools.
   Минимальная WinForms-панель `ECAD-MCAD Bridge` используется только для запуска сервера.
 - Smoke-тест на синтетической плате: `componentCount=28` (совпадает с Board Information),
   `outlinePointCount=42`, `warnings=0`; `.PcbDoc` не изменён (SHA256 совпадает).
+- В Core реализованы `BoardSnapshot` и сущности платы, слоёв, компонентов, падов, цепей,
+  проводников, переходных отверстий, регионов и текста; дуги хранятся аналитически.
+- `BoardSnapshotJson` обеспечивает UTF-8 без BOM, LF, фиксированный порядок и round-trip;
+  `BoardSnapshotValidator` возвращает структурированные ошибки и предупреждения.
+- Извлечение полного `BoardSnapshot` из Altium и Exchange Package не реализованы; модель
+  проверена только синтетическими данными Core.Tests.
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.
+  `BRIDGE-000002` новых Altium API не добавляет.
 - Git-протокол и runtime-обмен разделены: Git не используется для пользовательских PCB, STEP
   и рабочих сборок.
 - Обмен с SOLIDWORKS не реализуется и не проектируется детально до отдельного решения.
@@ -166,6 +176,8 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 | Q-007 | Можно ли распространять SDK-сборки Altium в составе репозитория? | Открыт | Лицензионные ограничения; вероятно, ссылаться на локальную установку |
 | Q-008 | Достаточно ли `SourceUniqueId` для стабильной идентификации компонентов? | Открыт | Нужно для сопоставления ECAD/MCAD без ложных совпадений |
 | Q-009 | Какой Target Framework у SOLIDWORKS Add-in? | Открыт | Определяется отдельным решением (D-014, O-009) |
+| Q-010 | Полно ли `BoardSnapshot` покрывает данные, которые Altium отдаёт через подтверждённые `IPCB_*`? | Открыт | Извлечение в `BRIDGE-000002` не реализовано; нужна проверка на синтетическом adapter-экспорте |
+| Q-011 | Как проверять пространственную вложенность отверстий и контуров? | Открыт | Валидатор проверяет роли, замкнутость и непрерывность, но не point-in-polygon |
 
 Полные формулировки и способы проверки — в `SDK_API_LEDGER.md` и `DECISIONS.md`.
 
