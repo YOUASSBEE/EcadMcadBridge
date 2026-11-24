@@ -51,8 +51,10 @@
 
 Состав (целевой):
 
-- `Model/` — `BoardSnapshot`, `BoardOutline`, `ComponentInstance`, `Pad`, `Track`, `Via`, `Region`,
-  `TextItem`, `Net`, `Transform`, `LayerRef`, `UnitValue`.
+- `Model/` — `BoardSnapshot`, `BoardProperties`, `BoardOutline`, `ComponentInstance`, `Transform`,
+  `LayerRef`, `Pad`, `PadShape`, `PadStack`, `Track`, `Via`, `Region`, `TextItem`, `Net`,
+  `Contour`, `ContourSegment`, `LineSegment`, `ArcSegment`, `PolygonGeometry`, `Point2D`,
+  `LengthValue`.
 - `Packaging/` — чтение/запись пакета, `manifest.json`, контрольные суммы, версии схемы.
 - `Validation/` — проверки инвариантов, диагностические коды, отчёт о валидации.
 - `Identity/` — стабильные идентификаторы и сопоставление сущностей.
@@ -156,14 +158,16 @@ EcadMcadBridge.Core ────────► BCL только
 2. Команда Add-in запускает сценарий ExportBoardSnapshot.
 3. Adapter читает подтверждённые IPCB_* интерфейсы.
 4. Adapter преобразует координаты и слои в нейтральную модель Core.
-5. Core валидирует snapshot и присваивает стабильные идентификаторы.
+5. Core валидирует snapshot; назначение стабильных ID — отдельная задача (D-010).
 6. Core формирует Exchange Package и контрольные суммы.
 7. Пакет пишется в локальный runtime-каталог вне Git (см. раздел 9).
 8. MCAD Add-in (будущая фаза) читает пакет и строит/обновляет модель.
 ```
 
-На этапе `BRIDGE-000001` шаги 1–6 проверяются только на минимальном снимке
-(файл платы, число компонентов, базовый outline); шаги 7–8 не реализуются.
+На этапе `BRIDGE-000002` реализованы нейтральная модель Core, JSON и валидатор (раздел 5).
+Шаги 1–4 остаются ограничены диагностическим снимком из `BRIDGE-000001`: полное извлечение
+объектов Altium и преобразование в `BoardSnapshot` не реализованы. Шаги 6–8 (Exchange Package
+и MCAD-сторона) также не реализованы.
 
 ## 5. Модель данных
 
@@ -178,26 +182,60 @@ EcadMcadBridge.Core ────────► BCL только
 
 - IU не заменяются и не округляются; потеря исходных IU недопустима.
 - Применяется коэффициент 1 IU = 0.00000254 mm; контрольные значения приведены в разделе 5.2.
-- Преобразование IU → мм выполняется через `EDP.Utils.CoordToMMs` (C-57), обратное —
-  через `EDP.Utils.MMsToCoord` (C-58). Требование сохранять пару IU/мм распространяется
-  на все линейные величины из раздела 5.2, а не только на координаты.
+- В Core преобразование IU → мм выполняет `AltiumUnits.IuToMm`; обратное — `AltiumUnits.MmToIu`.
+  Altium adapter может получать исходные IU через `EDP.Utils` (C-57/C-58), но Core не зависит
+  от Altium SDK и не принимает миллиметры как независимый источник истины.
+- Требование сохранять пару IU/мм распространяется на все линейные величины из раздела 5.2,
+  а не только на координаты.
 - `manifest.json` и snapshot указывают `sourceUnits: "altium-iu"` и `units: "mm"`.
 - Система координат обмена: правая декартова, X вправо, Y вверх, начало — начало координат платы Altium.
 - Поворот — против часовой стрелки, градусы, диапазон `[-180, 180)`.
 - Сторона компонента: `top` / `bottom`; исходный слой сохраняется отдельно как `layerId`.
 
-### 5.2 `BoardSnapshot` (черновой контракт)
+### 5.2 `BoardSnapshot` — фактический контракт Core
 
-Коэффициент преобразования Altium IU в миллиметры: **1 IU = 0.00000254 mm**.
-Контрольные значения: `1 000 000 IU = 2.54 mm`, `2 000 000 IU = 5.08 mm`,
-`10 000 000 IU = 25.4 mm`. Исходные целочисленные IU не изменяются ради подгонки примера.
+Контракт реализован в `BRIDGE-000002` в `EcadMcadBridge.Core`:
 
-Все линейные геометрические величины, получаемые из Altium в IU, сохраняются парой:
-исходное целое значение (`*Iu`) и вычисленное значение в мм (`*Mm`). Это относится к координатам,
-ширине дорожек, размерам падов, диаметрам отверстий и переходных отверстий, радиусам дуг,
-размерам/толщине платы и высотам компонентов. Неподтверждённые значения остаются `null`
-и не заполняются догадками. Тесты обязаны проверять преобразование на трёх контрольных значениях
-выше и обратное преобразование.
+- модель — `Model/`: `BoardSnapshot`, `BoardSnapshotSource`, `BoardProperties`, `BoardOutline`,
+  `LayerRef`, `ComponentInstance`, `Transform`, `Pad`, `PadShape`, `PadStack`, `Net`, `Track`,
+  `Via`, `Region`, `TextItem`, `Contour`, `ContourSegment`, `LineSegment`, `ArcSegment`,
+  `PolygonGeometry`, `Point2D`, `LengthValue`;
+- JSON — `Serialization/BoardSnapshotJson` (`Serialize`, `SerializeToUtf8` / `Deserialize`);
+- валидация — `Validation/BoardSnapshotValidator`, `BoardValidationResult`, `BoardDiagnostic`.
+
+Извлечение данных из Altium в этой задаче не реализовано. Контракт проверен синтетическими
+данными Core.Tests и не считается доказанным соответствием всем структурам Altium.
+
+Состав snapshot:
+
+| JSON | Модель | Ключевые поля и ссылки |
+|---|---|---|
+| `source` | `BoardSnapshotSource` | `cad`, `cadVersion`, `documentFileName`, `exportedAtUtc`, `toolVersion`; абсолютный путь документа не входит в контракт |
+| `sourceUnits`, `units` | строки | всегда `altium-iu` и `mm` |
+| `board.properties` | `BoardProperties` | `id`, `name`, `material`, `thicknessIu/thicknessMm` |
+| `board.outline` | `BoardOutline` | `id`, `contours` (outer/hole) |
+| `layers` | `LayerRef` | `id`, `name`, `kind`, `side` |
+| `components` | `ComponentInstance` | `id`, `designator`, `comment`, `footprint`, `sourceUniqueId`, `layerId`, `placement`, `heightIu/heightMm`, `fitted` |
+| `padStacks` | `PadStack` → `PadShape` | `id`, `shapes`; shape: `id`, `kind`, `layerId`, `width`, `height`, `cornerRadius`, `vertices` |
+| `pads` | `Pad` | `id`, `componentId`, `netId`, `layerId`, `padStackId`, `position`, `rotationDeg` |
+| `nets` | `Net` | `id`, `name`, `netClass` |
+| `tracks` | `Track` | `id`, `netId`, `layerId`, `start`, `end`, `widthIu/widthMm` |
+| `vias` | `Via` | `id`, `netId`, `position`, `diameter`, `holeDiameter`, `startLayerId`, `endLayerId` |
+| `regions` | `Region` → `PolygonGeometry` | `id`, `netId`, `layerId`, `kind`, `polygon.contours` |
+| `texts` | `TextItem` | `id`, `componentId`, `layerId`, `position`, `text`, `height`, `strokeWidth`, `rotationDeg` |
+
+Геометрия:
+
+- `Point2D` хранит `xIu/yIu` и вычисленные `xMm/yMm`;
+- `Transform` содержит `position`, `rotationDeg` и `side`;
+- `Contour` содержит `id`, `role` (`outer` / `hole`) и упорядоченные `segments`;
+- `LineSegment` содержит `start` и `end`; `ArcSegment` содержит `start`, `end`, `center`,
+  `radiusIu/radiusMm` и `sweepDirection`. Дуга хранится аналитически и не заменяется отрезками;
+- `Region.polygon.contours` допускает несколько контуров, включая отверстия;
+- `PolygonGeometry` — контейнер контуров; `LineSegment`, `ArcSegment`, `Point2D`, `Transform`
+  являются value objects и не имеют собственных ID.
+
+Пример формы JSON (сокращённый; порядок полей фиксируется сериализатором):
 
 ```json
 {
@@ -205,62 +243,88 @@ EcadMcadBridge.Core ────────► BCL только
   "schemaVersion": "1.0.0",
   "source": {
     "cad": "altium",
-    "documentPath": "C:/work/board.PcbDoc",
-    "documentSha256": "…",
-    "exportedAtUtc": "2026-11-23T00:00:00Z",
-    "toolVersion": "26.x"
+    "cadVersion": "26",
+    "documentFileName": "board.PcbDoc",
+    "exportedAtUtc": "2026-11-24T00:00:00Z",
+    "toolVersion": "0.2.0"
   },
   "sourceUnits": "altium-iu",
   "units": "mm",
   "board": {
-    "outline": [
-      { "xIu": 0, "yIu": 0, "xMm": 0.0, "yMm": 0.0 },
-      { "xIu": 10000000, "yIu": 0, "xMm": 25.4, "yMm": 0.0 }
-    ],
-    "thicknessIu": null,
-    "thicknessMm": null
-  },
-  "components": [
-    {
-      "id": "altium:unique-id-or-hash",
-      "designator": "R1",
-      "comment": "10k",
-      "footprint": "0402",
-      "side": "top",
-      "layerId": 1,
-      "position": { "xIu": 1000000, "yIu": 2000000, "xMm": 2.54, "yMm": 5.08 },
-      "rotationDeg": 90.0,
-      "heightIu": null,
-      "heightMm": null,
-      "fitted": true
+    "properties": {
+      "id": "board-1",
+      "name": null,
+      "material": null,
+      "thicknessIu": null,
+      "thicknessMm": null
+    },
+    "outline": {
+      "id": "outline-1",
+      "contours": [
+        {
+          "id": "outline-outer",
+          "role": "outer",
+          "segments": [
+            {
+              "kind": "line",
+              "start": { "xIu": 0, "yIu": 0, "xMm": 0, "yMm": 0 },
+              "end": { "xIu": 10000000, "yIu": 0, "xMm": 25.4, "yMm": 0 }
+            },
+            {
+              "kind": "arc",
+              "start": { "xIu": 10000000, "yIu": 0, "xMm": 25.4, "yMm": 0 },
+              "end": { "xIu": 10000000, "yIu": 10000000, "xMm": 25.4, "yMm": 25.4 },
+              "center": { "xIu": 10000000, "yIu": 5000000, "xMm": 25.4, "yMm": 12.7 },
+              "radiusIu": 5000000,
+              "radiusMm": 12.7,
+              "sweepDirection": "counterClockwise"
+            }
+          ]
+        }
+      ]
     }
-  ],
+  },
+  "layers": [],
+  "components": [],
+  "padStacks": [],
   "pads": [],
+  "nets": [],
   "tracks": [],
   "vias": [],
   "regions": [],
-  "texts": [],
-  "nets": []
+  "texts": []
 }
 ```
 
-Все координатные поля (`outline`, `position` падов/компонентов, точки треков/вий/регионов/текстов)
-используют ту же пару `xIu/yIu` + `xMm/yMm`. Остальные линейные величины используют пару
-`widthIu/widthMm`, `sizeIu/sizeMm`, `holeSizeIu/holeSizeMm`, `diameterIu/diameterMm`,
-`radiusIu/radiusMm`, `thicknessIu/thicknessMm`, `heightIu/heightMm` — в зависимости от параметра.
-Контракт является черновым до `BRIDGE-000001`; поля, не подтверждённые API, остаются `null`
-или не заполняются, а не заполняются догадками.
+Правила сериализации:
+
+- `BoardSnapshotJson` пишет UTF-8 без BOM, LF, инвариантные числа, фиксированный порядок полей;
+- массивы верхнего уровня сортируются по `id`; контуры сортируются по `id`, порядок сегментов
+  внутри контура сохраняется;
+- отсутствующие значения записываются явным `null`, пустые коллекции — `[]`;
+- `NaN` и `Infinity` в JSON не допускаются; сериализатор отклоняет их, читатель принимает только
+  конечные числа;
+- `schemaVersion` входит в контракт; несовместимое изменение — major;
+- диагностический `SmokeSnapshotJson` не смешивается с `BoardSnapshotJson`.
+
+Правила валидации:
+
+- `BoardSnapshotValidator.Validate` не меняет модель и возвращает `BoardValidationResult`;
+- ошибки (`Error`) означают, что snapshot непригоден для обмена; предупреждения (`Warning`)
+  фиксируют неполные данные;
+- коды стабильные: `EMB-VAL-001` … `EMB-VAL-011`, `EMB-VAL-101`, `EMB-VAL-102`;
+- проверяются уникальность ID, обязательные атрибуты, ссылки, пары IU/мм, конечность чисел,
+  отрицательные размеры, дуги, замкнутость и непрерывность контуров, роли контуров и наличие
+  внешнего контура;
+- пространственная вложенность отверстий и контуров не проверяется геометрическим
+  point-in-polygon тестом; это известное ограничение текущей версии.
 
 ### 5.3 Идентификаторы
 
-Приоритет:
-
-1. `SourceUniqueId` компонента, если он стабилен и непуст;
-2. детерминированный SHA-256 от нормализованного набора
-   `designator|footprint|side|layerId|xIu|yIu|rotation`;
-3. при коллизии — суффикс `#2`, `#3`, … с записью предупреждения в диагностику.
-
-Правило подлежит проверке в `BRIDGE-000001` (Q-008).
+Core рассматривает ID как непрозрачную непустую строку. Генерация ID, SHA-256 и суффиксы
+коллизий в `BRIDGE-000002` не реализованы. `SourceUniqueId` сохраняется только как provenance
+и не считается доказанно стабильным; D-010 остаётся `Proposed`. ID не выводятся из Designator
+или координат внутри модели. Стратегия стабильных идентификаторов — отдельная задача.
 
 ## 6. Формат Exchange Package
 
