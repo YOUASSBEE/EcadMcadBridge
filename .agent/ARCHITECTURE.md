@@ -165,9 +165,10 @@ EcadMcadBridge.Core ────────► BCL только
 ```
 
 На этапе `BRIDGE-000002` реализованы нейтральная модель Core, JSON и валидатор (раздел 5).
-Шаги 1–4 остаются ограничены диагностическим снимком из `BRIDGE-000001`: полное извлечение
-объектов Altium и преобразование в `BoardSnapshot` не реализованы. Шаги 6–8 (Exchange Package
-и MCAD-сторона) также не реализованы.
+На этапе `BRIDGE-000003` реализован read-only Altium adapter для слоёв, компонентов и placement,
+падов/PadStacks, nets и контура платы, включая аналитические дуги; команда Add-in —
+`ExportBoardSnapshot`. Tracks, vias, regions и text items остаются вне scope. Шаги 6–8
+(Exchange Package и MCAD-сторона) по-прежнему не реализованы.
 
 ## 5. Модель данных
 
@@ -325,6 +326,37 @@ Core рассматривает ID как непрозрачную непуст�
 коллизий в `BRIDGE-000002` не реализованы. `SourceUniqueId` сохраняется только как provenance
 и не считается доказанно стабильным; D-010 остаётся `Proposed`. ID не выводятся из Designator
 или координат внутри модели. Стратегия стабильных идентификаторов — отдельная задача.
+
+### 5.4 Altium adapter — BRIDGE-000003
+
+Реализация: `EcadMcadBridge.Altium/Adapter/AltiumBoardSnapshotAdapter` и
+`AltiumOutlineReader`. Adapter только читает `PCB.IPCB_*`, не содержит JSON и не меняет
+плату. Команда `EcadMcadBridge:ExportBoardSnapshot` вызывает adapter, затем
+`BoardSnapshotValidator` и `BoardSnapshotJson.SerializeToUtf8`; файл пишется в
+`%TEMP%\EcadMcadBridge\board-snapshot-<UTC>.json`.
+
+| Altium | Core |
+|---|---|
+| `IPCB_Board.LayerIterator()` / `IPCB_LayerObject` | `LayerRef` (V6-ID как opaque `altium:layer:<id>`, имя, kind, side) |
+| `IPCB_Board.GetState_MasterStack().Get_ZTop/ZBottom` | `BoardProperties.Thickness` |
+| `IPCB_Component` | `ComponentInstance` + `Transform` + `SourceUniqueId` |
+| `IPCB_Pad` + copper layer shapes | `Pad` + `PadStack` + `PadShape` (per-layer width/height) |
+| `IPCB_Net` | `Net` |
+| `IPCB_BoardOutline.BoardOutline_GeometricPolygon()` | контуры и роли outer/hole |
+| `IPCB_BoardOutline` как `IPCB_Polygon.GetState_Segments()` | `LineSegment`/`ArcSegment` с сохранением `Angle1/Angle2` |
+
+Ограничения текущего adapter:
+
+- Core `LayerKind` не различает signal и internal plane; оба представлены как `Copper`.
+  Механические слои определяются по V6-ID, а не по имени.
+- В Core 1.0.0 нет полей pad hole, pin designator, локальных координат пада, stack order
+  и признака 3D-модели; adapter не выдумывает эти значения и пишет предупреждения.
+- `eRounded` с разными размерами представлен rounded rectangle с радиусом
+  `min(width,height)/2` и предупреждением; `eCustomShape` пропускается с предупреждением.
+- Внутренние вырезы контура поддержаны через `GetState_IsHole`; на выбранных vendor-платах
+  они не встретились, поэтому этот путь не подтверждён smoke-тестом.
+- Полное соответствие Core всем структурам Altium не утверждается; adapter проверен на
+  `MiniPC.PcbDoc` и `Bluetooth_Sentinel.PcbDoc` в AD26.12.2.9 (см. отчёт `BRIDGE-000003`).
 
 ## 6. Формат Exchange Package
 

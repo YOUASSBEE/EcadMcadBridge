@@ -1,0 +1,221 @@
+---
+id: BRIDGE-000003
+type: report
+status: ready_for_review
+from: local-agent
+to: operator
+created: 2026-11-24T12:50:00+03:00
+updated: 2026-11-24T12:50:00+03:00
+base: source
+branch: task/BRIDGE-000003-altium-board-adapter
+commit: pending
+pr: pending
+related: [BRIDGE-000003, BRIDGE-000002, D-005, D-009, D-010, D-015]
+---
+
+# BRIDGE-000003 — Altium BoardSnapshot Adapter
+
+## 1. Итог
+
+Реализован первый вертикальный срез экспорта из Altium Designer 26 в нейтральную
+`BoardSnapshot`:
+
+- слои платы;
+- компоненты и placement, Top/Bottom, rotation;
+- пады и per-layer `PadStack`/`PadShape`;
+- nets;
+- контур платы с линиями и аналитическими дугами, с поддержкой ролей outer/hole.
+
+Добавлена read-only команда `EcadMcadBridge:ExportBoardSnapshot`; существующая
+`ExportSmokeSnapshot` сохранена без изменения назначения. Adapter не содержит JSON,
+не зависит от SOLIDWORKS и не меняет PCB.
+
+Не реализовано в этой задаче: tracks, vias, regions, text items, Exchange Package,
+3D-модели компонентов, автоматическая установка Add-in и стабильная стратегия ID.
+
+## 2. Файлы
+
+Новые:
+
+```text
+src/EcadMcadBridge.Altium/Adapter/AltiumBoardSnapshotAdapter.cs
+src/EcadMcadBridge.Altium/Adapter/AltiumOutlineReader.cs
+src/EcadMcadBridge.Altium/Application/ExportBoardSnapshotHandler.cs
+src/EcadMcadBridge.Core/Diagnostics/AngleNormalizer.cs
+tests/EcadMcadBridge.Core.Tests/AngleNormalizerTests.cs
+.agent/reports/BRIDGE-000003-report.md
+```
+
+Изменены:
+
+```text
+src/EcadMcadBridge.Altium/Bootstrap/BridgeServerModule.cs
+src/EcadMcadBridge.Altium/Bootstrap/PluginFactory.cs
+src/EcadMcadBridge.Altium/Application/ExportSmokeSnapshotHandler.cs
+src/EcadMcadBridge.Altium/Installation/EcadMcadBridge.ins
+src/EcadMcadBridge.Altium/Installation/EcadMcadBridge.rcs
+.agent/SDK_API_LEDGER.md
+.agent/ARCHITECTURE.md
+.agent/PROJECT_CONTEXT.md
+README.md
+```
+
+Новых проектов, TFM, зависимостей и изменений Core-модели (кроме neutral
+`AngleNormalizer`) нет. Бинарные платы и пользовательские данные в Git не добавлены.
+
+## 3. Архитектура adapter
+
+`AltiumBoardSnapshotAdapter.Read(view)`:
+
+1. получает активную PCB через существующий `PCB.GlobalVars.PCBServer`;
+2. читает слои через `LayerIterator` (`LayerRef`, V6-ID, имя, kind, side);
+3. читает nets через board iterator `eNetObject`;
+4. читает компоненты через board iterator `eComponentObject`, placement и высоту;
+5. для каждого компонента читает пады через `GroupIterator` и создаёт `PadStack`
+   с shape на каждом copper-слое, где пад имеет геометрию;
+6. читает контур через `BoardOutline_GeometricPolygon` (роли) и
+   `IPCB_BoardOutline` как `IPCB_Polygon` (`GetState_Segments`) для сохранения дуг;
+7. возвращает `BoardSnapshot` + список предупреждений adapter.
+
+`ExportBoardSnapshotHandler`:
+
+- вызывает adapter;
+- пишет adapter warnings и diagnostics в `%TEMP%\EcadMcadBridge\logs\bridge.log`;
+- валидирует `BoardSnapshotValidator`;
+- при ошибках не пишет JSON и показывает предупреждение;
+- при успехе пишет `%TEMP%\EcadMcadBridge\board-snapshot-<UTC>.json` через
+  `BoardSnapshotJson.SerializeToUtf8`;
+- показывает путь и счётчики.
+
+## 4. Altium API → Core
+
+| Altium | Core / назначение |
+|---|---|
+| `IPCB_Board.LayerIterator()` + `IPCB_LayerObject` | `LayerRef`: V6-ID, имя, kind, side |
+| `IPCB_Board.GetState_MasterStack()` + `Get_ZTop/Get_ZBottom` | `BoardProperties.Thickness` |
+| `IPCB_Component` | `ComponentInstance` + `Transform` + `SourceUniqueId` |
+| `IPCB_Group.GroupIterator_Create` (`ePadObject`) | пады компонента |
+| `IPCB_Pad` + copper layer shapes | `Pad`, `PadStack`, `PadShape` |
+| `IPCB_Net` | `Net` |
+| `IPCB_BoardOutline.BoardOutline_GeometricPolygon()` | роли контуров outer/hole |
+| `IPCB_BoardOutline` как `IPCB_Polygon.GetState_Segments()` | `LineSegment`/`ArcSegment` |
+| `PolySegment.Kind/Vx/Vy/Cx/Cy/Radius/Angle1/Angle2` | сохранение дуг без аппроксимации |
+
+Подтверждение сигнатур: метаданные `Altium.SDK.Interfaces.dll` AD26.12.2.9 (`ildasm`)
+и успешный smoke-тест. Подробности — `SDK_API_LEDGER.md`, C-73…C-84.
+
+## 5. Что заполняется в Core
+
+- `Source`: cad/version/file name/time/tool version;
+- `BoardProperties`: id, name, thickness (если stack вернул ненулевые Z);
+- `BoardOutline`: контуры, outer/hole, линии и дуги;
+- `Layers`: Top/Mid/Bottom/Plane/Overlay/Paste/Solder/Mechanical/Multi-Layer;
+- `Components`: designator/comment/footprint/sourceUniqueId/layer/placement/height;
+- `PadStacks`: shape per copper layer, kind/width/height/cornerRadius для oval;
+- `Pads`: component/net/layer/padStack/global position/rotation;
+- `Nets`: name и source id.
+
+Не заполняется:
+
+- tracks/vias/regions/texts — вне scope;
+- pad holes/plating — в Core 1.0.0 нет полей;
+- pin designator и локальные координаты пада — в Core нет полей;
+- stack order и признак 3D-модели — в Core нет полей;
+- fitted/DNP — API не подтверждено для PCB-компонента;
+- внутренние cutouts — код поддержан, но на доступных vendor-платах не встретился.
+
+## 6. Тестовые платы и smoke
+
+Использованы vendor-примеры AD26, скопированные в `%TEMP%\EcadMcadBridge\smoke-000003\`
+и не добавленные в Git:
+
+1. `MiniPC.PcbDoc` — 16 copper-слоёв (signal/plane), Top/Bottom, 1046 компонентов,
+   6004 пада, 837 сетей, multi-layer пады, rotation `135°`.
+2. `Bluetooth_Sentinel.PcbDoc` — контур с 2 дугами и 10 линиями, Top/Bottom,
+   73 компонента, 224 пада, 57 сетей.
+
+Smoke выполнен в AD26.12.2.9 через реальный Add-in и команду `Export Board Snapshot`.
+
+### MiniPC.PcbDoc
+
+- layers: 31;
+- components: 1046 (Top 368, Bottom 678);
+- pads: 6004;
+- nets: 837;
+- padStacks: 6004, shapes: 9669;
+- shapes: rectangular 3690, circular 5237, roundedRectangle 742;
+- rotations: 0° — 244, 90° — 251, −90° — 228, −180° — 322, 135° — 1;
+- outline: 1 контур, 6 линий (дуг на этой плате нет);
+- thickness: 790552 IU;
+- adapter warnings: 12 (pad holes, oval mapping, пустые MH PadStacks);
+- validation warnings: 1029 (в основном пады без net и необязательные поля);
+- validation errors: 0;
+- SHA256 до и после:
+  `50547E5ED4AA84C430CD1F3B3F5EDBF2ED6FB013E8C076A871C9BDE4B5749A93`;
+- JSON: `%TEMP%\EcadMcadBridge\board-snapshot-20261124T094155045Z.json`.
+
+### Bluetooth_Sentinel.PcbDoc
+
+- layers: 17;
+- components: 73 (Top 72, Bottom 1);
+- pads: 224;
+- nets: 57;
+- padStacks: 224, shapes: 224;
+- rotations: 0°, ±90°, 180°;
+- outline: 1 outer-контур, 12 сегментов (10 линий + 2 аналитические дуги),
+  radius 5118110 IU, sweep `clockwise`;
+- thickness: 313581 IU;
+- adapter warnings: 1 (oval pads mapped to rounded rectangle);
+- validation warnings: 28;
+- validation errors: 0;
+- SHA256 до и после:
+  `1E18C3EFA9D6C3245AA09CAB7268B2A908078E50ED2D09DC9D6DFD3BC36B95F3`;
+- JSON: `%TEMP%\EcadMcadBridge\board-snapshot-20261124T094350604Z.json`.
+
+Внутренние вырезы контура не встретились на этих vendor-платах. Код использует
+`GetState_IsHole` и готов к ролям hole, но этот путь требует отдельной synthetic cutout
+платы для подтверждения.
+
+## 7. Ограничения и вопросы
+
+| Ограничение / вопрос | Статус |
+|---|---|
+| Core `LayerKind` не различает signal и internal plane | Оба `Copper`; V-18/Q-013 |
+| Core `Pad` не содержит hole/plating, pin designator, local coords | Adapter не подменяет; V-19/Q-012 |
+| Core `PadShape` не содержит oval; `eRounded` с разными размерами | Rounded rectangle radius=min/2 + warning; V-20 |
+| `eCustomShape` не имеет вершин в API | PadShape пропускается с warning; V-20 |
+| Core не содержит stack order и 3D-model flag | Не заполняется; V-21 |
+| Внутренние cutouts не встретились на тестовых платах | Код поддержан, smoke не подтверждён; V-22 |
+| `DefinitionLayerIterator` иногда отдаёт V7-ID, не совпадающие с V6 | Adapter перебирает copper-слои board layer iterator; V-23 |
+| Стабильность `SourceUniqueId` | Не доказана; ID используются как provenance, D-010 остаётся Proposed |
+| Vendor-платы содержат 1000+ validation warnings | В основном unconnected pads/optional fields; errors=0, JSON валиден |
+
+Публичные контракты Core в этой задаче не расширялись. Вопросы требуют отдельного
+архитектурного решения до добавления pad holes, plane kind, stack order и локальных
+координат падов.
+
+## 8. Проверки
+
+```text
+dotnet build -c Release
+Сборка успешно завершена.
+Предупреждений: 0
+Ошибок: 0
+
+dotnet test -c Release
+Пройден! : не пройдено 0, пройдено 41, пропущено 0, всего 41
+```
+
+Существующие 33 теста Core не регрессировали; добавлены 8 тестов `AngleNormalizer`.
+
+## 9. Commit SHA и PR
+
+- Commit: `pending` (будет заполнен после коммита).
+- PR: `pending` (база `source`, ветка `task/BRIDGE-000003-altium-board-adapter`).
+- PR не мержится автором.
+
+## 10. История изменений
+
+| Дата | Изменение |
+|---|---|
+| 2026-11-24 | Первая версия: adapter, слои, компоненты, пады, nets, контур, JSON, smoke. |

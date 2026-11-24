@@ -150,7 +150,45 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | C-64 | Регистрация расширения выполняется элементом `Item` в `ExtensionsRegistry.xml` с `HRID`, `Guid`, `Path`, `Status`, `Title`, `Version`, `PlatformVersions` | `ExtensionsRegistry.xml` на стенде; инструкция предоставленного проекта |
 | C-65 | Подтверждена совместимость Altium Designer 26 + Altium SDK 4.0.1 + .NET SDK 10 с `net10.0-windows` для Altium Add-in | Подтверждение оператора в ревью `BRIDGE-BOOTSTRAP-002`; целевой TFM Altium, не InteractiveBom `net8.0-windows` |
 
-### 2.9 Доказательства, полученные в smoke-тесте BRIDGE-000001
+### 2.9 Altium BoardSnapshot adapter — BRIDGE-000003
+
+Сигнатуры проверены по метаданным `Altium.SDK.Interfaces.dll` установленного AD26
+(`ildasm`) и фактическим вызовом в AD26.12.2.9. Контракт SDK 4.0.1 остаётся источником
+назначения API; для adapter использованы только типизированные вызовы, без reflection.
+
+| ID | API | Назначение / ограничение |
+|---|---|---|
+| C-73 | `PCB.IPCB_BoardHelper.LayerIterator()` → `IPCB_LayerObjectIterator`; `First()`, `Next()`, `LayerObject()` | Перебор слоёв платы |
+| C-74 | `IPCB_LayerObject.GetState_LayerName()`, `Internal_V6_LayerID()`, `IsInLayerStack()`, `GetState_UsedByPrims()`, `V7_LayerID()` | Имя, V6-ID, признак stackup и использования слоя |
+| C-75 | `PCB.IPCB_BoardHelper.GetState_MasterStack()`; `IPCB_LayerStackBaseHelper.Get_ZTop/ZBottom(IPCB_LayerObject)` | Толщина платы по master stack; значения могут быть 0/недоступны |
+| C-76 | `IPCB_Board.BoardIterator_Create/Destroy`; `AddFilter_ObjectSet(TObjectSet)`, `AddFilter_Method(TIterationMethod.eProcessAll)`, `FirstPCBObject/NextPCBObject` | Перебор `eComponentObject`, `eNetObject` |
+| C-77 | `IPCB_Component.GetState_Name()`, `GetState_Comment()`, `GetState_Pattern()`, `GetState_SourceUniqueId()`, `GetState_UniqueId()`, `GetState_Layer()`, `GetState_FlippedOnLayer()`, `GetState_XLocation/YLocation()`, `GetState_Rotation()`, `GetState_Height()` | Компоненты, designator/comment/footprint, placement, сторона, высота |
+| C-78 | `IPCB_Group.GroupIterator_Create/Destroy`; `AddFilter_ObjectSet`, `AddFilter_AllLayers`, `FirstPCBObject/NextPCBObject` | Перебор падов компонента |
+| C-79 | `IPCB_Pad.GetState_Name/UniqueId/Layer/XLocation/YLocation/Rotation/HoleSize/Net`; `GetState_ShapeOnLayer`, `GetState_XSizeOnLayer/YSizeOnLayer`, `GetState_XStackSizeOnLayer/YStackSizeOnLayer` | Пады, слои, формы, размеры, net, отверстия (только чтение) |
+| C-80 | `IPCB_Net.GetState_Name()`, `GetState_UniqueId()` | Nets |
+| C-81 | `IPCB_BoardOutline.BoardOutline_GeometricPolygon()`; `IPCB_GeometricPolygon.GetState_Count/GetState_Contour/GetState_IsHole`; `IPCB_Contour.GetState_Count/PointX/PointY` | Контуры, роли outer/hole и геометрический fallback |
+| C-82 | `IPCB_BoardOutline` как `IPCB_Polygon`: `GetState_PointCount()`, `GetState_Segments(int)`; `PolySegment.Kind/Vx/Vy/Cx/Cy/Radius/Angle1/Angle2` | Контур с аналитическими дугами (`ePolySegmentArc`) |
+| C-83 | `TObjectId.eComponentObject/eNetObject/ePadObject/eTrackObject`; `TV6_Layer`; `TShape`; `TPolySegmentType` | Фильтры и преобразование layer/shape/segment |
+| C-84 | `DXP.IServerDocumentView.GetOwnerDocument()`; `IServerDocument.GetKind()`; `IPCB_Board.GetState_FileName()` | Проверка активного PCB и имени документа; ранее C-19/C-67/C-68 |
+
+Подтверждено smoke-тестом на `MiniPC.PcbDoc`: 31 слой, 1046 компонентов, 6004 пада,
+837 сетей, 31 pad stack с 16 слоями у multi-layer падов, 9669 форм; `rotations` включают
+`135°`, стороны Top/Bottom представлены. На `Bluetooth_Sentinel.PcbDoc` подтверждены
+2 аналитические дуги в контуре и 12 сегментов (10 линий + 2 дуги).
+
+Ограничения adapter:
+
+- `TShape.eRounded` с разными X/Y размерами в Core представлен как rounded rectangle
+  с радиусом `min(width,height)/2`; это предупреждение, не бесшумная замена.
+- `TShape.eCustomShape` и pad holes не имеют полноценного представления в Core 1.0.0;
+  adapter пишет предупреждение и не выдумывает геометрию.
+- `LayerKind` Core не различает signal и internal plane: оба `Copper`.
+- Локальные координаты падов, pin designator, stack order и наличие 3D-модели в Core
+  отсутствуют; adapter их не подменяет.
+- Внутренние вырезы контура поддержаны через `GetState_IsHole`, но на выбранных
+  vendor-платах не встретились; это ограничение тестового покрытия, не API.
+
+### 2.10 Доказательства, полученные в smoke-тесте BRIDGE-000001
 
 | ID | Сигнатура / вызов | Доказательство | Использование |
 |---|---|---|---|
@@ -175,8 +213,8 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-05 | Как определить несохранённые изменения и хеш `.PcbDoc`? | `GetModified`, `GetFileName` объявлены, но поведение не проверено | Smoke-тест на новом/изменённом/сохранённом документе |
 | V-06 | Как извлекать 3D-модели и высоты для MCAD? | `SaveModelToFile`, `DefaultPCB3DModel` объявлены, поведение и формат не проверены | Отдельная задача MCAD-фазы; не использовать до проверки |
 | V-07 | Стабилен ли `SourceUniqueId` между сессиями и ECO? | Не проверено; возможны пустые/меняющиеся значения | Экспорт одного проекта до/после ECO, сравнение |
-| V-08 | Как получить толщину платы и стек слоёв? | Интерфейсы слоёв объявлены, но нужный путь не подтверждён | Исследовать `LayerStack`/`BoardLayerSetManager` |
-| V-09 | Как корректно перечислять механические слои и их назначение? | `TV6_Layer` известен, семантика механических слоёв не проверена | Smoke-тест на тестовой плате |
+| V-08 | Как получить толщину платы и стек слоёв? | Частично закрыт в `BRIDGE-000003`: `GetState_MasterStack().Get_ZTop/Get_ZBottom` дали ненулевые значения на vendor-платах (`790552 IU`, `313581 IU`). Точная семантика Z-значений и порядок stackup не подтверждены | Сравнить с Layer Stack Manager; при необходимости отдельный ADR |
+| V-09 | Как корректно перечислять механические слои и их назначение? | Частично закрыт в `BRIDGE-000003`: `LayerIterator` + V6-ID дают Top/Mid/Bottom/Plane/Mechanical; механические слои классифицируются по ID, не по имени. Назначение конкретного mechanical-слоя не формализовано | Smoke-тест на плате с именованными mechanical-слоями |
 | V-10 | Семантика `GetState_Height()` и bounding box компонента | Не проверено, в каких единицах и с учётом чего считается | Сравнить с UI Altium на эталонной плате |
 | V-11 | Автоматизация установки расширения и правки `ExtensionsRegistry.xml` | Известен только ручной путь | Отдельная задача; учесть права администратора и блокировку файла |
 | V-12 | Лицензирование и допустимость поставки SDK-сборок Altium вместе с Add-in | Требуется проверка лицензии; в репозиторий DLL не коммитятся | Юридическая/техническая проверка, решение в `DECISIONS.md` |
@@ -185,6 +223,12 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-15 | Поддержка WPF/WinForms внутри AD26 и тема оформления | Частично закрыт в `BRIDGE-000001`: хост-диалог `DXP.Utils.ShowInfo` (C-69) и минимальная WinForms-панель (C-72) работают в AD26; полноценные панели не создавались | Отдельный smoke-тест полноценной панели; для текущей команды кастомный UI не нужен |
 | V-16 | Требования к потоку и COM-апартаменту для вызовов PCB API | Не проверено; возможны UI-thread-only ограничения | Smoke-тест с фоновым потоком и без него |
 | V-17 | Поведение `TIterationMethod.eProcessAll` на всех типах объектов | Значение известно, полный набор объектов не проверен | Сравнить счётчики с UI/отчётом Altium |
+| V-18 | Как различать signal и internal plane в Core `LayerKind`? | Core не имеет отдельного `Plane`; adapter классифицирует оба как `Copper` | Отдельное расширение Core или дополнительный слой метаданных |
+| V-19 | Как представлять отверстия падов, pin designator и локальные координаты пада? | В Core 1.0.0 нет соответствующих полей; adapter не подменяет данные | Отдельное решение/ADR до расширения Core |
+| V-20 | Как представлять oval и custom pad shapes? | `eRounded` с разными размерами отображён в rounded rectangle с предупреждением; `eCustomShape` не имеет вершин в API | Отдельная задача по PadShape; сейчас ограничение зафиксировано |
+| V-21 | Как сохранять порядок слоёв stackup и наличие 3D-модели? | Core не содержит этих полей; adapter их не заполняет | Расширение Core отдельным решением |
+| V-22 | Поддержаны ли внутренние вырезы контура (`GetState_IsHole`) на реальной плате? | Код использует `GetState_IsHole`, но на выбранных vendor-платах вырезы не встретились | Smoke-тест на синтетической плате с cutout |
+| V-23 | Почему `IPCB_Pad.DefinitionLayerIterator` иногда возвращает V7-ID, не совпадающие с V6? | Adapter обходит это перебором copper-слоёв board layer iterator; высокие V7-ID не используются как V6 | Отдельное исследование V7 layer mapping при необходимости |
 
 ## 4. Запрещено
 
@@ -222,3 +266,4 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | 2026-11-24 | BRIDGE-BOOTSTRAP-005: исправлено происхождение runtime-сборок — установленные extension AD26 и копия `publish_out`, не архив; уточнены V-02/V-13 | Bootstrap |
 | 2026-11-24 | BRIDGE-000001: добавлены C-66…C-72 и доказательства хоста; закрыты V-02/V-03/V-04, уточнены V-13/V-15 | local-agent |
 | 2026-11-24 | BRIDGE-000002: новых Altium API нет; Core-модель, JSON и валидатор не используют SDK | local-agent |
+| 2026-11-24 | BRIDGE-000003: добавлены C-73…C-84 и ограничения V-18…V-23; Adapter проверен в AD26.12.2.9 | local-agent |

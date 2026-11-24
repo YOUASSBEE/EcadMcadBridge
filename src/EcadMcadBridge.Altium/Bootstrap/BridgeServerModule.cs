@@ -25,7 +25,14 @@ namespace CSharpPlugin
                 ExportSmokeSnapshotHandler.CommandName,
                 ExportSmokeSnapshotHandler.Execute,
                 ExportSmokeSnapshotHandler.GetState);
-            BridgeLogger.Write("INFO", "BOOTSTRAP_COMMANDS", "command=" + ExportSmokeSnapshotHandler.CommandName);
+            launcher.RegisterCommand(
+                ExportBoardSnapshotHandler.CommandName,
+                ExportBoardSnapshotHandler.Execute,
+                ExportBoardSnapshotHandler.GetState);
+            BridgeLogger.Write(
+                "INFO",
+                "BOOTSTRAP_COMMANDS",
+                "commands=" + ExportSmokeSnapshotHandler.CommandName + "," + ExportBoardSnapshotHandler.CommandName);
         }
 
         protected override IServerDocument NewDocumentInstance(string kind, string fileName) => null!;

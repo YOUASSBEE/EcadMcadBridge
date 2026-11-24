@@ -4,7 +4,7 @@ Server
     EditorName        = 'EcadMcadBridge'
     EditorExePath     = 'EcadMcadBridge.DLL'
     EditorDescription = 'ECAD-MCAD Bridge - diagnostic PCB snapshot'
-    Version           = 'Version 0.1.0.0'
+    Version           = 'Version 0.2.0.0'
     Date              = '24-Nov-2026'
     HelpAboutInfo     = 'ECAD-MCAD Bridge smoke snapshot add-in'
     Copyright         = 'ECAD-MCAD Bridge project'
@@ -16,6 +16,11 @@ End
 Command
     Name        = 'ExportSmokeSnapshot'
     LongSummary = 'Write a diagnostic snapshot of the active PCB to the temporary directory'
+End
+
+Command
+    Name        = 'ExportBoardSnapshot'
+    LongSummary = 'Export the active PCB to the neutral Core BoardSnapshot JSON'
 End
 
 PanelInfo
