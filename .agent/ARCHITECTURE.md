@@ -540,14 +540,18 @@ schema и attachments в пакете не реализованы; контра�
   `.sat`, `.igs`, `.stl` возвращают `COMException`. Для одного тела point set
   `ExportToStep` и `SaveModelToFile` совпадает; component-level API объединяет
   несколько тел и для multi-body компонента неоднозначен.
-- Для embedded generic STEP/X_T `SaveModelToFile` с исходным расширением сохраняет
-  размер исходных данных (`GetDataSize`); другое расширение/`ExportToStep` дают
-  reserialized STEP. Это предпочтительный путь сохранения исходной B-Rep.
-- `GetModelSource` на проверенных платах всегда `Undefined`; embedded/linked
-  различается только `GetEmbed`/`GetFileName`. Linked-модели в реальных платах не
-  найдены; искусственно созданная через `ModelFactory_FromFilename` модель получает
-  `GetEmbed=true` и absolute `GetFileName`, `SetEmbed(false)` меняет флаг. Абсолютный
-  путь нельзя переносить в пакет.
+- Для embedded generic STEP/X_T `SaveModelToFile` с исходным расширением дал размер,
+  равный `GetDataSize`; побайтовая идентичность исходному embedded-файлу **не
+  проверена**. Это кандидат на сохранение исходных данных, а не доказанное
+  побайтовое копирование. Другое расширение/`ExportToStep` дают reserialized STEP.
+  V-32 остаётся открытым.
+- `GetModelSource` на проверенных платах всегда `Undefined`; `GetEmbed=true`
+  подтверждает embedded-признак только для проверенных объектов, а `GetEmbed=false`
+  **не доказывает** linked-файл. Linked-модель в реальном PCB не проверена.
+  Extruded/native-модель может не иметь внешнего файла вообще. Искусственно
+  созданная через `ModelFactory_FromFilename` модель получает `GetEmbed=true` и
+  absolute `GetFileName`; `SetEmbed(false)` меняет флаг, но не доказывает linked
+  в сохранённой плате. Абсолютный путь нельзя переносить в пакет.
 - `GetOrigin()` — точка начала модели в координатах платы (не обязательно центр
   bbox): на B2 (`747540101.stp`) origin смещён от центра body bbox на ~17.4 мм по Y,
   `GetState` даёт `(0,0,90)` и `dz`; `GetRotation()` не эквивалентен `GetState`.
@@ -574,14 +578,20 @@ schema и attachments в пакете не реализованы; контра�
 └── assets/3d/<sha256>/<safe-name>.<ext>
 ```
 
-`models/models.json` — отдельная версионируемая схема
-`ecad-mcad-bridge/models` 1.0.0; массив `models` с записями:
+`models/models.json` — **Proposed** отдельная версионируемая схема
+`ecad-mcad-bridge/models` 1.0.0; имена полей ниже не являются финальным
+JSON-контрактом. Массив `models` с записями:
 
 - `id` — производный `componentId` + `bodyOrdinal` (не выдавать за стабильный ID);
 - `componentId` — ID из `board.snapshot.json`;
 - `bodyOrdinal`, `modelIndex` — порядок в компоненте;
-- `modelType` (`extruded`/`generic`/`cylinder`/`sphere`), `sourceKind`
-  (`embedded`/`linked`/`converted`);
+- `modelType` (`extruded`/`generic`/`cylinder`/`sphere`);
+- `sourceOrigin` — происхождение модели: `embedded` (подтверждено только
+  `GetEmbed=true`), `linked` (пока неподтверждённый сценарий), `unknown`
+  (`GetEmbed=false` или `GetModelSource=Undefined`), `native` (extruded/procedural
+  без внешнего файла);
+- `assetAcquisition` — способ получения asset: `original` (исходное расширение;
+  побайтовая идентичность не подтверждена), `exported`, `converted`;
 - `sourceFileName` — только basename, без absolute path;
 - `assetPath`, `assetSha256`, `assetSize`, `format` (`step-ap214`/`parasolid-x_t`),
   `units`;
@@ -590,11 +600,32 @@ schema и attachments в пакете не реализованы; контра�
   (outer/hole контуры) и ссылка на component placement в snapshot;
 - `result`/`warnings` для Unsupported/Error.
 
+**Текущие возможности пакета (BRIDGE-000004…BRIDGE-000009):**
+
+- `ExchangePackageReader` рекурсивно обнаруживает обычные вложенные файлы,
+  проверяет наличие/отсутствие лишних файлов, размер и SHA-256 по
+  manifest/checksums, безопасные относительные POSIX-пути. Он **не**
+  интерпретирует содержимое `models/models.json` и не знает семантику 3D-assets.
+- `ExchangePackageWriter` сейчас пишет только `board.snapshot.json`,
+  `manifest.json` и `checksums.sha256`; он не принимает произвольные
+  дополнительные файлы, не копирует assets и не формирует для них inventory.
+  Возможности Reader проверять nested files **не означают**, что production
+  Writer уже поддерживает asset-пакет.
+
+**Что потребуется для реализации (после отдельного одобрения):**
+
+- входной список дополнительных файлов с безопасными относительными путями;
+- безопасное копирование во временный каталог пакета;
+- вычисление SHA-256 и размера каждого asset;
+- включение записей в `manifest.files` и `checksums.sha256` для всех файлов;
+- проверка целостности до атомарной публикации;
+- явная ошибка при попытке выйти за package root или использовать absolute path.
+
 Правила:
 
 - assets адресуются по SHA-256 и дедуплицируются; имена файлов генерируются из
   хеша/формата, исходное имя только как санитизированный basename;
-- `models.json` и assets добавляются в `manifest.files`; `checksums.sha256` уже
+- `models.json` и assets должны входить в `manifest.files`; `checksums.sha256`
   покрывает nested files, reader проверяет размер/SHA и безопасные POSIX-пути;
 - capability `3d-models`; старая версия пакета без `models/` читается как
   «модели отсутствуют», `board.snapshot.json` остаётся 1.0.0;

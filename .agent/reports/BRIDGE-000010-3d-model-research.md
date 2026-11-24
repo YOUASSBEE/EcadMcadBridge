@@ -27,8 +27,9 @@ related: [BRIDGE-000009, BRIDGE-000010, V-06, V-26, V-27, V-28, V-29, V-30, V-31
 - модели реально извлекаются из всех трёх тестовых плат;
 - STEP AP214 B-Rep экспортируется через `IPCB_Model.ExportToStep` и
   `IPCB_ComponentBody.SaveModelToFile`; Parasolid X_T — через `SaveModelToFile`;
-- embedded STEP/X_T можно сохранить в исходном размере, если использовать исходное
-  расширение; иначе Altium пересобирает STEP;
+- для embedded STEP/X_T размер файла при исходном расширении совпал с
+  `GetDataSize`; побайтовая идентичность не проверена, поэтому это кандидат на
+  сохранение исходных данных, а не доказанное копирование;
 - `IPCB_Model.GetOrigin`/`GetState` и body projection дают материал для размещения,
   но точная композиция для generic-моделей и Bottom-side остаётся открытой;
 - исходные `.PcbDoc` не изменились.
@@ -150,7 +151,7 @@ Linked-моделей в реальных платах не найдено.
 | API | Результат | Ограничение |
 |---|---|---|
 | `IPCB_Model.ExportToStep(path)` | STEP AP214, B-Rep | Всегда reserialize; header timestamp делает SHA нестабильным между запусками |
-| `IPCB_ComponentBody.SaveModelToFile(path)` | STEP по умолчанию; при совпадении расширения с исходным форматом сохраняет embedded bytes | Для extruded исходного файла нет; путь не должен попадать в пакет |
+| `IPCB_ComponentBody.SaveModelToFile(path)` | STEP по умолчанию; при совпадении расширения с исходным форматом размер совпал с `GetDataSize` (побайтовая идентичность не проверена) | Для extruded исходного файла нет; путь не должен попадать в пакет |
 | `IPCB_Component.SaveModelToFile(path)` | STEP; для multi-body компонента объединяет тела | Нельзя использовать как per-body asset |
 | `IPCB_Component.SaveModelToFileAsPart(path)` | STEP; другой набор сущностей/дополнительная геометрия | Не подтверждено как исходная B-Rep одного body |
 | `body.SaveModelToFile(".x_t")` | Parasolid text (`**ABCDEF…`) | Только X_T подтверждён |
@@ -173,8 +174,9 @@ X_T-файл начинается с Parasolid-заголовка `**ABCDEFGHIJK
 - C63 `CAPC3216X18M.step`: 142 343 B = `GetDataSize`;
 - L1 `742792623.stp`: 55 221 B = `GetDataSize`;
 - B2 `747540101.stp`: 1 200 231 B = `GetDataSize`.
-Это лучший путь сохранения исходной B-Rep. `ExportToStep`/другое расширение
-пересобирает STEP и меняет размер/структуру.
+Это кандидат на сохранение исходной B-Rep: подтверждено совпадение размера, но не
+побайтовая идентичность. `ExportToStep`/другое расширение пересобирает STEP и
+меняет размер/структуру.
 
 ### 5.2 Воспроизводимость файлов
 
@@ -182,7 +184,8 @@ STEP-экспорт содержит `FILE_NAME(...,'<timestamp>',...)` и produ
 поэтому SHA-256 одного и того же тела может отличаться между запусками. Для
 дедупликации в пакете нельзя полагаться только на SHA сгенерированного STEP:
 нужна нормализация header/ID или сохранение исходных embedded bytes. Для embedded
-generic исходные bytes стабильны; для extruded — SHA будет зависеть от экспорта.
+generic размер при исходном расширении стабилен, но побайтовая идентичность не
+проверена; для extruded SHA будет зависеть от экспорта.
 
 ## 6. Трансформации и координаты
 
@@ -245,7 +248,7 @@ component rotation на Top и меняет знак на Bottom), а `ExportToS
 | Несколько моделей | J1 (4), C26 (3) | все тела/модели найдены, component-level export смешивает их |
 | Модель с offset | B2 | origin ≠ bbox center, state/dz ненулевые, STEP OK |
 | Локальный origin не в центре | B2 (X/Y), extruded z=0 (Z) | origin из `GetOrigin`, Z из standoff/overall |
-| Embedded | L1/C63 | embed=true, fileName basename, исходные bytes сохранены |
+| Embedded | L1/C63 | embed=true, fileName basename, размер совпал; байтовая идентичность не проверена |
 | Linked | нет в платах | искусственная модель: embed=true, absolute path; `SetEmbed(false)` работает; board linked не подтверждён |
 
 ## 7. Предложение для Exchange Package
@@ -264,25 +267,46 @@ component rotation на Top и меняет знак на Bottom), а `ExportToS
 └── assets/3d/<sha256>/<safe-name>.<ext>
 ```
 
-`models/models.json` — отдельная схема `ecad-mcad-bridge/models` 1.0.0:
-массив записей `id`, `componentId`, `bodyOrdinal`, `modelIndex`, `modelType`,
-`sourceKind` (embedded/linked/converted), `sourceFileName` (только basename),
-`assetPath`, `assetSha256`, `assetSize`, `format`, `units`, `transform`
-(`originMm`, `rotationDeg`, `dzMm`, `bodyStandoffMm`, `bodyOverallHeightMm`,
-`componentSide`, `bodyProjection`) и `result/warnings`.
+`models/models.json` — **Proposed** отдельная схема `ecad-mcad-bridge/models`
+1.0.0 (имена полей не финальный JSON-контракт): массив записей `id`,
+`componentId`, `bodyOrdinal`, `modelIndex`, `modelType`, `sourceOrigin`,
+`assetAcquisition`, `sourceFileName` (только basename), `assetPath`,
+`assetSha256`, `assetSize`, `format`, `units`, `transform` (`originMm`,
+`rotationDeg`, `dzMm`, `bodyStandoffMm`, `bodyOverallHeightMm`, `componentSide`,
+`bodyProjection`) и `result/warnings`.
+
+`sourceOrigin`: `embedded` (подтверждено только `GetEmbed=true`), `linked`
+(пока неподтверждённый сценарий), `unknown` (`GetEmbed=false` или
+`GetModelSource=Undefined`), `native` (extruded/procedural без внешнего файла).
+`assetAcquisition`: `original` (исходное расширение; побайтовая идентичность не
+подтверждена), `exported`, `converted`.
+
+Текущие возможности пакета:
+
+- `ExchangePackageReader` уже рекурсивно обнаруживает обычные вложенные файлы,
+  проверяет наличие/отсутствие лишних файлов, размер и SHA-256 по
+  manifest/checksums, безопасные относительные POSIX-пути; он не интерпретирует
+  `models/models.json`.
+- `ExchangePackageWriter` пока пишет только `board.snapshot.json`,
+  `manifest.json` и `checksums.sha256`, не принимает дополнительные assets и не
+  формирует inventory для `models.json`/3D-файлов.
+- Для реализации потребуется расширить Writer: входной список assets, безопасное
+  копирование во временный каталог, SHA-256/размер, записи в `manifest.files`,
+  checksums для всех файлов и проверка целостности до atomic publish.
 
 Правила:
 
 - asset path — относительный POSIX, имя генерируется из SHA-256/формата;
   исходное имя только санитизированный basename; absolute paths запрещены;
-- `models.json` и assets входят в `manifest.files`; `checksums.sha256` уже
-  покрывает nested files; reader проверяет размер/SHA и `PackagePath`;
+- `models.json` и assets должны входить в `manifest.files`; `checksums.sha256`
+  покрывает nested files, reader проверяет размер/SHA и `PackagePath`;
 - capability `3d-models`; старые пакеты без `models/` читаются как «модели
   отсутствуют»;
 - `BoardSnapshot` 1.0.0 не меняется; при необходимости ссылок из snapshot —
   отдельный minor bump 1.1.0 и ADR;
 - дедупликация по SHA-256, но для сгенерированных STEP нужна нормализация
-  header/timestamp; исходные embedded bytes предпочтительнее;
+  header/timestamp; сохранение исходных embedded bytes — кандидат, требующий
+  проверки побайтовой идентичности;
 - STL/mesh, ZIP/attachments, linked absolute paths и внешние ссылки запрещены.
 
 ## 8. Риски и открытые вопросы
@@ -334,3 +358,23 @@ git diff --check          → OK
 | 1 | API-исследование и временный probe; инвентаризация cutout/Bluetooth/MiniPC |
 | 2 | Экспорт STEP/X_T, форматы, embedded/linked, inventory representative |
 | 3 | Анализ origin/body projection/state, offset-сценарий B2, документация и отчёт |
+| 4 | R1: разграничены Reader/Writer, sourceOrigin/assetAcquisition и ограничение побайтовой идентичности |
+
+## 12. R1 review fix
+
+- **Reader/Writer.** Reader уже рекурсивно проверяет nested files по
+  manifest/checksums и безопасным POSIX-путям, но не интерпретирует
+  `models/models.json`. Writer пока пишет только snapshot, manifest и checksums;
+  произвольные assets не поддерживаются. Реализация asset-пакета требует отдельного
+  расширения Writer (входной список файлов, копирование, SHA/размер, manifest,
+  checksums, atomic publish).
+- **Классификация источника.** `GetEmbed=true` подтверждает embedded-признак только
+  для проверенных объектов; `GetEmbed=false` не доказывает linked; `GetModelSource`
+  на проверенных платах всегда `Undefined`. В предложении используются
+  `sourceOrigin = embedded | linked | unknown | native` и отдельный
+  `assetAcquisition = original | exported | converted`; окончательный JSON-контракт
+  не принят.
+- **Побайтовая идентичность.** Совпадение размера файла и `GetDataSize` на
+  выбранных embedded generic STEP-моделях подтверждено, но побайтовая идентичность
+  не проверена. Это кандидат на сохранение исходных данных, а не доказанное
+  копирование; V-32 остаётся открытым.
