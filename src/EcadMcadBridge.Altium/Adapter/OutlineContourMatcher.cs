@@ -20,7 +20,13 @@ internal static class OutlineContourMatcher
 
     public static bool TryExactMatch(
         IReadOnlyList<Point2D> contour,
-        IReadOnlyList<OutlineSegment> loop)
+        IReadOnlyList<OutlineSegment> loop) =>
+        TryExactMatch(contour, loop, ToleranceIu);
+
+    public static bool TryExactMatch(
+        IReadOnlyList<Point2D> contour,
+        IReadOnlyList<OutlineSegment> loop,
+        double toleranceIu)
     {
         if (loop.Count < 2 || !IsClosed(loop) || !IsContinuous(loop))
             return false;
@@ -32,13 +38,13 @@ internal static class OutlineContourMatcher
 
         foreach (var point in loopPoints)
         {
-            if (DistanceToPolyline(point, contour) > ToleranceIu)
+            if (DistanceToPolyline(point, contour) > toleranceIu)
                 return false;
         }
 
         foreach (var point in contourPoints)
         {
-            if (!IsPointOnLoop(point, loop))
+            if (!IsPointOnLoop(point, loop, toleranceIu))
                 return false;
         }
 
@@ -48,7 +54,7 @@ internal static class OutlineContourMatcher
             var next = (i + 1) % contour.Count;
             if (!TryMidpoint(contour[i], contour[next], out var midpoint))
                 return false;
-            if (!IsPointOnLoop(midpoint, loop))
+            if (!IsPointOnLoop(midpoint, loop, toleranceIu))
                 return false;
         }
 
@@ -58,7 +64,7 @@ internal static class OutlineContourMatcher
         {
             if (!TrySegmentMidpoint(segment, out var midpoint))
                 return false;
-            if (DistanceToPolyline(midpoint, contour) > ToleranceIu)
+            if (DistanceToPolyline(midpoint, contour) > toleranceIu)
                 return false;
         }
 
@@ -115,7 +121,7 @@ internal static class OutlineContourMatcher
         var missingLoop = loopPoints.Where(point => !contourPoints.Contains(point)).Take(3).ToArray();
         var notOnLoop = contourPoints.Where(point => !IsPointOnLoop(point, loop)).Take(3).ToArray();
         var loopToContour = loopPoints.Select(point => DistanceToPolyline(point, contour)).DefaultIfEmpty(0).Max();
-        var contourToLoop = contourPoints.Select(point => DistanceToLoop(point, loop)).DefaultIfEmpty(0).Max();
+        var contourToLoop = contourPoints.Select(point => DistanceToLoop(point, loop, ToleranceIu)).DefaultIfEmpty(0).Max();
         return $"uniqueLoop={loopPoints.Count} uniqueContour={contourPoints.Count} " +
             $"loopVerticesNotInContour={missingLoop.Length} contourPointsNotOnLoop={notOnLoop.Length} " +
             $"maxLoopToContour={loopToContour:F2} maxContourToLoop={contourToLoop:F2}" +
@@ -144,9 +150,21 @@ internal static class OutlineContourMatcher
         points.Count >= 2 && PointsEqual(points[0], points[^1]);
 
     internal static bool IsPointOnLoop(Point2D point, IReadOnlyList<OutlineSegment> loop) =>
-        DistanceToLoop(point, loop) <= ToleranceIu;
+        IsPointOnLoop(point, loop, ToleranceIu);
 
-    private static double DistanceToLoop(Point2D point, IReadOnlyList<OutlineSegment> loop)
+    internal static bool IsPointOnLoop(
+        Point2D point,
+        IReadOnlyList<OutlineSegment> loop,
+        double toleranceIu) =>
+        DistanceToLoop(point, loop, toleranceIu) <= toleranceIu;
+
+    internal static double DistanceToLoop(Point2D point, IReadOnlyList<OutlineSegment> loop) =>
+        DistanceToLoop(point, loop, ToleranceIu);
+
+    private static double DistanceToLoop(
+        Point2D point,
+        IReadOnlyList<OutlineSegment> loop,
+        double toleranceIu)
     {
         if (!TryCoordinates(point, out var px, out var py))
             return double.PositiveInfinity;
@@ -175,7 +193,13 @@ internal static class OutlineContourMatcher
             var startAngle = NormalizeAngle(Math.Atan2(sy - cy, sx - cx));
             var endAngle = NormalizeAngle(Math.Atan2(ey - cy, ex - cx));
 
-            if (!IsAngleOnArc(pointAngle, startAngle, endAngle, segment.SweepDirection.Value, segment.Radius))
+            if (!IsAngleOnArc(
+                    pointAngle,
+                    startAngle,
+                    endAngle,
+                    segment.SweepDirection.Value,
+                    segment.Radius,
+                    toleranceIu))
             {
                 distance = Math.Min(distance, Math.Min(
                     Distance(point, segment.Start) ?? double.PositiveInfinity,
@@ -194,7 +218,8 @@ internal static class OutlineContourMatcher
         double startAngle,
         double endAngle,
         ArcSweepDirection direction,
-        double radius)
+        double radius,
+        double toleranceIu)
     {
         const double twoPi = Math.PI * 2.0;
         var delta = direction == ArcSweepDirection.CounterClockwise
@@ -207,7 +232,7 @@ internal static class OutlineContourMatcher
             ? NormalizeAngle(pointAngle - startAngle)
             : NormalizeAngle(startAngle - pointAngle);
 
-        var angularTolerance = radius > 0 ? Math.Min(0.05, ToleranceIu / radius) : 0.05;
+        var angularTolerance = radius > 0 ? Math.Min(0.05, toleranceIu / radius) : 0.05;
         return offset <= delta + angularTolerance || offset >= twoPi - angularTolerance;
     }
 

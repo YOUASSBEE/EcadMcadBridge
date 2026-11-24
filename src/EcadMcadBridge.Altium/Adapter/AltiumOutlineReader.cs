@@ -94,6 +94,12 @@ internal static class AltiumOutlineReader
             .ToArray();
         var contours = new List<Contour>();
         var clipped = false;
+        var cutoutSources = BuildCutoutSources(cutoutRegions);
+        var existingHoles = geometricContours
+            .Where(contour => contour.Role == ContourRole.Hole && contour.Points.Count >= 3)
+            .Select(contour => new CutoutExistingHole(contour.Index, contour.Points))
+            .ToArray();
+        var assigned = new HashSet<CutoutSourceKey>();
 
         try
         {
@@ -124,30 +130,59 @@ internal static class AltiumOutlineReader
                         }
 
                         var loops = ReadShapeLoops(shape, i, warnings, diagnostics);
-                        foreach (var loop in loops)
+                        for (var loopIndex = 0; loopIndex < loops.Count; loopIndex++)
                         {
-                            var owner = FindMatchingCutoutRegion(loop, cutoutRegions);
-                            if (owner is null)
+                            var loop = loops[loopIndex];
+                            var clipBounds = FormatBounds(
+                                CutoutRegionMatcher.GetBounds(
+                                    CutoutRegionMatcher.SampleLoop(loop, CutoutRegionMatcher.ArcSamples)));
+                            var match = CutoutRegionMatcher.Match(loop, cutoutSources, assigned);
+
+                            if (match.Status == CutoutRegionMatchStatus.Ambiguous)
                             {
-                                diagnostics.ClipUnmatchedCutoutRegions++;
+                                diagnostics.ClipAmbiguousCutoutRegions++;
                                 warnings.Add(
-                                    $"Clipped cutout shape {i} does not match any eRegionKind_BoardCutout region by bounds; " +
-                                    "it was not exported.");
+                                    $"Clipped cutout shape {i} loop {loopIndex} is ambiguous: {match.Reason}; " +
+                                    $"clipBounds={clipBounds}; candidates=" + FormatCandidates(match.Candidates) +
+                                    "; it was not exported.");
                                 continue;
                             }
 
+                            if (match.Status == CutoutRegionMatchStatus.Unmatched || match.Source is null)
+                            {
+                                diagnostics.ClipUnmatchedCutoutRegions++;
+                                warnings.Add(
+                                    $"Clipped cutout shape {i} loop {loopIndex} is unmatched: {match.Reason}; " +
+                                    $"clipBounds={clipBounds}; it was not exported.");
+                                continue;
+                            }
+
+                            var owner = match.Source;
+                            assigned.Add(owner.Key);
                             diagnostics.ClipMatchedCutoutRegions++;
                             warnings.Add(
-                                $"Clipped cutout shape {i} matched Board Cutout region {owner.Index} " +
-                                $"(area={owner.Area}).");
+                                $"Clipped cutout shape {i} loop {loopIndex} matched Board Cutout region " +
+                                $"{owner.RegionIndex} contour {owner.ContourIndex} " +
+                                $"(uniqueId='{owner.RegionUniqueId}', bounds={FormatBounds(owner)}, " +
+                                $"clipBounds={clipBounds}, {match.Reason}).");
 
-                            var points = loop
-                                .SelectMany(segment => new[] { segment.Start, segment.End })
-                                .ToArray();
-                            if (MatchesExistingGeometricHole(points, loop, geometricContours))
+                            var duplicate = CutoutDeduplicator.Evaluate(loop, existingHoles);
+                            if (duplicate.Status == CutoutDuplicateStatus.Duplicate)
                             {
                                 diagnostics.DuplicateCutoutContours++;
+                                warnings.Add(
+                                    $"Clipped cutout shape {i} loop {loopIndex} duplicates geometric Hole " +
+                                    $"{duplicate.ExistingHoleIndex} (clipBounds={clipBounds}, {duplicate.Reason}); " +
+                                    "it was not exported twice.");
                                 continue;
+                            }
+
+                            if (duplicate.Status == CutoutDuplicateStatus.Partial)
+                            {
+                                warnings.Add(
+                                    $"Clipped cutout shape {i} loop {loopIndex} has only a partial match with " +
+                                    $"geometric Hole {duplicate.ExistingHoleIndex} (clipBounds={clipBounds}, " +
+                                    $"{duplicate.Reason}); duplicate export was not suppressed.");
                             }
 
                             diagnostics.ClipCutoutContours++;
@@ -252,75 +287,47 @@ internal static class AltiumOutlineReader
         return loops;
     }
 
-    private static AltiumRegionInfo? FindMatchingCutoutRegion(
-        IReadOnlyList<OutlineSegment> loop,
+    private static IReadOnlyList<CutoutSourceContour> BuildCutoutSources(
         IReadOnlyList<AltiumRegionInfo> cutoutRegions)
     {
-        const int toleranceIu = 10;
-        var points = loop.SelectMany(segment => new[] { segment.Start, segment.End });
-        var (minX, minY, maxX, maxY) = GetBounds(points);
+        var result = new List<CutoutSourceContour>();
         foreach (var region in cutoutRegions)
         {
-            if (region.Contours.Count == 0)
-                continue;
-            if (Math.Abs(region.MinX - minX) <= toleranceIu
-                && Math.Abs(region.MinY - minY) <= toleranceIu
-                && Math.Abs(region.MaxX - maxX) <= toleranceIu
-                && Math.Abs(region.MaxY - maxY) <= toleranceIu)
-                return region;
+            for (var contourIndex = 0; contourIndex < region.Contours.Count; contourIndex++)
+            {
+                var contour = region.Contours[contourIndex];
+                var bounds = CutoutRegionMatcher.GetBounds(
+                    CutoutDeduplicator.EnsureClosed(contour.Points));
+                result.Add(new CutoutSourceContour(
+                    region.Index,
+                    region.UniqueId,
+                    region.Name,
+                    contourIndex,
+                    contour.IsHole,
+                    contour.Points,
+                    region.Area,
+                    bounds.MinX,
+                    bounds.MinY,
+                    bounds.MaxX,
+                    bounds.MaxY));
+            }
         }
 
-        return null;
+        return result;
     }
 
-    private static (int MinX, int MinY, int MaxX, int MaxY) GetBounds(IEnumerable<Point2D> points)
-    {
-        var minX = int.MaxValue;
-        var minY = int.MaxValue;
-        var maxX = int.MinValue;
-        var maxY = int.MinValue;
-        foreach (var point in points)
-        {
-            if (point.XIu is not int x || point.YIu is not int y)
-                continue;
-            minX = Math.Min(minX, x);
-            minY = Math.Min(minY, y);
-            maxX = Math.Max(maxX, x);
-            maxY = Math.Max(maxY, y);
-        }
+    private static string FormatCandidates(IReadOnlyList<CutoutSourceContour> candidates) =>
+        string.Join(
+            "; ",
+            candidates.Select(candidate =>
+                $"region={candidate.RegionIndex} contour={candidate.ContourIndex} " +
+                $"uniqueId='{candidate.RegionUniqueId}' bounds={FormatBounds(candidate)}"));
 
-        return minX == int.MaxValue ? (0, 0, 0, 0) : (minX, minY, maxX, maxY);
-    }
+    private static string FormatBounds(CutoutSourceContour source) =>
+        FormatBounds((source.MinX, source.MinY, source.MaxX, source.MaxY));
 
-    private static bool MatchesExistingGeometricHole(
-        IReadOnlyList<Point2D> points,
-        IReadOnlyList<OutlineSegment> loop,
-        IReadOnlyList<GeometricContour> geometricContours)
-    {
-        var closed = EnsureClosed(points);
-        foreach (var geometric in geometricContours)
-        {
-            if (geometric.Role != ContourRole.Hole || geometric.Points.Count < 3)
-                continue;
-            if (OutlineContourMatcher.TryExactMatch(closed, loop))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static IReadOnlyList<Point2D> EnsureClosed(IReadOnlyList<Point2D> points)
-    {
-        if (points.Count == 0)
-            return Array.Empty<Point2D>();
-        if (points.Count >= 2 && PointsEqual(points[0], points[^1]))
-            return points;
-
-        var closed = new List<Point2D>(points.Count + 1);
-        closed.AddRange(points);
-        closed.Add(points[0]);
-        return closed;
-    }
+    private static string FormatBounds((int MinX, int MinY, int MaxX, int MaxY) bounds) =>
+        $"({bounds.MinX},{bounds.MinY})-({bounds.MaxX},{bounds.MaxY})";
 
     private static IReadOnlyList<GeometricContour> ReadGeometricContours(
         IPCB_BoardOutline outline,
@@ -533,7 +540,7 @@ internal static class AltiumOutlineReader
         return (loops, invalid);
     }
 
-    private static List<OutlineSegment> BuildOutlineSegments(IReadOnlyList<RawSegment> raw)
+    internal static List<OutlineSegment> BuildOutlineSegments(IReadOnlyList<RawSegment> raw)
     {
         var segments = new List<OutlineSegment>(raw.Count);
         for (var i = 0; i < raw.Count; i++)
@@ -549,13 +556,14 @@ internal static class AltiumOutlineReader
 
             if (current.Kind == TPolySegmentType.ePolySegmentArc)
             {
-                var delta = current.Angle2 - current.Angle1;
+                // Altium stores arc endpoints as CCW angles; crossing 0 degrees makes
+                // Angle2 smaller than Angle1. There is no separate direction field.
                 segments.Add(new OutlineSegment(
                     start,
                     end,
                     Point2D.FromIu(current.Cx, current.Cy),
                     current.Radius,
-                    delta >= 0 ? ArcSweepDirection.CounterClockwise : ArcSweepDirection.Clockwise));
+                    ArcSweepDirection.CounterClockwise));
             }
             else
             {
@@ -604,7 +612,7 @@ internal static class AltiumOutlineReader
         ContourRole Role,
         IReadOnlyList<Point2D> Points);
 
-    private sealed record RawSegment(
+    internal sealed record RawSegment(
         TPolySegmentType Kind,
         int Vx,
         int Vy,

@@ -177,7 +177,13 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   все вершины внутри outer; `ClipWithPolyRegShapes(false,false)` не включает pad/via
   holes. `MiniPC.PcbDoc` содержит BoardCutout-регион, но клиппер вернул 0 вырезов,
   поэтому регион не экспортируется. Matcher дополнительно проверяет середины
-  дуг/линий самого loop. Altium.Tests: 26; V-22 закрыт.
+  дуг/линий самого loop.
+- `BRIDGE-000003-FIX-005`: исправлена дедупликация (сравниваются реальные точки
+  geometric Hole, а не clip loop с самим собой), добавлено строгое Region matching
+  с `Matched`/`Unmatched`/`Ambiguous`, association tracking по паре
+  `(RegionIndex, ContourIndex)` и исправлена трактовка дуг CCW при переходе через 0°.
+  На операторской плате сохранены оба Hole; на MiniPC/Bluetooth ложных cutout нет.
+  Altium.Tests: 43; V-22 остаётся закрытым.
 - Tracks, vias, regions, text items и Exchange Package в адаптере не реализованы.
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
   и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.

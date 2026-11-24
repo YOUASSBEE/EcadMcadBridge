@@ -373,11 +373,23 @@ Core рассматривает ID как непрозрачную непуст�
   («Layer Stack Region 1»), но клиппер возвращает 0 вырезов, поэтому регион остаётся
   только диагностикой. Реальный `board with cutout.PcbDoc` дал 2 выреза, включая дуги
   (V-22 закрыт в `BRIDGE-000003-FIX-004`).
+- Дедупликация cutout сравнивает **фактические точки geometric Hole** с clip loop;
+  самосравнение clip loop устранено. Только доказанно одинаковый замкнутый контур
+  подавляет повторный экспорт; partial overlap не считается дубликатом.
+- Сопоставление clip loop ↔ `IPCB_Region`: bounding box 10 IU — только broad phase;
+  затем вершины Region-контура (3500 IU), площадь (5%) и centroid (1000 IU).
+  Результат — `Matched` / `Unmatched` / `Ambiguous`; связь хранится по паре
+  `(RegionIndex, ContourIndex)`, один source contour не назначается повторно.
+  `Ambiguous` и `Unmatched` не экспортируются и диагностируются с индексами и bounds.
 - Для analytic loop дополнительно проверяются середины дуг/линий самого loop, поэтому
   дуга не может «выпучиваться» за polyline и получать ложный exact.
+- `PolySegment.Angle1/Angle2` для `ePolySegmentArc` задают обход CCW; `Angle2 < Angle1`
+  означает переход через 0°. Это исправлено в `FIX-005`; ранее такой arc ошибочно
+  трактовался как CW-дуга 270°.
 - Полное соответствие Core всем структурам Altium не утверждается; adapter проверен на
   `MiniPC.PcbDoc`, `Bluetooth_Sentinel.PcbDoc` и `board with cutout.PcbDoc`
-  в AD26.12.2.9 (см. отчёты `BRIDGE-000003` и `BRIDGE-000003-FIX-004`).
+  в AD26.12.2.9 (см. отчёты `BRIDGE-000003`, `BRIDGE-000003-FIX-004`,
+  `BRIDGE-000003-FIX-005`).
 
 ## 6. Формат Exchange Package
 

@@ -5,7 +5,7 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T12:45:00+03:00
-updated: 2026-11-24T14:20:35+03:00
+updated: 2026-11-24T16:41:41+03:00
 base: source
 branch: task/BRIDGE-000003-altium-board-adapter
 commit: cb509bc62b01609abe74d46d83236b0691a5f7bc
@@ -122,7 +122,7 @@ README.md
 - pin designator и локальные координаты пада — в Core нет полей;
 - stack order и признак 3D-модели — в Core нет полей;
 - fitted/DNP — API не подтверждено для PCB-компонента;
-- внутренние cutouts — код поддержан, но на доступных vendor-платах не встретился.
+- внутренние Board Cutout — поддержаны и подтверждены на `board with cutout.PcbDoc`.
 
 ## 6. Тестовые платы и smoke
 
@@ -172,9 +172,9 @@ Smoke выполнен в AD26.12.2.9 через реальный Add-in и ко
   `1E18C3EFA9D6C3245AA09CAB7268B2A908078E50ED2D09DC9D6DFD3BC36B95F3`;
 - JSON: `%TEMP%\EcadMcadBridge\board-snapshot-20261124T094350604Z.json`.
 
-Внутренние вырезы контура не встретились на этих vendor-платах. Код использует
-`GetState_IsHole` и готов к ролям hole, но этот путь требует отдельной synthetic cutout
-платы для подтверждения.
+На этих vendor-платах внутренних вырезов нет. Реальный Board Cutout подтверждён
+отдельно на `board with cutout.PcbDoc` через `IPCB_Region` +
+`ClipWithPolyRegShapes(false,false)`; см. разделы 7.4 и 7.5.
 
 ## 7. Ограничения и вопросы
 
@@ -185,7 +185,7 @@ Smoke выполнен в AD26.12.2.9 через реальный Add-in и ко
 | Core `PadShape` не содержит oval; `eRounded` с разными размерами | Rounded rectangle radius=min/2 + warning; V-20 |
 | `eCustomShape` не имеет вершин в API | PadShape пропускается с warning; V-20 |
 | Core не содержит stack order и 3D-model flag | Не заполняется; V-21 |
-| Внутренние cutouts не встретились на тестовых платах | Код поддержан, smoke не подтверждён; V-22 |
+| Внутренние cutouts | Подтверждены на `board with cutout.PcbDoc`; V-22 закрыт, см. FIX-004/FIX-005 |
 | `DefinitionLayerIterator` иногда отдаёт V7-ID, не совпадающие с V6 | Adapter перебирает copper-слои board layer iterator; V-23 |
 | Стабильность `SourceUniqueId` | Не доказана; ID используются как provenance, D-010 остаётся Proposed |
 | Vendor-платы содержат 1000+ validation warnings | В основном unconnected pads/optional fields; errors=0, JSON валиден |
@@ -267,6 +267,33 @@ Smoke выполнен в AD26.12.2.9 через реальный Add-in и ко
 - На `Bluetooth_Sentinel.PcbDoc` подтверждён fallback/partial (не false exact):
   `uniqueLoop=12`, `uniqueContour=140`, `maxContourToLoop=4718.66 IU`.
 
+## 7.4 FIX-004 — реальный Board Cutout
+
+- `board with cutout.PcbDoc`, SHA256 `ED624C68…`, 18 525 184 байт.
+- 5 `IPCB_Region` с `eRegionKind_BoardCutout`; `ClipWithPolyRegShapes(false,false)`
+  вернул 2 cutout-контура / 16 сегментов.
+- В JSON экспортированы 2 hole-контура: 7 линий; 6 линий + 3 дуги. Все вершины
+  внутри outer.
+- `MiniPC.PcbDoc` содержит BoardCutout-регион, но клиппер вернул 0 вырезов;
+  `Bluetooth_Sentinel.PcbDoc` — 3 BoardCutout-региона, 0 вырезов.
+- SHA256 всех трёх плат до/после совпал. V-22 закрыт.
+
+## 7.5 FIX-005 — дедупликация и Region matching
+
+- `MatchesExistingGeometricHole` больше не сравнивает clip loop с самим собой:
+  используются фактические точки `geometric.Points`; проверяются только
+  `ContourRole.Hole`.
+- Дубликат подавляется только при exact geometric match; partial overlap
+  диагностируется и не скрывает cutout.
+- Region matching: bounding box — broad phase (10 IU); затем вершины
+  Region-контура (3500 IU), площадь (5%) и centroid (1000 IU). Результат:
+  `Matched` / `Unmatched` / `Ambiguous`; связь хранится по
+  `(RegionIndex, ContourIndex)`, повторное назначение запрещено.
+- Исправлена трактовка `PolySegment.Angle1/Angle2`: дуга всегда CCW, `Angle2 < Angle1`
+  означает переход через 0°. Ранее arc `270°→0°` ошибочно становился CW-дугой 270°.
+- На операторской плате оба Hole сохранены; на MiniPC/Bluetooth ложных cutout нет.
+  Altium.Tests: 43/43, Core.Tests: 41/41.
+
 ## 8. Проверки
 
 ```text
@@ -277,18 +304,21 @@ dotnet build -c Release
 
 dotnet test -c Release
 Core.Tests: 41/41
-Altium.Tests: 24/24
+Altium.Tests: 43/43
 ```
 
-Существующие 33 теста Core не регрессировали; добавлены 8 тестов `AngleNormalizer`
-и 24 теста Altium adapter (включая arc/angular/midpoint matcher).
+Текущее состояние: 41 Core + 43 Altium = 84 теста. Добавлены FIX-004/FIX-005
+тесты дедупликации, Region matching, arc matching и arc-angle wrap.
 
 ## 9. Commit SHA и PR
 
 - Commit (состояние PR на момент создания): `cb509bc62b01609abe74d46d83236b0691a5f7bc`.
+- FIX-004: `910467d64b93f8d94cc0ade07993586ba13a0f15` (реализация),
+  `d1f67ef86b2dbc42449bd4715108a7f3f14a46bd` (отчёт).
+- FIX-005: коммит и фактический HEAD указаны в
+  `.agent/reports/BRIDGE-000003-FIX-005-report.md` после выполнения.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/5 — база `source`,
   ветка `task/BRIDGE-000003-altium-board-adapter`, открыт и не слит автором.
-- Отдельным коммитом после создания PR в отчёт добавлены только SHA и URL.
 
 ## 10. История изменений
 

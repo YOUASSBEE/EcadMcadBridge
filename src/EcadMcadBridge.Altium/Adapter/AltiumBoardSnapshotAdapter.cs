@@ -63,6 +63,7 @@ internal sealed class AltiumAdapterDiagnostics
     public int ClipCutoutErrors { get; set; }
     public int ClipMatchedCutoutRegions { get; set; }
     public int ClipUnmatchedCutoutRegions { get; set; }
+    public int ClipAmbiguousCutoutRegions { get; set; }
     public int DuplicateCutoutContours { get; set; }
     public int ExportedCutoutContours { get; set; }
     public Dictionary<TRegionKind, int> RegionsByKind { get; } = new();
@@ -99,6 +100,7 @@ internal sealed class AltiumAdapterDiagnostics
             $"clipCutoutContours={ClipCutoutContours} clipCutoutSegments={ClipCutoutSegments} " +
             $"clipCutoutErrors={ClipCutoutErrors} clipMatchedRegions={ClipMatchedCutoutRegions} " +
             $"clipUnmatchedRegions={ClipUnmatchedCutoutRegions} " +
+            $"clipAmbiguousRegions={ClipAmbiguousCutoutRegions} " +
             $"duplicateCutoutContours={DuplicateCutoutContours} exportedCutoutContours={ExportedCutoutContours} " +
             $"regionsByKind=[{FormatRegionKinds()}] " +
             $"padShapesExact={ExactPadShapes} padShapesSimplified={SimplifiedPadShapes} " +

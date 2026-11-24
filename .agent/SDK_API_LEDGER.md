@@ -208,6 +208,19 @@ FIX-001 уточнения:
   Реальный `board with cutout.PcbDoc` дал 2 выреза, включая дуги; V-22 закрыт.
   Pad/via holes исключены параметром `useHolesFromViaPad=false` и проверены
   платой с 6004 падами, где клиппер вернул 0 вырезов.
+- `PolySegment.Angle1/Angle2` для `ePolySegmentArc` задают обход **против часовой
+  стрелки**; `Angle2 < Angle1` означает переход через 0°. Это подтверждено на
+  cutout-регионе: arc `270°→0°` является короткой четвертью, а не CW-дугой 270°.
+  После исправления (FIX-005) geometric contour региона 0 совпадает с clip loop:
+  area Δ 0.14%, centroid Δ 692.61 IU, max vertex Δ 3096.57 IU.
+- FIX-005 дедупликация сравнивает **фактические `geometric.Points`** Hole-контура
+  с clip loop; самосравнение clip loop устранено. Partial overlap не подавляет
+  экспорт.
+- FIX-005 Region matching: bounding box 10 IU — только broad phase; затем
+  вершины Region-контура (3500 IU), площадь (5%) и centroid (1000 IU).
+  Результат различает `Matched` / `Unmatched` / `Ambiguous`; связь хранится по
+  паре `(RegionIndex, ContourIndex)`, повторное назначение контура запрещено.
+  Неоднозначность не разрешается произвольным выбором.
 
 ### 2.10 Доказательства, полученные в smoke-тесте BRIDGE-000001
 
@@ -248,7 +261,7 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-19 | Как представлять отверстия падов, pin designator и локальные координаты пада? | В Core 1.0.0 нет соответствующих полей; adapter не подменяет данные | Отдельное решение/ADR до расширения Core |
 | V-20 | Как представлять oval и custom pad shapes? | `eRounded` с разными размерами отображён в rounded rectangle с предупреждением; `eCustomShape` не имеет вершин в API | Отдельная задача по PadShape; сейчас ограничение зафиксировано |
 | V-21 | Как сохранять порядок слоёв stackup и наличие 3D-модели? | Core не содержит этих полей; adapter их не заполняет | Расширение Core отдельным решением |
-| V-22 | ~~Поддержаны ли внутренние вырезы контура на реальной плате?~~ | Закрыт в `BRIDGE-000003-FIX-004`: `board with cutout.PcbDoc` (SHA256 `ED624C…`) содержит 5 `eRegionKind_BoardCutout`; `ClipWithPolyRegShapes(false,false)` вернул 2 cutout-контура / 16 сегментов, экспортированы 2 hole-контура (7 линий; 6 линий + 3 дуги), все вершины внутри outer. `GetState_IsHole` для этого файла остаётся 0, поэтому источником вырезов является clip result, а не geometric polygon | См. C-85…C-88 и report `BRIDGE-000003-FIX-004` |
+| V-22 | ~~Поддержаны ли внутренние вырезы контура на реальной плате?~~ | Закрыт в `BRIDGE-000003-FIX-004`, уточнён в `FIX-005`: `board with cutout.PcbDoc` (SHA256 `ED624C…`) содержит 5 `eRegionKind_BoardCutout`; `ClipWithPolyRegShapes(false,false)` вернул 2 cutout-контура / 16 сегментов, экспортированы 2 hole-контура (7 линий; 6 линий + 3 дуги), все вершины внутри outer. FIX-005 исправил дедупликацию и Region matching, а также трактовку дуг CCW с переходом через 0°; после этого оба выреза сохраняются. `GetState_IsHole` остаётся 0, источник — clip result | См. C-85…C-88, reports `BRIDGE-000003-FIX-004` и `BRIDGE-000003-FIX-005` |
 | V-23 | Почему `IPCB_Pad.DefinitionLayerIterator` иногда возвращает V7-ID, не совпадающие с V6? | Adapter обходит это перебором copper-слоёв board layer iterator; высокие V7-ID не используются как V6 | Отдельное исследование V7 layer mapping при необходимости |
 | V-24 | Гарантирует ли `IPCB_Polygon.GetState_Segments()` все циклы Board Outline? | Нет: на `PC4-SODIMM` циклы не замкнулись, adapter перешёл на line-fallback для geometric contour. `GeometricPolygon` остаётся источником количества/ролей; Board Cutout берётся из `ClipWithPolyRegShapes`, а не из этого API | Отдельное исследование API сегментов при необходимости |
 | V-25 | Можно ли достоверно отличить `eRotatedRectShape`/`eArcShape`/`eTerminator` от поддерживаемых форм? | Семантика не подтверждена; adapter не преобразует их в круг/прямоугольник и выдаёт warning | Отдельный эксперимент с известными pad shape |
@@ -294,3 +307,4 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | 2026-11-24 | BRIDGE-000003-FIX-002: exact outline matcher отвергает partial/ambiguous; cutout-файл оператора без вырезов, V-22 открыт | local-agent |
 | 2026-11-24 | BRIDGE-000003-FIX-003: arc angular/midpoint matching; новый cutout-файл снова 0 holes, V-22 открыт | local-agent |
 | 2026-11-24 | BRIDGE-000003-FIX-004: добавлены C-85…C-88 (IPCB_Region, ClipWithPolyRegShapes, cutout shapes); реальный Board Cutout подтверждён, V-22 закрыт | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-005: исправлены dedup по geometric.Points, Region matching с uniqueness/association и трактовка дуг CCW при переходе через 0° | local-agent |

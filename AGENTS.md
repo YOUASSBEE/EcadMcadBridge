@@ -174,6 +174,6 @@ README.md                      входная точка
 ## 13. Текущий этап
 
 `BRIDGE-000003` — Altium BoardSnapshot adapter: слои, компоненты, пады, nets, контур
-и Board Cutout. `BRIDGE-000003-FIX-004` подтвердил реальный Board Cutout через
-`IPCB_Region` + `ClipWithPolyRegShapes(false,false)` и закрыл V-22.
-Полный обмен с SOLIDWORKS не реализуется до отдельного решения.
+и Board Cutout. `FIX-004` подтвердил реальный Board Cutout через `IPCB_Region` +
+`ClipWithPolyRegShapes(false,false)`; `FIX-005` исправил дедупликацию, Region matching
+и трактовку дуг CCW. Полный обмен с SOLIDWORKS не реализуется до отдельного решения.
