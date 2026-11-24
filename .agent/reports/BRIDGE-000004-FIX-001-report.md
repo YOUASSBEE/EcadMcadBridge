@@ -83,12 +83,12 @@ actual   = recursive regular files − checksums.sha256
 Directory/file reparse points не обходятся. Это исключает выход за package root и
 бесконечную рекурсию. Неожиданная ссылка внутри пакета делает пакет невалидным.
 
-Тест `Reader_RejectsNestedDirectoryLink` добавлен, но на текущем Windows-хосте
-создание directory symlink завершилось `UnauthorizedAccessException` (нет
-соответствующей привилегии). Тест в этом окружении завершается без выполнения
-symlink-сценария; это ограничение зафиксировано здесь, а не выдаётся за проверенный
-результат. Код обхода reparse points реализован независимо от возможности создать
-ссылку в тесте.
+Тест `Reader_RejectsNestedDirectoryLink` создаёт directory symbolic link; на текущем
+Windows-хосте это требует привилегии и даёт `UnauthorizedAccessException`. Тест
+использует безопасный fallback на junction (`mklink /J`) и в этом окружении
+**выполнен**: junction имеет атрибуты `Directory, ReparsePoint`, reader не обходит
+его и возвращает `EMB-PKG-021 UnsupportedLink`. Сценарий проверен фактически, а не
+только по коду. Junction удаляется тестом без удаления target.
 
 ## 5. Новые тесты
 
@@ -96,7 +96,7 @@ symlink-сценария; это ограничение зафиксирован
 |---|---|
 | `Reader_RejectsUnlistedNestedFile` | пройден: `ExtraFile`, snapshot не возвращён |
 | `Reader_VerifiesDeclaredNestedFile` | пройден: nested file с manifest/checksum |
-| `Reader_RejectsNestedDirectoryLink` | не выполнен: symlink недоступен на хосте |
+| `Reader_RejectsNestedDirectoryLink` | пройден через junction fallback (`ReparsePoint`) |
 
 Существующие тесты Writer/Reader, tamper, security, determinism и snapshot validation
 не изменялись и проходят.
@@ -121,8 +121,9 @@ dotnet test -c Release — Core.Tests 69/69, Altium.Tests 65/65, всего 134/
 
 ## 8. Оставшиеся ограничения
 
-- Symlink/reparse runtime test не выполнен на текущем Windows-хосте из-за отсутствия
-  привилегии создания symlink; требуется хост с соответствующей возможностью.
+- Directory symlink требовал привилегии; тест выполнен через junction fallback,
+  который является reparse point. Полноценный symbolic-link сценарий зависит от
+  прав хоста.
 - Nested files поддерживаются как проверяемые regular files, но attachments API,
   ZIP и генерация вложений не реализованы.
 - Reader не следует symlink/reparse point and does not read outside the package root.
