@@ -5,10 +5,10 @@ status: blocked
 from: local-agent
 to: operator
 created: 2026-11-24T14:00:24+03:00
-updated: 2026-11-24T14:00:24+03:00
+updated: 2026-11-24T14:01:06+03:00
 base: source
 branch: task/BRIDGE-000003-altium-board-adapter
-commit: pending
+commit: 2f06cec0501046a5b8c1ccfb2b4d2f413e259d55
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/5
 related: [BRIDGE-000003, BRIDGE-000003-FIX-001, BRIDGE-000003-FIX-002]
 ---
@@ -155,9 +155,10 @@ V-22 **не закрыт**. Проверенный `minipc.PcbDoc` содерж�
 
 ## 11. Commit / HEAD / PR
 
-- Commit: `pending`.
-- HEAD: `pending`.
+- Commit: `2f06cec0501046a5b8c1ccfb2b4d2f413e259d55`.
+- HEAD (состояние до отчётного коммита): `2f06cec0501046a5b8c1ccfb2b4d2f413e259d55`.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/5 (не слит).
+- После этого коммита добавлен только отчёт; фактический HEAD PR указан в описании PR.
 
 ## 12. Оставшиеся вопросы
 
