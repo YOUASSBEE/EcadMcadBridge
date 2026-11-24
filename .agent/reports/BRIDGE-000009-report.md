@@ -5,7 +5,7 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T23:28:00+03:00
-updated: 2026-11-24T23:33:00+03:00
+updated: 2026-11-25T00:10:00+03:00
 base: source
 branch: agent/BRIDGE-000009-complete-altium-snapshot
 commit: 1f44629
@@ -89,7 +89,12 @@ Altium adapter теперь заполняет все четыре ранее п
 - Barcode-тексты пропускаются: Core `TextItem` не представляет barcode.
 - Пустой текст пропускается.
 - Позиция, layer, height, stroke width и rotation читаются через
-  `IPCB_RectangularPrimitive`; нефинитный rotation не подменяется нулём.
+  `IPCB_RectangularPrimitive`; нефинитный rotation не подменяется нулём:
+  `RotationDeg` остаётся `null`, adapter ведёт `TextUnknownRotations` и выдаёт не более
+  пяти warning-примеров, Core validator считает это отсутствующим optional-полем.
+- Altium API предоставляет `Bold`/`Italic`, но Core `TextItem` 1.0.0 не содержит для них
+  полей; текущий adapter эти параметры не экспортирует. Font outline и barcode также
+  не представляются контрактом Core 1.0.0.
 - Связь с компонентом подтверждается через `GetState_Component()` и
   `UniqueId`/`SourceUniqueId` компонента; при отсутствии компонента в snapshot
   `ComponentId` остаётся пустым, пишется ограниченный warning.
@@ -116,9 +121,9 @@ Altium adapter теперь заполняет все четыре ранее п
 3. **Region kinds.** `eRegionKind_Cutout` на MiniPC (104) и других платах (4)
    экспортированы как `Other`; семантика cutout в Core 1.0.0 отсутствует. Это
    осознанно и сопровождается warning; при необходимости отдельный ADR/задача.
-4. **Text coverage.** TrueType font outline, barcode и designator/comment не
-   представляются в Core 1.0.0. На cutout/Bluetooth подтверждена 1 связь text →
-   component, на MiniPC — 0; остальные тексты свободные.
+4. **Text coverage.** Bold/Italic, TrueType font outline, barcode и
+   designator/comment не представляются в Core 1.0.0. На cutout/Bluetooth
+   подтверждена 1 связь text → component, на MiniPC — 0; остальные тексты свободные.
 5. **Board Cutout без clip-результата.** На Bluetooth (3 BoardCutout region) и MiniPC
    (1) клиппер не вернул вырезов; поведение совпадает с BRIDGE-000007 и не является
    регрессией. Реальный cutout-борд даёт 2 выреза / 16 сегментов.
@@ -131,7 +136,7 @@ Altium adapter теперь заполняет все четыре ранее п
 
 ```text
 dotnet build -c Release      → 0 warnings, 0 errors
-dotnet test -c Release       → Core.Tests 78/78, Altium.Tests 80/80, всего 158/158
+dotnet test -c Release       → Core.Tests 84/84, Altium.Tests 82/82, всего 166/166
 ```
 
 Окружение: Altium Designer `26.12.2.9`, Altium SDK `4.0.1`, .NET SDK `10.0.404`,
@@ -192,3 +197,73 @@ board with cutout.PcbDoc   ED624C68DC315A3E022E96979C5A7B2B32F5BBAD3DB722BE0CCA2
 | 2 | Чистые mapping-функции, Altium.Tests, диагностика и уникальность ID |
 | 3 | Region kind diagnostics, capabilities пакета, документация |
 | 4 | Финальный build/test и smoke трёх плат; SHA-256 подтверждены |
+| 5 | Review-fix R1: nullable `TextItem.RotationDeg`, validator warning, тесты JSON/package, Bold/Italic limitation |
+
+## 8. BRIDGE-000009-REVIEW-FIX-001 — R1
+
+### 8.1 Причина дефекта
+
+`AltiumSnapshotMapping.MapText()` корректно оставлял `RotationDeg = null` для
+`NaN`/`Infinity`, но `BoardSnapshotValidator.ValidateTexts()` вызывал
+`ValidateRequiredDouble`, который считал `null` ошибкой `MissingRequiredAttribute`.
+В результате mapping мог сформировать `TextItem`, не проходящий Core validation.
+
+### 8.2 Выбранная семантика nullable `RotationDeg`
+
+- `null` — допустимое отсутствующее значение, диагностируется Warning
+  `EMB-VAL-101 MissingOptionalData` по пути `texts[i].rotationDeg`.
+- Конечное значение проверяется в диапазоне `[-180, 180)`; нарушение — `InvalidGeometry`.
+- `NaN` и `Infinity`, попавшие в модель напрямую, остаются ошибкой `NonFiniteNumber`.
+- Правила углов `Pad` и `ComponentInstance` не изменены.
+- Altium adapter получает `rotationKnown` из `MapText()`, увеличивает
+  `TextUnknownRotations` и добавляет не более пяти warning-примеров; ноль не
+  подставляется.
+- Схема Core 1.0.0 и JSON-схема не менялись.
+
+### 8.3 Новые тесты
+
+- `AltiumSnapshotMappingTests.TextMapping_DoesNotInventRotation`:
+  `NaN`, `+Infinity`, `-Infinity` → `RotationDeg == null`.
+- `BoardSnapshotValidatorTests.TextWithoutRotation_IsWarningNotError`:
+  snapshot проходит validator без ошибок, есть Warning `MissingOptionalData`.
+- `BoardSnapshotValidatorTests.NonFiniteTextRotation_IsAnError`:
+  `NaN`, `+Infinity`, `-Infinity` в модели → `NonFiniteNumber`.
+- `BoardSnapshotJsonTests.Serialize_TextWithoutRotation_RoundTripsNull`:
+  JSON содержит `null`, round-trip сохраняет `null` и не подставляет `0`.
+- `ExchangePackageTests.WriterAndReader_PreserveNullTextRotation`:
+  пакет успешно записан и прочитан, `RotationDeg` остаётся `null`.
+
+Итог: Core.Tests `84/84`, Altium.Tests `82/82`, всего `166/166`.
+
+### 8.4 Release build/test
+
+```text
+dotnet build -c Release   → 0 warnings, 0 errors
+dotnet test -c Release    → 166/166 passed
+```
+
+### 8.5 Повторная проверка smoke
+
+Повторены все три платы на AD `26.12.2.9`:
+
+| Плата | Package ID | Tracks | Vias | Regions | Texts | textUnknownRotations | Reader |
+|---|---|---:|---:|---:|---:|---:|---|
+| board with cutout | `7adeb4aa-deb2-4962-b655-d22d4b5c4b47` | 10 657 | 173 | 12 | 87 | 0 | 0 errors |
+| Bluetooth_Sentinel | `4e99f4ba-d5b8-4740-9e80-a2ac325d605f` | 10 038 | 173 | 12 | 87 | 0 | 0 errors |
+| MiniPC | `057b5468-2776-4685-b679-82657bafd6a5` | 48 299 | 4 025 | 381 | 34 | 0 | 0 errors |
+
+Счётчики совпадают с предыдущим smoke, Board Cutout не изменился
+(2 clip cutout / 16 сегментов на cutout-борде), SHA-256 исходных `.PcbDoc`
+остались прежними:
+
+```text
+MiniPC.PcbDoc              50547E5ED4AA84C430CD1F3B3F5EDBF2ED6FB013E8C076A871C9BDE4B5749A93
+Bluetooth_Sentinel.PcbDoc  1E18C3EFA9D6C3245AA09CAB7268B2A908078E50ED2D09DC9D6DFD3BC36B95F3
+board with cutout.PcbDoc   ED624C68DC315A3E022E96979C5A7B2B32F5BBAD3DB722BE0CCA2EB9C8647753
+```
+
+### 8.6 PR #8
+
+PR #8 обновлён дополнительными коммитами, остаётся направленным в `source`,
+не смержен и возвращён в состояние ready for review. Review-fix commit:
+`<pending>`.

@@ -317,6 +317,9 @@ EcadMcadBridge.Core ────────► BCL только
 - проверяются уникальность ID, обязательные атрибуты, ссылки, пары IU/мм, конечность чисел,
   отрицательные размеры, дуги, замкнутость и непрерывность контуров, роли контуров и наличие
   внешнего контура;
+- `TextItem.RotationDeg` — optional: `null` даёт `MissingOptionalData` warning, конечное
+  значение проверяется в `[-180, 180)`, `NaN`/`Infinity` остаются ошибками;
+  `Pad` и `ComponentInstance` по-прежнему требуют конечный угол;
 - пространственная вложенность отверстий и контуров не проверяется геометрическим
   point-in-polygon тестом; это известное ограничение текущей версии.
 
@@ -377,7 +380,11 @@ Core рассматривает ID как непрозрачную непуст�
 - Text designator/comment (`IsDesignator`/`IsComment`) не дублируются в `TextItem`;
   barcode-тексты не представляются и пропускаются с warning; остальные тексты
   используют `IPCB_RectangularPrimitive` position/rotation. Неизвестный rotation не
-  подменяется нулём.
+  подменяется нулём: `TextItem.RotationDeg` остаётся `null`, validator выдаёт
+  `MissingOptionalData` warning, а adapter считает `TextUnknownRotations`.
+- Altium API предоставляет для текста `Bold`/`Italic`, но Core `TextItem` 1.0.0 не
+  содержит полей для этих параметров; текущий adapter их не экспортирует. Font outline
+  (TrueType) и barcode также не представляются контрактом Core 1.0.0 и не переносятся.
 - Track/via/region/text IDs используют `GetState_UniqueId`, если он непустой, иначе
   deterministic fallback по порядку итерации; дубликаты внутри коллекции
   разводятся суффиксом. На проверенных платах `GetState_UniqueId` для этих

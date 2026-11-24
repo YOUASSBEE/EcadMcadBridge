@@ -142,8 +142,11 @@ public sealed class AltiumSnapshotMappingTests
         Assert.Equal(90, text.RotationDeg);
     }
 
-    [Fact]
-    public void TextMapping_DoesNotInventRotation()
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void TextMapping_DoesNotInventRotation(double rotation)
     {
         var text = AltiumSnapshotMapping.MapText(
             "text-1",
@@ -154,7 +157,7 @@ public sealed class AltiumSnapshotMappingTests
             "X",
             10,
             1,
-            double.PositiveInfinity,
+            rotation,
             out var rotationKnown);
 
         Assert.False(rotationKnown);

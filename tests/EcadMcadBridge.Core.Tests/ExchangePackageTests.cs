@@ -163,6 +163,35 @@ public sealed class ExchangePackageTests
     }
 
     [Fact]
+    public void WriterAndReader_PreserveNullTextRotation()
+    {
+        using var temp = new TempDirectory();
+        var snapshot = BoardSnapshotFixture.With(
+            BoardSnapshotFixture.CreateValid(),
+            texts: new[]
+            {
+                new TextItem
+                {
+                    Id = "text-without-rotation",
+                    LayerId = "layer-top",
+                    Position = Point2D.FromIu(1_000_000, 1_000_000),
+                    Text = "R1",
+                    Height = LengthValue.FromIu(500_000),
+                    StrokeWidth = LengthValue.FromIu(100_000),
+                    RotationDeg = null,
+                },
+            });
+        var written = Write(temp.Path, snapshot);
+        Assert.True(written.IsSuccess);
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.True(read.IsSuccess);
+        Assert.Empty(read.Errors);
+        Assert.Null(Assert.Single(read.Snapshot!.Texts).RotationDeg);
+    }
+
+    [Fact]
     public void Reader_RejectsMissingManifest()
     {
         using var temp = new TempDirectory();

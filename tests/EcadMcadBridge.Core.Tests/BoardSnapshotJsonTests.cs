@@ -28,6 +28,33 @@ public sealed class BoardSnapshotJsonTests
     }
 
     [Fact]
+    public void Serialize_TextWithoutRotation_RoundTripsNull()
+    {
+        var snapshot = BoardSnapshotFixture.With(
+            BoardSnapshotFixture.CreateValid(),
+            texts: new[]
+            {
+                new TextItem
+                {
+                    Id = "text-without-rotation",
+                    LayerId = "layer-top",
+                    Position = Point2D.FromIu(1_000_000, 1_000_000),
+                    Text = "R1",
+                    Height = LengthValue.FromIu(500_000),
+                    StrokeWidth = LengthValue.FromIu(100_000),
+                    RotationDeg = null,
+                },
+            });
+
+        var json = BoardSnapshotJson.Serialize(snapshot);
+
+        Assert.Contains("\"rotationDeg\": null", json, StringComparison.Ordinal);
+        var roundTrip = BoardSnapshotJson.Deserialize(json);
+        Assert.Null(Assert.Single(roundTrip.Texts).RotationDeg);
+        Assert.Equal(json, BoardSnapshotJson.Serialize(roundTrip));
+    }
+
+    [Fact]
     public void Serialize_RoundTripsSubsecondTicks()
     {
         var timestamp = new DateTimeOffset(2026, 11, 24, 0, 0, 0, TimeSpan.Zero)

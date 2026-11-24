@@ -91,6 +91,7 @@ internal sealed class AltiumAdapterDiagnostics
     public int TextsSkipped { get; set; }
     public int TextReadErrors { get; set; }
     public int TextComponentLinkMisses { get; set; }
+    public int TextUnknownRotations { get; set; }
     public int ExactPadShapes { get; set; }
     public int SimplifiedPadShapes { get; set; }
     public int UnsupportedPadShapes { get; set; }
@@ -138,6 +139,7 @@ internal sealed class AltiumAdapterDiagnostics
             $"regionGeometryFallbacks={RegionGeometryFallbacks} textsDetected={TextsDetected} " +
             $"textsExported={TextsExported} textsSkipped={TextsSkipped} textErrors={TextReadErrors} " +
             $"textComponentLinkMisses={TextComponentLinkMisses} " +
+            $"textUnknownRotations={TextUnknownRotations} " +
             $"padShapesExact={ExactPadShapes} padShapesSimplified={SimplifiedPadShapes} " +
             $"padShapesUnsupported={UnsupportedPadShapes} padStacksEmpty={OmittedPadStacks} " +
             $"shapeCounts=[{shapes}]";
@@ -615,8 +617,17 @@ internal static class AltiumBoardSnapshotAdapter
                         size,
                         strokeWidth,
                         rotation,
-                        out _));
+                        out var rotationKnown));
                     diagnostics.TextsExported++;
+                    if (!rotationKnown)
+                    {
+                        diagnostics.TextUnknownRotations++;
+                        if (diagnostics.TextUnknownRotations <= 5)
+                        {
+                            warnings.Add(
+                                "A text object has no finite rotation; RotationDeg was left empty.");
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
