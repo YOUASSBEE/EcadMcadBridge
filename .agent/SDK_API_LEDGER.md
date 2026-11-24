@@ -176,17 +176,27 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 `135°`, стороны Top/Bottom представлены. На `Bluetooth_Sentinel.PcbDoc` подтверждены
 2 аналитические дуги в контуре и 12 сегментов (10 линий + 2 дуги).
 
-Ограничения adapter:
+FIX-001 уточнения:
 
-- `TShape.eRounded` с разными X/Y размерами в Core представлен как rounded rectangle
-  с радиусом `min(width,height)/2`; это предупреждение, не бесшумная замена.
+- `GeometricPolygon` является источником полного набора контуров и ролей `GetState_IsHole`;
+  `IPCB_Polygon.GetState_Segments()` используется только как источник аналитических
+  линий/дуг и может не покрывать все циклы (на `PC4-SODIMM` получены незамкнутые циклы).
+  Adapter сопоставляет каждый geometric contour с аналитическим циклом; при отсутствии
+  совпадения контур не теряется, а экспортируется line-fallback с предупреждением.
+- `TShape`:
+  - точные: `eRectangular`, `eCircleShape`, `eRounded` при равных размерах;
+  - упрощённые (warning): `eOctagonal` (chamfered rectangle → Core Octagonal),
+    `eRoundRectShape`/`eRoundedRectangular` (corner radius API не подтверждён),
+    `eRounded` с разными размерами (oval → rounded rectangle radius=min/2);
+  - неподдерживаемые (warning, не подменяются): `eRotatedRectShape`, `eArcShape`,
+    `eTerminator`, `eCustomShape`, `eNoShape`.
 - `TShape.eCustomShape` и pad holes не имеют полноценного представления в Core 1.0.0;
   adapter пишет предупреждение и не выдумывает геометрию.
 - `LayerKind` Core не различает signal и internal plane: оба `Copper`.
 - Локальные координаты падов, pin designator, stack order и наличие 3D-модели в Core
   отсутствуют; adapter их не подменяет.
 - Внутренние вырезы контура поддержаны через `GetState_IsHole`, но на выбранных
-  vendor-платах не встретились; это ограничение тестового покрытия, не API.
+  vendor-платах не встретились; synthetic cutout smoke не подтверждён (V-22).
 
 ### 2.10 Доказательства, полученные в smoke-тесте BRIDGE-000001
 
@@ -229,6 +239,8 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-21 | Как сохранять порядок слоёв stackup и наличие 3D-модели? | Core не содержит этих полей; adapter их не заполняет | Расширение Core отдельным решением |
 | V-22 | Поддержаны ли внутренние вырезы контура (`GetState_IsHole`) на реальной плате? | Код использует `GetState_IsHole`, но на выбранных vendor-платах вырезы не встретились | Smoke-тест на синтетической плате с cutout |
 | V-23 | Почему `IPCB_Pad.DefinitionLayerIterator` иногда возвращает V7-ID, не совпадающие с V6? | Adapter обходит это перебором copper-слоёв board layer iterator; высокие V7-ID не используются как V6 | Отдельное исследование V7 layer mapping при необходимости |
+| V-24 | Гарантирует ли `IPCB_Polygon.GetState_Segments()` все циклы Board Outline? | Нет: на `PC4-SODIMM` циклы не замкнулись, adapter перешёл на line-fallback для geometric contour. `GeometricPolygon` остаётся источником количества/ролей | Проверка на synthetic cutout; отдельное исследование API сегментов |
+| V-25 | Можно ли достоверно отличить `eRotatedRectShape`/`eArcShape`/`eTerminator` от поддерживаемых форм? | Семантика не подтверждена; adapter не преобразует их в круг/прямоугольник и выдаёт warning | Отдельный эксперимент с известными pad shape |
 
 ## 4. Запрещено
 
@@ -267,3 +279,4 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | 2026-11-24 | BRIDGE-000001: добавлены C-66…C-72 и доказательства хоста; закрыты V-02/V-03/V-04, уточнены V-13/V-15 | local-agent |
 | 2026-11-24 | BRIDGE-000002: новых Altium API нет; Core-модель, JSON и валидатор не используют SDK | local-agent |
 | 2026-11-24 | BRIDGE-000003: добавлены C-73…C-84 и ограничения V-18…V-23; Adapter проверен в AD26.12.2.9 | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-001: geometric contours сохраняются все, fallback диагностируется; уточнены TShape V-24/V-25 | local-agent |

@@ -4,14 +4,18 @@ using PCB;
 namespace EcadMcadBridge.Altium.Adapter;
 
 /// <summary>
-/// Reads the board outline. The geometric polygon supplies contour roles; the polygon segment
-/// API is used when available so arcs remain analytic instead of being expanded into lines.
+/// Reads every contour exposed by the board-outline geometric polygon. Analytic line/arc
+/// segments are matched to those contours; unmatched contours get an explicitly diagnosed
+/// geometric fallback instead of being dropped.
 /// </summary>
 internal static class AltiumOutlineReader
 {
     private const string OutlineId = "altium:board-outline";
 
-    public static BoardOutline Read(IPCB_Board board, List<string> warnings)
+    public static BoardOutline Read(
+        IPCB_Board board,
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
     {
         try
         {
@@ -22,35 +26,121 @@ internal static class AltiumOutlineReader
                 return new BoardOutline { Id = OutlineId };
             }
 
-            var fromSegments = TryReadFromSegments(outline, warnings);
-            if (fromSegments is not null)
-                return fromSegments;
+            var geometricContours = ReadGeometricContours(outline, warnings, diagnostics);
+            if (geometricContours.Count == 0)
+            {
+                warnings.Add("Board outline geometric polygon returned no usable contours.");
+                return new BoardOutline { Id = OutlineId };
+            }
 
-            return ReadGeometric(outline, warnings);
+            var analyticLoops = ReadAnalyticLoops(outline, warnings, diagnostics);
+            var usedLoops = new bool[analyticLoops.Count];
+            var contours = new List<Contour>(geometricContours.Count);
+
+            foreach (var geometric in geometricContours)
+            {
+                var loopIndex = FindMatchingLoop(geometric, analyticLoops, usedLoops, warnings, diagnostics);
+                if (loopIndex >= 0)
+                {
+                    usedLoops[loopIndex] = true;
+                    contours.Add(MakeAnalyticContour(geometric, analyticLoops[loopIndex]));
+                    diagnostics.ExactOutlineContours++;
+                }
+                else if (geometric.Points.Count >= 2)
+                {
+                    contours.Add(MakeGeometricContour(geometric));
+                    diagnostics.FallbackOutlineContours++;
+                    warnings.Add(
+                        $"Board outline contour {geometric.Index} ({geometric.Role}) has no matched analytic loop; " +
+                        "geometric fallback uses line segments and may approximate/lose arcs.");
+                }
+                else
+                {
+                    diagnostics.OmittedOutlineContours++;
+                    warnings.Add(
+                        $"Board outline contour {geometric.Index} ({geometric.Role}) has fewer than two points and was omitted.");
+                }
+            }
+
+            var unmatched = usedLoops.Count(used => !used);
+            if (unmatched > 0)
+            {
+                diagnostics.UnmatchedAnalyticLoops += unmatched;
+                warnings.Add($"{unmatched} analytic board-outline loop(s) could not be matched to geometric contours and were not exported separately.");
+            }
+
+            return new BoardOutline { Id = OutlineId, Contours = contours };
         }
         catch (Exception ex)
         {
+            diagnostics.OutlineLoopErrors++;
             warnings.Add("Board outline read failed: " + ex.GetType().Name + ".");
             return new BoardOutline { Id = OutlineId };
         }
     }
 
-    private static BoardOutline? TryReadFromSegments(IPCB_BoardOutline outline, List<string> warnings)
+    private static IReadOnlyList<GeometricContour> ReadGeometricContours(
+        IPCB_BoardOutline outline,
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
+    {
+        var geometric = outline.BoardOutline_GeometricPolygon();
+        if (geometric is null)
+        {
+            warnings.Add("Board outline geometric polygon is unavailable.");
+            return Array.Empty<GeometricContour>();
+        }
+
+        var result = new List<GeometricContour>();
+        var count = geometric.GetState_Count();
+        for (var i = 0; i < count; i++)
+        {
+            var contour = geometric.GetState_Contour(i);
+            if (contour is null)
+            {
+                diagnostics.OutlineLoopErrors++;
+                warnings.Add($"Board outline geometric contour {i} is null.");
+                continue;
+            }
+
+            var points = new List<Point2D>();
+            var pointCount = contour.GetState_Count();
+            for (var p = 0; p < pointCount; p++)
+                points.Add(Point2D.FromIu(contour.GetState_PointX(p), contour.GetState_PointY(p)));
+
+            var role = geometric.GetState_IsHole(i) ? ContourRole.Hole : ContourRole.Outer;
+            result.Add(new GeometricContour(i, role, points));
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyList<List<OutlineSegment>> ReadAnalyticLoops(
+        IPCB_BoardOutline outline,
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
     {
         var polygon = outline as IPCB_Polygon;
         if (polygon is null)
-            return null;
+        {
+            warnings.Add("Board outline does not expose IPCB_Polygon segments; geometric fallback will be used.");
+            return Array.Empty<List<OutlineSegment>>();
+        }
 
         var count = polygon.GetState_PointCount();
         if (count < 2)
-            return null;
+            return Array.Empty<List<OutlineSegment>>();
 
         var raw = new List<RawSegment>(count);
         for (var i = 0; i < count; i++)
         {
             var segment = polygon.GetState_Segments(i);
             if (segment is null)
-                return null;
+            {
+                diagnostics.OutlineLoopErrors++;
+                warnings.Add($"Board outline segment {i} is null; analytic outline is incomplete.");
+                return Array.Empty<List<OutlineSegment>>();
+            }
 
             raw.Add(new RawSegment(
                 segment.Kind,
@@ -63,7 +153,7 @@ internal static class AltiumOutlineReader
                 segment.Angle2));
         }
 
-        var segments = new List<OutlineSegment>(count);
+        var segments = new List<OutlineSegment>(raw.Count);
         for (var i = 0; i < raw.Count; i++)
         {
             var current = raw[i];
@@ -91,89 +181,107 @@ internal static class AltiumOutlineReader
             }
         }
 
-        var loops = BuildLoops(segments);
-        if (loops is null)
+        var (loops, invalid) = BuildLoops(segments);
+        if (invalid > 0)
         {
-            warnings.Add("Board outline segment loops could not be closed; geometric polygon fallback was used.");
-            return null;
+            diagnostics.OutlineLoopErrors += invalid;
+            warnings.Add($"{invalid} analytic board-outline loop(s) are not closed/continuous and were not used.");
         }
 
-        var roles = ReadContourRoles(outline, loops, warnings);
-        var contours = new List<Contour>(loops.Count);
+        return loops;
+    }
+
+    private static int FindMatchingLoop(
+        GeometricContour geometric,
+        IReadOnlyList<List<OutlineSegment>> loops,
+        bool[] usedLoops,
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
+    {
+        var candidates = new List<(int Index, int Score)>();
         for (var i = 0; i < loops.Count; i++)
         {
-            var loop = loops[i];
-            contours.Add(new Contour
-            {
-                Id = "altium:contour:" + i.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                Role = roles[i],
-                Segments = loop.Select(ToCoreSegment).ToArray(),
-            });
-        }
-
-        return new BoardOutline { Id = OutlineId, Contours = contours };
-    }
-
-    private static BoardOutline ReadGeometric(IPCB_BoardOutline outline, List<string> warnings)
-    {
-        var contours = new List<Contour>();
-        var geometric = outline.BoardOutline_GeometricPolygon();
-        if (geometric is null)
-        {
-            warnings.Add("Board outline geometric polygon is unavailable.");
-            return new BoardOutline { Id = OutlineId };
-        }
-
-        var count = geometric.GetState_Count();
-        for (var i = 0; i < count; i++)
-        {
-            var contour = geometric.GetState_Contour(i);
-            if (contour is null)
+            if (usedLoops[i])
                 continue;
 
-            var points = new List<Point2D>();
-            var pointCount = contour.GetState_Count();
-            for (var p = 0; p < pointCount; p++)
-                points.Add(Point2D.FromIu(contour.GetState_PointX(p), contour.GetState_PointY(p)));
-
-            if (points.Count < 2)
-                continue;
-
-            var segments = new List<ContourSegment>(points.Count);
-            for (var p = 0; p < points.Count; p++)
+            var loopPoints = new List<Point2D>();
+            foreach (var segment in loops[i])
             {
-                segments.Add(new LineSegment
-                {
-                    Start = points[p],
-                    End = points[(p + 1) % points.Count],
-                });
+                loopPoints.Add(segment.Start);
+                loopPoints.Add(segment.End);
             }
 
-            contours.Add(new Contour
+            var score = OutlineContourMatcher.CountSharedPoints(geometric.Points, loopPoints);
+            if (score > 0)
+                candidates.Add((i, score));
+        }
+
+        if (candidates.Count == 0)
+            return -1;
+
+        var maxScore = candidates.Max(item => item.Score);
+        var best = candidates.Where(item => item.Score == maxScore).ToArray();
+        if (best.Length > 1)
+        {
+            diagnostics.OutlineLoopErrors++;
+            warnings.Add(
+                $"Board outline contour {geometric.Index} ({geometric.Role}) has an ambiguous analytic-loop match; " +
+                "geometric fallback was used rather than guessing the contour.");
+            return -1;
+        }
+
+        return best[0].Index;
+    }
+
+    private static Contour MakeAnalyticContour(GeometricContour geometric, List<OutlineSegment> loop)
+    {
+        return new Contour
+        {
+            Id = "altium:contour:" + geometric.Index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Role = geometric.Role,
+            Segments = loop.Select(ToCoreSegment).ToArray(),
+        };
+    }
+
+    private static Contour MakeGeometricContour(GeometricContour geometric)
+    {
+        var segments = new List<ContourSegment>(geometric.Points.Count);
+        for (var p = 0; p < geometric.Points.Count; p++)
+        {
+            var next = (p + 1) % geometric.Points.Count;
+            if (p == geometric.Points.Count - 1 && PointsEqual(geometric.Points[p], geometric.Points[0]))
+                break;
+
+            segments.Add(new LineSegment
             {
-                Id = "altium:contour:" + i.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                Role = geometric.GetState_IsHole(i) ? ContourRole.Hole : ContourRole.Outer,
-                Segments = segments,
+                Start = geometric.Points[p],
+                End = geometric.Points[next],
             });
         }
 
-        if (contours.Count == 0)
-            warnings.Add("Board outline contains no usable contours.");
-
-        return new BoardOutline { Id = OutlineId, Contours = contours };
+        return new Contour
+        {
+            Id = "altium:contour:" + geometric.Index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Role = geometric.Role,
+            Segments = segments,
+        };
     }
 
-    private static List<List<OutlineSegment>>? BuildLoops(List<OutlineSegment> segments)
+    private static (List<List<OutlineSegment>> Loops, int Invalid) BuildLoops(
+        IReadOnlyList<OutlineSegment> segments)
     {
         var loops = new List<List<OutlineSegment>>();
         var current = new List<OutlineSegment>();
+        var invalid = 0;
+
         foreach (var segment in segments)
         {
             if (current.Count > 0 && !PointsEqual(current[^1].End, segment.Start))
             {
-                if (!PointsEqual(current[^1].End, current[0].Start))
-                    return null;
-                loops.Add(current);
+                if (current.Count >= 2 && PointsEqual(current[^1].End, current[0].Start))
+                    loops.Add(current);
+                else
+                    invalid++;
                 current = new List<OutlineSegment>();
             }
 
@@ -187,66 +295,13 @@ internal static class AltiumOutlineReader
 
         if (current.Count > 0)
         {
-            if (!PointsEqual(current[^1].End, current[0].Start))
-                return null;
-            loops.Add(current);
+            if (current.Count >= 2 && PointsEqual(current[^1].End, current[0].Start))
+                loops.Add(current);
+            else
+                invalid++;
         }
 
-        return loops.Count == 0 ? null : loops;
-    }
-
-    private static IReadOnlyList<ContourRole> ReadContourRoles(
-        IPCB_BoardOutline outline,
-        IReadOnlyList<List<OutlineSegment>> loops,
-        List<string> warnings)
-    {
-        var roles = new ContourRole[loops.Count];
-        var geometric = outline.BoardOutline_GeometricPolygon();
-        if (geometric is null)
-        {
-            for (var i = 0; i < roles.Length; i++)
-                roles[i] = i == 0 ? ContourRole.Outer : ContourRole.Hole;
-            warnings.Add("Board outline hole roles are unavailable; contour order was used.");
-            return roles;
-        }
-
-        var contourCount = geometric.GetState_Count();
-        for (var i = 0; i < loops.Count; i++)
-        {
-            var matched = false;
-            for (var c = 0; c < contourCount; c++)
-            {
-                if (!ContourContains(geometric.GetState_Contour(c), loops[i][0].Start))
-                    continue;
-
-                roles[i] = geometric.GetState_IsHole(c) ? ContourRole.Hole : ContourRole.Outer;
-                matched = true;
-                break;
-            }
-
-            if (!matched)
-            {
-                roles[i] = i == 0 ? ContourRole.Outer : ContourRole.Hole;
-                warnings.Add("A board outline contour could not be matched to a geometric-polygon role.");
-            }
-        }
-
-        return roles;
-    }
-
-    private static bool ContourContains(IPCB_Contour? contour, Point2D point)
-    {
-        if (contour is null)
-            return false;
-
-        var count = contour.GetState_Count();
-        for (var i = 0; i < count; i++)
-        {
-            if (contour.GetState_PointX(i) == point.XIu && contour.GetState_PointY(i) == point.YIu)
-                return true;
-        }
-
-        return false;
+        return (loops, invalid);
     }
 
     private static Point2D StartPoint(RawSegment segment)
@@ -281,6 +336,11 @@ internal static class AltiumOutlineReader
             SweepDirection = segment.SweepDirection,
         };
     }
+
+    private sealed record GeometricContour(
+        int Index,
+        ContourRole Role,
+        IReadOnlyList<Point2D> Points);
 
     private sealed record RawSegment(
         TPolySegmentType Kind,

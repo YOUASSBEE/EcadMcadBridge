@@ -24,6 +24,7 @@ internal static class ExportBoardSnapshotHandler
             var result = AltiumBoardSnapshotAdapter.Read(view);
             foreach (var adapterWarning in result.Warnings)
                 BridgeLogger.Write("WARN", "ADAPTER", adapterWarning);
+            BridgeLogger.Write("INFO", "ADAPTER_SUMMARY", result.Diagnostics.Summary());
 
             var validation = BoardSnapshotValidator.Validate(result.Snapshot);
             foreach (var diagnostic in validation.Diagnostics.Take(50))
@@ -66,7 +67,8 @@ internal static class ExportBoardSnapshotHandler
                     $"addin={AddInVersion} cad=26 doc={result.Snapshot.Source.DocumentFileName} " +
                     $"layers={result.Snapshot.Layers.Count} components={result.Snapshot.Components.Count} " +
                     $"pads={result.Snapshot.Pads.Count} nets={result.Snapshot.Nets.Count} " +
-                    $"adapterWarnings={result.Warnings.Count} validationWarnings={validation.Warnings.Count}");
+                    $"adapterWarnings={result.Warnings.Count} validationWarnings={validation.Warnings.Count} " +
+                    result.Diagnostics.Summary());
             }
         }
         catch (Exception ex)

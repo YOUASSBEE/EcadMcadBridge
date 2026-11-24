@@ -13,6 +13,10 @@
     <ProjectReference Include="..\EcadMcadBridge.Core\EcadMcadBridge.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="EcadMcadBridge.Altium.Tests" />
+  </ItemGroup>
+
   <!-- Altium provides these assemblies at runtime; they are referenced, never copied or committed. -->
   <ItemGroup>
     <Reference Include="Altium.SDK">

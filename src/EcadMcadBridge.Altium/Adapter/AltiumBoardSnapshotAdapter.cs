@@ -9,7 +9,45 @@ namespace EcadMcadBridge.Altium.Adapter;
 
 internal sealed record AltiumBoardSnapshotResult(
     BoardSnapshot Snapshot,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    AltiumAdapterDiagnostics Diagnostics);
+
+internal sealed class AltiumAdapterDiagnostics
+{
+    public int ExactOutlineContours { get; set; }
+    public int FallbackOutlineContours { get; set; }
+    public int OmittedOutlineContours { get; set; }
+    public int OutlineLoopErrors { get; set; }
+    public int UnmatchedAnalyticLoops { get; set; }
+    public int ExactPadShapes { get; set; }
+    public int SimplifiedPadShapes { get; set; }
+    public int UnsupportedPadShapes { get; set; }
+    public int OmittedPadStacks { get; set; }
+
+    public Dictionary<TShape, int> PadShapeCounts { get; } = new();
+
+    public int CountPadShape(TShape shape)
+    {
+        PadShapeCounts.TryGetValue(shape, out var count);
+        count++;
+        PadShapeCounts[shape] = count;
+        return count;
+    }
+
+    public string Summary()
+    {
+        var shapes = string.Join(
+            ",",
+            PadShapeCounts.OrderBy(item => item.Key.ToString(), StringComparer.Ordinal)
+                .Select(item => item.Key + ":" + item.Value));
+        return $"outlineExact={ExactOutlineContours} outlineFallback={FallbackOutlineContours} " +
+            $"outlineOmitted={OmittedOutlineContours} outlineLoopErrors={OutlineLoopErrors} " +
+            $"outlineUnmatchedLoops={UnmatchedAnalyticLoops} " +
+            $"padShapesExact={ExactPadShapes} padShapesSimplified={SimplifiedPadShapes} " +
+            $"padShapesUnsupported={UnsupportedPadShapes} padStacksEmpty={OmittedPadStacks} " +
+            $"shapeCounts=[{shapes}]";
+    }
+}
 
 /// <summary>
 /// Read-only adapter from the active Altium PCB to the neutral Core BoardSnapshot.
@@ -35,6 +73,7 @@ internal static class AltiumBoardSnapshotAdapter
             throw new InvalidOperationException("The active document is not a PCB document.");
 
         var warnings = new List<string>();
+        var diagnostics = new AltiumAdapterDiagnostics();
         var layers = ReadLayers(board, warnings);
         var nets = new NetCatalog();
         ReadNets(board, nets, warnings);
@@ -42,9 +81,9 @@ internal static class AltiumBoardSnapshotAdapter
         var components = new List<ComponentInstance>();
         var padStacks = new List<PadStack>();
         var pads = new List<Pad>();
-        ReadComponents(board, layers, nets, components, padStacks, pads, warnings);
+        ReadComponents(board, layers, nets, components, padStacks, pads, warnings, diagnostics);
 
-        var outline = AltiumOutlineReader.Read(board, warnings);
+        var outline = AltiumOutlineReader.Read(board, warnings, diagnostics);
         var fileName = Path.GetFileName(board.GetState_FileName() ?? string.Empty);
         if (string.IsNullOrWhiteSpace(fileName))
         {
@@ -81,7 +120,7 @@ internal static class AltiumBoardSnapshotAdapter
             Texts = Array.Empty<TextItem>(),
         };
 
-        return new AltiumBoardSnapshotResult(snapshot, warnings);
+        return new AltiumBoardSnapshotResult(snapshot, warnings, diagnostics);
     }
 
     private static LayerCatalog ReadLayers(IPCB_Board board, List<string> warnings)
@@ -150,7 +189,8 @@ internal static class AltiumBoardSnapshotAdapter
         List<ComponentInstance> components,
         List<PadStack> padStacks,
         List<Pad> pads,
-        List<string> warnings)
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
     {
         var iterator = board.BoardIterator_Create();
         try
@@ -161,8 +201,6 @@ internal static class AltiumBoardSnapshotAdapter
 
             var index = 0;
             var holeWarning = false;
-            var customPadWarning = false;
-            var ovalWarning = false;
             for (var primitive = iterator.FirstPCBObject(); primitive is not null; primitive = iterator.NextPCBObject())
             {
                 if (primitive is not IPCB_Component component)
@@ -218,8 +256,7 @@ internal static class AltiumBoardSnapshotAdapter
                     pads,
                     warnings,
                     ref holeWarning,
-                    ref customPadWarning,
-                    ref ovalWarning);
+                    diagnostics);
                 index++;
             }
         }
@@ -238,8 +275,7 @@ internal static class AltiumBoardSnapshotAdapter
         List<Pad> pads,
         List<string> warnings,
         ref bool holeWarning,
-        ref bool customPadWarning,
-        ref bool ovalWarning)
+        AltiumAdapterDiagnostics diagnostics)
     {
         var iterator = component.GroupIterator_Create();
         if (iterator is null)
@@ -274,8 +310,7 @@ internal static class AltiumBoardSnapshotAdapter
                     stackId,
                     layers,
                     warnings,
-                    ref customPadWarning,
-                    ref ovalWarning);
+                    diagnostics);
 
                 padStacks.Add(new PadStack { Id = stackId, Shapes = shapes });
                 pads.Add(new Pad
@@ -309,8 +344,7 @@ internal static class AltiumBoardSnapshotAdapter
         string stackId,
         LayerCatalog layers,
         List<string> warnings,
-        ref bool customPadWarning,
-        ref bool ovalWarning)
+        AltiumAdapterDiagnostics diagnostics)
     {
         var shapes = new List<PadShape>();
         var padLayer = (int)pad.GetState_Layer();
@@ -336,27 +370,44 @@ internal static class AltiumBoardSnapshotAdapter
             if (shape == TShape.eNoShape || (width <= 0 && height <= 0))
                 continue;
 
-            var kind = MapPadShape(shape, width, height, out var oval);
+            var shapeCount = diagnostics.CountPadShape(shape);
+            var kind = MapPadShape(shape, width, height, out var simplified);
             if (kind is null)
             {
-                if (shape == TShape.eCustomShape && !customPadWarning)
+                diagnostics.UnsupportedPadShapes++;
+                if (shapeCount == 1)
                 {
-                    customPadWarning = true;
-                    warnings.Add("Custom pad shapes are not representable by the current Core PadShape contract and were omitted.");
-                }
-                else
-                {
-                    warnings.Add($"Unsupported pad shape '{shape}' on layer {layerId}.");
+                    warnings.Add(
+                        $"Unsupported Altium pad shape '{shape}' was omitted from PadShape; " +
+                        "the current Core PadShape cannot represent it without guessing geometry.");
                 }
                 continue;
             }
 
-            if (oval && !ovalWarning)
+            if (simplified)
             {
-                ovalWarning = true;
-                warnings.Add("Oval pads were represented as rounded rectangles with radius = min(width,height)/2.");
+                diagnostics.SimplifiedPadShapes++;
+                if (shapeCount == 1)
+                {
+                    warnings.Add(shape switch
+                    {
+                        TShape.eOctagonal =>
+                            "Altium eOctagonal is a chamfered rectangle; Core Octagonal is an approximation.",
+                        TShape.eRounded =>
+                            "Oval pads are represented as rounded rectangles with radius = min(width,height)/2; Core has no Oval kind.",
+                        _ =>
+                            "Rounded rectangle corner radius is unavailable from the confirmed API; PadShape was exported without CornerRadius.",
+                    });
+                }
+            }
+            else
+            {
+                diagnostics.ExactPadShapes++;
             }
 
+            var cornerRadius = shape == TShape.eRounded
+                ? LengthValue.FromIu(Math.Min(Math.Abs(width), Math.Abs(height)) / 2)
+                : LengthValue.FromIu(null);
             shapes.Add(new PadShape
             {
                 Id = stackId + ":shape:" + layerId,
@@ -364,44 +415,44 @@ internal static class AltiumBoardSnapshotAdapter
                 LayerId = pair.Value.Id,
                 Width = width > 0 ? LengthValue.FromIu(width) : LengthValue.FromIu(null),
                 Height = height > 0 ? LengthValue.FromIu(height) : LengthValue.FromIu(null),
-                CornerRadius = oval
-                    ? LengthValue.FromIu(Math.Min(Math.Abs(width), Math.Abs(height)) / 2)
-                    : LengthValue.FromIu(null),
+                CornerRadius = cornerRadius,
                 Vertices = Array.Empty<Point2D>(),
             });
         }
 
         if (shapes.Count == 0)
+        {
+            diagnostics.OmittedPadStacks++;
             warnings.Add($"Pad '{pad.GetState_Name()}' has no representable copper shape; its PadStack is empty.");
+        }
 
         return shapes;
     }
 
-    private static PadShapeKind? MapPadShape(TShape shape, int width, int height, out bool oval)
+    internal static PadShapeKind? MapPadShape(TShape shape, int width, int height, out bool simplified)
     {
-        oval = false;
+        simplified = false;
         switch (shape)
         {
             case TShape.eRectangular:
                 return PadShapeKind.Rectangular;
-            case TShape.eOctagonal:
-                return PadShapeKind.Octagonal;
             case TShape.eCircleShape:
                 return PadShapeKind.Circular;
+            case TShape.eOctagonal:
+                simplified = true;
+                return PadShapeKind.Octagonal;
             case TShape.eRoundRectShape:
             case TShape.eRoundedRectangular:
+                simplified = true;
+                return PadShapeKind.RoundedRectangle;
+            case TShape.eRounded:
+                if (Math.Abs(width - height) <= 1)
+                    return PadShapeKind.Circular;
+                simplified = true;
                 return PadShapeKind.RoundedRectangle;
             case TShape.eRotatedRectShape:
-                return PadShapeKind.Rectangular;
-            case TShape.eRounded:
             case TShape.eArcShape:
             case TShape.eTerminator:
-                if (Math.Abs(width - height) > 1)
-                {
-                    oval = true;
-                    return PadShapeKind.RoundedRectangle;
-                }
-                return PadShapeKind.Circular;
             case TShape.eCustomShape:
             case TShape.eNoShape:
                 return null;

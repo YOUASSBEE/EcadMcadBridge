@@ -162,9 +162,13 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 - Smoke-тест `MiniPC.PcbDoc`: 31 слой, 1046 компонентов, 6004 пада, 837 сетей, 9669 форм,
   rotation до 135°; `Bluetooth_Sentinel.PcbDoc`: контур с 2 аналитическими дугами.
   SHA256 обеих vendor-плат до/после экспорта совпал.
+- `BRIDGE-000003-FIX-001`: Board Outline сохраняет все контуры `GeometricPolygon`;
+  несопоставленные аналитические циклы дают line-fallback с warning, а не удаление.
+  `TShape` разделён на exact/simplified/unsupported; добавлены `Altium.Tests` (15 тестов).
+- Synthetic cutout smoke пока не подтверждён: на доступных vendor-платах вырезов нет.
 - Tracks, vias, regions, text items и Exchange Package в адаптере не реализованы.
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
-  и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-23.
+  и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.
   `BRIDGE-000002` новых Altium API не добавляет.
 - Git-протокол и runtime-обмен разделены: Git не используется для пользовательских PCB, STEP

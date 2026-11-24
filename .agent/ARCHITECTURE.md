@@ -351,10 +351,16 @@ Core рассматривает ID как непрозрачную непуст�
   Механические слои определяются по V6-ID, а не по имени.
 - В Core 1.0.0 нет полей pad hole, pin designator, локальных координат пада, stack order
   и признака 3D-модели; adapter не выдумывает эти значения и пишет предупреждения.
-- `eRounded` с разными размерами представлен rounded rectangle с радиусом
-  `min(width,height)/2` и предупреждением; `eCustomShape` пропускается с предупреждением.
+- `GeometricPolygon` — источник полного набора контуров и ролей. Аналитические сегменты
+  сопоставляются с каждым контуром отдельно; если `GetState_Segments` не покрывает контур,
+  он не теряется, а экспортируется line-fallback с предупреждением о возможной потере дуг.
+- `TShape`: точные — `eRectangular`, `eCircleShape`, `eRounded` с равными размерами;
+  упрощённые с warning — `eOctagonal` (chamfered rectangle), rounded rectangles без
+  подтверждённого corner radius, oval через rounded rectangle radius=min/2;
+  неподдерживаемые и не подменяемые — `eRotatedRectShape`, `eArcShape`, `eTerminator`,
+  `eCustomShape`, `eNoShape`.
 - Внутренние вырезы контура поддержаны через `GetState_IsHole`; на выбранных vendor-платах
-  они не встретились, поэтому этот путь не подтверждён smoke-тестом.
+  вырезы не встретились, поэтому synthetic cutout smoke пока не подтверждён (V-22).
 - Полное соответствие Core всем структурам Altium не утверждается; adapter проверен на
   `MiniPC.PcbDoc` и `Bluetooth_Sentinel.PcbDoc` в AD26.12.2.9 (см. отчёт `BRIDGE-000003`).
 

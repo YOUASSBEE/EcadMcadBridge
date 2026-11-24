@@ -13,6 +13,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EcadMcadBridge.Core.Tests", "tests\EcadMcadBridge.Core.Tests\EcadMcadBridge.Core.Tests.csproj", "{CD688DD9-5CFA-4198-B502-5DF2F67A137F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EcadMcadBridge.Altium.Tests", "tests\EcadMcadBridge.Altium.Tests\EcadMcadBridge.Altium.Tests.csproj", "{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -59,6 +61,18 @@ Global
 		{CD688DD9-5CFA-4198-B502-5DF2F67A137F}.Release|x64.Build.0 = Release|Any CPU
 		{CD688DD9-5CFA-4198-B502-5DF2F67A137F}.Release|x86.ActiveCfg = Release|Any CPU
 		{CD688DD9-5CFA-4198-B502-5DF2F67A137F}.Release|x86.Build.0 = Release|Any CPU
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}.Debug|x64.Build.0 = Debug|Any CPU
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}.Debug|x86.Build.0 = Debug|Any CPU
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}.Release|x64.ActiveCfg = Release|Any CPU
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}.Release|x64.Build.0 = Release|Any CPU
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}.Release|x86.ActiveCfg = Release|Any CPU
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -67,5 +81,6 @@ Global
 		{110C4F5D-0544-4805-B958-70A38C12CAD7} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{2263D60D-D21A-4B31-A97E-1B01D25A1867} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{CD688DD9-5CFA-4198-B502-5DF2F67A137F} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{6E9BFA7D-72B4-40B4-B5B4-7E15B6416CDC} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

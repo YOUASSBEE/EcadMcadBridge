@@ -5,7 +5,7 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T12:45:00+03:00
-updated: 2026-11-24T12:45:36+03:00
+updated: 2026-11-24T13:22:03+03:00
 base: source
 branch: task/BRIDGE-000003-altium-board-adapter
 commit: cb509bc62b01609abe74d46d83236b0691a5f7bc
@@ -194,6 +194,38 @@ Smoke выполнен в AD26.12.2.9 через реальный Add-in и ко
 архитектурного решения до добавления pad holes, plane kind, stack order и локальных
 координат падов.
 
+## 7.1 FIX-001 — достоверность outline и PadShape
+
+- Board Outline теперь использует `GeometricPolygon` как источник **всех** контуров и
+  ролей `Outer`/`Hole`; каждый geometric contour отдельно сопоставляется с аналитическим
+  циклом. Несопоставленный контур не удаляется: он экспортируется line-fallback с
+  предупреждением о возможной потере дуг. На `PC4-SODIMM` это дало
+  `outlineFallback=1`, `outlineLoopErrors=6` и явные warning вместо потери контура.
+- `TShape` разделён на точные, упрощённые и неподдерживаемые:
+  - точные: `eRectangular`, `eCircleShape`, `eRounded` при равных размерах;
+  - упрощённые с warning: `eOctagonal` (chamfered rectangle → Octagonal),
+    rounded rectangles без подтверждённого corner radius, oval через rounded rectangle
+    radius=min/2;
+  - неподдерживаемые и не подменяемые: `eRotatedRectShape`, `eArcShape`, `eTerminator`,
+    `eCustomShape`, `eNoShape`.
+- Adapter diagnostics теперь явно различает `outlineExact`, `outlineFallback`,
+  `outlineOmitted`, `outlineLoopErrors`, `padShapesExact`, `padShapesSimplified`,
+  `padShapesUnsupported`, пустые PadStacks и счётчики по `TShape`.
+- Добавлен отдельный тестовый проект `EcadMcadBridge.Altium.Tests` (net10.0-windows,
+  без новой зависимости Core от Altium): 15 тестов PadShape/Outline matcher.
+- Итоговые smoke-тесты current code:
+  - MiniPC: 31 слой, 1046 компонентов, 6004 пада, 837 сетей, 9669 форм,
+    `outlineExact=1`, `padShapesExact=8927`, `padShapesSimplified=742`,
+    `padShapesUnsupported=0`, validation errors 0, SHA256
+    `50547E5ED4AA84C430CD1F3B3F5EDBF2ED6FB013E8C076A871C9BDE4B5749A93`;
+  - Bluetooth: 17 слоёв, 73 компонента, 224 пада, 57 сетей, контур 12 сегментов
+    (10 линий + 2 дуги), `outlineExact=1`, `padShapesExact=132`,
+    `padShapesSimplified=92`, validation errors 0, SHA256
+    `1E18C3EFA9D6C3245AA09CAB7268B2A908078E50ED2D09DC9D6DFD3BC36B95F3`.
+- **Синтетический cutout smoke не выполнен**: не удалось безопасно создать/найти
+  vendor-плату с внутренним вырезом без риска изменить исходную геометрию. Код использует
+  `GetState_IsHole`, но критерий подтверждения cutout остаётся открытым (V-22).
+
 ## 8. Проверки
 
 ```text
@@ -203,10 +235,12 @@ dotnet build -c Release
 Ошибок: 0
 
 dotnet test -c Release
-Пройден! : не пройдено 0, пройдено 41, пропущено 0, всего 41
+Core.Tests: 41/41
+Altium.Tests: 15/15
 ```
 
-Существующие 33 теста Core не регрессировали; добавлены 8 тестов `AngleNormalizer`.
+Существующие 33 теста Core не регрессировали; добавлены 8 тестов `AngleNormalizer`
+и 15 тестов Altium adapter.
 
 ## 9. Commit SHA и PR
 
@@ -221,3 +255,4 @@ dotnet test -c Release
 |---|---|
 | 2026-11-24 | Первая версия: adapter, слои, компоненты, пады, nets, контур, JSON, smoke. |
 | 2026-11-24 | Добавлены commit SHA и URL PR #5; PR создан, не слит. |
+| 2026-11-24 | FIX-001: все geometric contours сохраняются, fallback и PadShape-преобразования диагностируются; tests 56. |
