@@ -19,6 +19,11 @@ internal sealed class AltiumAdapterDiagnostics
     public int OmittedOutlineContours { get; set; }
     public int OutlineLoopErrors { get; set; }
     public int UnmatchedAnalyticLoops { get; set; }
+    public int AmbiguousOutlineMatches { get; set; }
+    public int PartialOutlineMatches { get; set; }
+    public int GeometricContourCount { get; set; }
+    public int GeometricPointCount { get; set; }
+    public int GeometricHoleCount { get; set; }
     public int ExactPadShapes { get; set; }
     public int SimplifiedPadShapes { get; set; }
     public int UnsupportedPadShapes { get; set; }
@@ -43,6 +48,9 @@ internal sealed class AltiumAdapterDiagnostics
         return $"outlineExact={ExactOutlineContours} outlineFallback={FallbackOutlineContours} " +
             $"outlineOmitted={OmittedOutlineContours} outlineLoopErrors={OutlineLoopErrors} " +
             $"outlineUnmatchedLoops={UnmatchedAnalyticLoops} " +
+            $"outlineAmbiguous={AmbiguousOutlineMatches} outlinePartial={PartialOutlineMatches} " +
+            $"geometricContours={GeometricContourCount} geometricPoints={GeometricPointCount} " +
+            $"geometricHoles={GeometricHoleCount} " +
             $"padShapesExact={ExactPadShapes} padShapesSimplified={SimplifiedPadShapes} " +
             $"padShapesUnsupported={UnsupportedPadShapes} padStacksEmpty={OmittedPadStacks} " +
             $"shapeCounts=[{shapes}]";

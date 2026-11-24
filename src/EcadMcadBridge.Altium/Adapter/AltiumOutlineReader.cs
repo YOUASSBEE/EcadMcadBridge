@@ -112,6 +112,9 @@ internal static class AltiumOutlineReader
             result.Add(new GeometricContour(i, role, points));
         }
 
+        diagnostics.GeometricContourCount = result.Count;
+        diagnostics.GeometricPointCount = result.Sum(contour => contour.Points.Count);
+        diagnostics.GeometricHoleCount = result.Count(contour => contour.Role == ContourRole.Hole);
         return result;
     }
 
@@ -198,39 +201,49 @@ internal static class AltiumOutlineReader
         List<string> warnings,
         AltiumAdapterDiagnostics diagnostics)
     {
-        var candidates = new List<(int Index, int Score)>();
+        var matches = OutlineContourMatcher.FindExactMatches(geometric.Points, loops, usedLoops);
+        if (matches.Count == 1)
+            return matches[0];
+
+        if (matches.Count > 1)
+        {
+            diagnostics.AmbiguousOutlineMatches++;
+            warnings.Add(
+                $"Board outline contour {geometric.Index} ({geometric.Role}) has {matches.Count} exact analytic-loop matches; " +
+                "geometric fallback was used rather than choosing arbitrarily.");
+            return -1;
+        }
+
+        var partial = false;
         for (var i = 0; i < loops.Count; i++)
         {
             if (usedLoops[i])
                 continue;
-
-            var loopPoints = new List<Point2D>();
-            foreach (var segment in loops[i])
+            if (OutlineContourMatcher.HasAnySharedPoint(geometric.Points, loops[i]))
             {
-                loopPoints.Add(segment.Start);
-                loopPoints.Add(segment.End);
+                partial = true;
+                break;
+            }
+        }
+
+        if (partial)
+        {
+            diagnostics.PartialOutlineMatches++;
+            var explanation = string.Empty;
+            for (var i = 0; i < loops.Count; i++)
+            {
+                if (usedLoops[i] || !OutlineContourMatcher.HasAnySharedPoint(geometric.Points, loops[i]))
+                    continue;
+                explanation = " " + OutlineContourMatcher.ExplainExactMatch(geometric.Points, loops[i]);
+                break;
             }
 
-            var score = OutlineContourMatcher.CountSharedPoints(geometric.Points, loopPoints);
-            if (score > 0)
-                candidates.Add((i, score));
-        }
-
-        if (candidates.Count == 0)
-            return -1;
-
-        var maxScore = candidates.Max(item => item.Score);
-        var best = candidates.Where(item => item.Score == maxScore).ToArray();
-        if (best.Length > 1)
-        {
-            diagnostics.OutlineLoopErrors++;
             warnings.Add(
-                $"Board outline contour {geometric.Index} ({geometric.Role}) has an ambiguous analytic-loop match; " +
-                "geometric fallback was used rather than guessing the contour.");
-            return -1;
+                $"Board outline contour {geometric.Index} ({geometric.Role}) has only a partial analytic-loop match; " +
+                "exact matching was rejected and geometric fallback was used." + explanation);
         }
 
-        return best[0].Index;
+        return -1;
     }
 
     private static Contour MakeAnalyticContour(GeometricContour geometric, List<OutlineSegment> loop)
@@ -352,10 +365,4 @@ internal static class AltiumOutlineReader
         double Angle1,
         double Angle2);
 
-    private sealed record OutlineSegment(
-        Point2D Start,
-        Point2D End,
-        Point2D Center,
-        int Radius,
-        ArcSweepDirection? SweepDirection);
 }

@@ -5,7 +5,7 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T12:45:00+03:00
-updated: 2026-11-24T13:22:03+03:00
+updated: 2026-11-24T14:00:24+03:00
 base: source
 branch: task/BRIDGE-000003-altium-board-adapter
 commit: cb509bc62b01609abe74d46d83236b0691a5f7bc
@@ -212,7 +212,7 @@ Smoke выполнен в AD26.12.2.9 через реальный Add-in и ко
   `outlineOmitted`, `outlineLoopErrors`, `padShapesExact`, `padShapesSimplified`,
   `padShapesUnsupported`, пустые PadStacks и счётчики по `TShape`.
 - Добавлен отдельный тестовый проект `EcadMcadBridge.Altium.Tests` (net10.0-windows,
-  без новой зависимости Core от Altium): 15 тестов PadShape/Outline matcher.
+  без новой зависимости Core от Altium): 19 тестов PadShape/Outline matcher.
 - Итоговые smoke-тесты current code:
   - MiniPC: 31 слой, 1046 компонентов, 6004 пада, 837 сетей, 9669 форм,
     `outlineExact=1`, `padShapesExact=8927`, `padShapesSimplified=742`,
@@ -226,6 +226,27 @@ Smoke выполнен в AD26.12.2.9 через реальный Add-in и ко
   vendor-плату с внутренним вырезом без риска изменить исходную геометрию. Код использует
   `GetState_IsHole`, но критерий подтверждения cutout остаётся открытым (V-22).
 
+## 7.2 FIX-002 — cutout и exact matcher
+
+- Исходный файл оператора `%TEMP%\EcadMcadBridge\smoke-000003\minipc.PcbDoc`
+  имеет размер 51,684,352 байт, mtime `2026-08-12T20:53:30+03:00`, SHA256
+  `50547E5ED4AA84C430CD1F3B3F5EDBF2ED6FB013E8C076A871C9BDE4B5749A93`.
+  Этот SHA256 совпал с vendor-копией; по API `GeometricPolygon` содержит
+  1 outer-контур, 6 точек, 0 hole-контуров. Вырезов в файле не обнаружено.
+- Рабочая копия `%TEMP%\EcadMcadBridge\smoke-000003-fix-002\minipc-cutout-test.PcbDoc`
+  сохранила тот же SHA256 до/после экспорта.
+- Exact matcher теперь требует замкнутый/непрерывный цикл, покрытие уникальных
+  аналитических вершин geometric polyline и покрытие всех geometric points
+  аналитическими линиями/дугами. Одной общей точки недостаточно.
+- На `Bluetooth_Sentinel.PcbDoc` старый false-exact заменён на fallback:
+  `outlineExact=0`, `outlineFallback=1`, `outlinePartial=1`,
+  `outlineUnmatchedLoops=1`; diagnostic: `uniqueLoop=12`, `uniqueContour=140`,
+  `maxContourToLoop=4718.66 IU`. JSON содержит 140 line segments и warning;
+  точная дуговая геометрия не выдаётся за подтверждённую.
+- На рабочей копии MiniPC без cutouts: `outlineExact=1`, 1 контур, 6 линий,
+  `geometricPoints=6`, `geometricHoles=0`.
+- V-22 остаётся открытым: реальный cutout smoke не подтверждён.
+
 ## 8. Проверки
 
 ```text
@@ -236,11 +257,11 @@ dotnet build -c Release
 
 dotnet test -c Release
 Core.Tests: 41/41
-Altium.Tests: 15/15
+Altium.Tests: 19/19
 ```
 
 Существующие 33 теста Core не регрессировали; добавлены 8 тестов `AngleNormalizer`
-и 15 тестов Altium adapter.
+и 19 тестов Altium adapter.
 
 ## 9. Commit SHA и PR
 
@@ -256,3 +277,4 @@ Altium.Tests: 15/15
 | 2026-11-24 | Первая версия: adapter, слои, компоненты, пады, nets, контур, JSON, smoke. |
 | 2026-11-24 | Добавлены commit SHA и URL PR #5; PR создан, не слит. |
 | 2026-11-24 | FIX-001: все geometric contours сохраняются, fallback и PadShape-преобразования диагностируются; tests 56. |
+| 2026-11-24 | FIX-002: exact matcher отвергает partial/ambiguous; cutout-файл оператора без вырезов, V-22 открыт; tests 60. |

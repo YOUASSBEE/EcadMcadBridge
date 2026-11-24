@@ -237,7 +237,7 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-19 | Как представлять отверстия падов, pin designator и локальные координаты пада? | В Core 1.0.0 нет соответствующих полей; adapter не подменяет данные | Отдельное решение/ADR до расширения Core |
 | V-20 | Как представлять oval и custom pad shapes? | `eRounded` с разными размерами отображён в rounded rectangle с предупреждением; `eCustomShape` не имеет вершин в API | Отдельная задача по PadShape; сейчас ограничение зафиксировано |
 | V-21 | Как сохранять порядок слоёв stackup и наличие 3D-модели? | Core не содержит этих полей; adapter их не заполняет | Расширение Core отдельным решением |
-| V-22 | Поддержаны ли внутренние вырезы контура (`GetState_IsHole`) на реальной плате? | Код использует `GetState_IsHole`, но на выбранных vendor-платах вырезы не встретились | Smoke-тест на синтетической плате с cutout |
+| V-22 | Поддержаны ли внутренние вырезы контура (`GetState_IsHole`) на реальной плате? | Открыт: `BRIDGE-000003-FIX-002` проверил операторский `minipc.PcbDoc`, но его SHA256 `50547E…` совпал с vendor-копией; API вернул 1 contour/6 points/0 holes. Вырезов в файле не было | Оператору нужно предоставить реально изменённую плату с cutout; smoke повторить |
 | V-23 | Почему `IPCB_Pad.DefinitionLayerIterator` иногда возвращает V7-ID, не совпадающие с V6? | Adapter обходит это перебором copper-слоёв board layer iterator; высокие V7-ID не используются как V6 | Отдельное исследование V7 layer mapping при необходимости |
 | V-24 | Гарантирует ли `IPCB_Polygon.GetState_Segments()` все циклы Board Outline? | Нет: на `PC4-SODIMM` циклы не замкнулись, adapter перешёл на line-fallback для geometric contour. `GeometricPolygon` остаётся источником количества/ролей | Проверка на synthetic cutout; отдельное исследование API сегментов |
 | V-25 | Можно ли достоверно отличить `eRotatedRectShape`/`eArcShape`/`eTerminator` от поддерживаемых форм? | Семантика не подтверждена; adapter не преобразует их в круг/прямоугольник и выдаёт warning | Отдельный эксперимент с известными pad shape |
@@ -280,3 +280,4 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | 2026-11-24 | BRIDGE-000002: новых Altium API нет; Core-модель, JSON и валидатор не используют SDK | local-agent |
 | 2026-11-24 | BRIDGE-000003: добавлены C-73…C-84 и ограничения V-18…V-23; Adapter проверен в AD26.12.2.9 | local-agent |
 | 2026-11-24 | BRIDGE-000003-FIX-001: geometric contours сохраняются все, fallback диагностируется; уточнены TShape V-24/V-25 | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-002: exact outline matcher отвергает partial/ambiguous; cutout-файл оператора без вырезов, V-22 открыт | local-agent |

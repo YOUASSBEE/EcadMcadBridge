@@ -7,58 +7,106 @@ namespace EcadMcadBridge.Altium.Tests;
 public sealed class OutlineContourMatcherTests
 {
     [Fact]
-    public void CountSharedPoints_MatchesTheCorrectContour()
+    public void ExactMatch_AcceptsFullContourWithDifferentStart()
     {
-        var outer = Rectangle(0, 0, 100, 100);
-        var hole = Rectangle(20, 20, 40, 40);
-        var analyticHole = new[]
-        {
-            Point2D.FromIu(20, 20),
-            Point2D.FromIu(40, 20),
-            Point2D.FromIu(40, 40),
-            Point2D.FromIu(20, 40),
-            Point2D.FromIu(20, 20),
-        };
+        var contour = RectanglePoints(0, 0, 100, 100);
+        var loop = Loop((100, 0), (100, 100), (0, 100), (0, 0));
 
-        Assert.Equal(5, OutlineContourMatcher.CountSharedPoints(hole, analyticHole));
-        Assert.Equal(0, OutlineContourMatcher.CountSharedPoints(outer, analyticHole));
+        Assert.True(OutlineContourMatcher.TryExactMatch(contour, loop));
     }
 
     [Fact]
-    public void CountSharedPoints_ReturnsZeroWhenNoPointMatches()
+    public void ExactMatch_RejectsSingleSharedPoint()
     {
-        var contour = Rectangle(0, 0, 100, 100);
-        var shifted = new[]
-        {
-            Point2D.FromIu(1000, 1000),
-            Point2D.FromIu(1100, 1000),
-        };
+        var contour = RectanglePoints(0, 0, 100, 100);
+        var loop = Loop((0, 0), (200, 0), (200, 200), (0, 200));
 
-        Assert.Equal(0, OutlineContourMatcher.CountSharedPoints(contour, shifted));
+        Assert.False(OutlineContourMatcher.TryExactMatch(contour, loop));
     }
 
     [Fact]
-    public void IsClosed_DetectsClosedAndOpenPointSequences()
+    public void ExactMatch_RejectsPartialGeometry()
     {
-        var closed = new[]
+        var contour = RectanglePoints(0, 0, 100, 100);
+        var loop = Loop((0, 0), (100, 0), (100, 100));
+
+        Assert.False(OutlineContourMatcher.TryExactMatch(contour, loop));
+    }
+
+    [Fact]
+    public void FindExactMatches_IdentifiesAmbiguousDuplicateMatches()
+    {
+        var contour = RectanglePoints(0, 0, 100, 100);
+        var loop = Loop((0, 0), (100, 0), (100, 100), (0, 100));
+
+        var matches = OutlineContourMatcher.FindExactMatches(
+            contour,
+            new IReadOnlyList<OutlineSegment>[] { loop, loop });
+
+        Assert.Equal(2, matches.Count);
+    }
+
+    [Fact]
+    public void UniquePoints_DoNotDoubleCountAdjacentStartAndEnd()
+    {
+        var contour = RectanglePoints(0, 0, 100, 100);
+        var loop = Loop((0, 0), (100, 0), (100, 100), (0, 100));
+        var points = loop.SelectMany(segment => new[] { segment.Start, segment.End }).ToArray();
+
+        Assert.Equal(8, points.Length);
+        Assert.Equal(4, OutlineContourMatcher.CountUniqueSharedPoints(contour, points));
+    }
+
+    [Fact]
+    public void ExactMatch_RejectsOpenLoop()
+    {
+        var contour = RectanglePoints(0, 0, 100, 100);
+        var loop = new[]
         {
-            Point2D.FromIu(0, 0),
-            Point2D.FromIu(10, 0),
-            Point2D.FromIu(10, 10),
-            Point2D.FromIu(0, 0),
+            Segment((0, 0), (100, 0)),
+            Segment((100, 0), (100, 100)),
+            Segment((100, 100), (0, 100)),
         };
+
+        Assert.False(OutlineContourMatcher.TryExactMatch(contour, loop));
+        Assert.False(OutlineContourMatcher.IsClosed(loop));
+    }
+
+    [Fact]
+    public void IsClosed_DetectsClosedPointSequence()
+    {
+        var closed = RectanglePoints(0, 0, 100, 100).Concat(new[] { Point2D.FromIu(0, 0) }).ToArray();
         var open = closed[..^1];
 
         Assert.True(OutlineContourMatcher.IsClosed(closed));
         Assert.False(OutlineContourMatcher.IsClosed(open));
     }
 
-    private static Point2D[] Rectangle(int x1, int y1, int x2, int y2) =>
+    private static Point2D[] RectanglePoints(int x1, int y1, int x2, int y2) =>
     [
         Point2D.FromIu(x1, y1),
         Point2D.FromIu(x2, y1),
         Point2D.FromIu(x2, y2),
         Point2D.FromIu(x1, y2),
-        Point2D.FromIu(x1, y1),
     ];
+
+    private static OutlineSegment[] Loop(params (int X, int Y)[] points)
+    {
+        var result = new OutlineSegment[points.Length];
+        for (var i = 0; i < points.Length; i++)
+        {
+            var next = points[(i + 1) % points.Length];
+            result[i] = Segment(points[i], next);
+        }
+
+        return result;
+    }
+
+    private static OutlineSegment Segment((int X, int Y) start, (int X, int Y) end) =>
+        new(
+            Point2D.FromIu(start.X, start.Y),
+            Point2D.FromIu(end.X, end.Y),
+            default,
+            0,
+            null);
 }

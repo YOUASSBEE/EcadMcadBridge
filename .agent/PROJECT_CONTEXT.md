@@ -164,7 +164,11 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   SHA256 обеих vendor-плат до/после экспорта совпал.
 - `BRIDGE-000003-FIX-001`: Board Outline сохраняет все контуры `GeometricPolygon`;
   несопоставленные аналитические циклы дают line-fallback с warning, а не удаление.
-  `TShape` разделён на exact/simplified/unsupported; добавлены `Altium.Tests` (15 тестов).
+  `TShape` разделён на exact/simplified/unsupported; добавлены `Altium.Tests` (19 тестов).
+- `BRIDGE-000003-FIX-002`: exact matcher отвергает частичное совпадение (Bluetooth
+  переведён с ложного exact на fallback с warning); исходный файл оператора
+  `minipc.PcbDoc` оказался byte-identical vendor-копией без вырезов, поэтому V-22
+  остаётся открытым.
 - Synthetic cutout smoke пока не подтверждён: на доступных vendor-платах вырезов нет.
 - Tracks, vias, regions, text items и Exchange Package в адаптере не реализованы.
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
