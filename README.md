@@ -10,9 +10,10 @@
 - сохранить прослеживаемость каждой передачи данных;
 - обеспечить возможность развития обмена в обе стороны без переделки архитектуры.
 
-> **Текущий этап:** `BRIDGE-000004` — в Core добавлен Exchange Package (manifest, snapshot,
-> checksums, atomic writer/reader) для нейтральной `BoardSnapshot`. Altium adapter извлекает
-> слои, компоненты, пады, nets и контур; полный обмен с SOLIDWORKS не реализуется.
+> **Текущий этап:** `BRIDGE-000007` — Altium `ExportBoardSnapshot` формирует полноценный
+> Exchange Package через Core Writer. Пакет содержит manifest, snapshot и checksums;
+> требуется сохранённая плата без несохранённых изменений. Полный обмен с SOLIDWORKS
+> не реализуется.
 
 ## Согласованный стек
 
@@ -131,10 +132,15 @@ dotnet test -c Release
    Перед правкой сделайте резервную копию файла.
 3. Перезапустите Altium Designer. В открытом `.PcbDoc` появятся `PCB → Tools → Export Smoke Snapshot`
    и `PCB → Tools → Export Board Snapshot`.
-4. `Export Board Snapshot` записывает нейтральный `BoardSnapshot` в
-   `%TEMP%\EcadMcadBridge\board-snapshot-<UTC>.json`; `Export Smoke Snapshot` оставляет
-   диагностический файл `smoke-snapshot-<UTC>.json`. Лог — в `%TEMP%\EcadMcadBridge\logs\bridge.log`.
-   В JSON не попадает содержимое пользовательской платы сверх согласованной модели.
+4. `Export Board Snapshot` создаёт Exchange Package:
+   `<package-root>/<package-guid>/{manifest.json,board.snapshot.json,checksums.sha256}`.
+   Плата должна быть сохранена; при `GetModified()==true` или отсутствии absolute path
+   экспорт отклоняется.
+5. Package root: `ECAD_MCAD_BRIDGE_PACKAGE_ROOT` (absolute), иначе
+   `%LOCALAPPDATA%\EcadMcadBridge\Packages`. `Export Smoke Snapshot` остаётся
+   диагностическим JSON в `%TEMP%`. Лог — в `%TEMP%\EcadMcadBridge\logs\bridge.log`;
+   absolute user paths в него не пишутся.
+   В snapshot не попадает содержимое пользовательской платы сверх согласованной модели.
 
 Автоматизация шага 2 и перенос расширения на другой стенд не реализованы в этой задаче
 (открытый вопрос O-006). Smoke-тест выполняется вручную и фиксируется в report задачи.

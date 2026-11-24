@@ -3,8 +3,8 @@ ClientInsFile 1.0
 Server
     EditorName        = 'EcadMcadBridge'
     EditorExePath     = 'EcadMcadBridge.DLL'
-    EditorDescription = 'ECAD-MCAD Bridge - diagnostic PCB snapshot'
-    Version           = 'Version 0.2.0.0'
+    EditorDescription = 'ECAD-MCAD Bridge - PCB Exchange Package export'
+    Version           = 'Version 0.3.0.0'
     Date              = '24-Nov-2026'
     HelpAboutInfo     = 'ECAD-MCAD Bridge smoke snapshot add-in'
     Copyright         = 'ECAD-MCAD Bridge project'
@@ -20,8 +20,10 @@ End
 
 Command
     Name        = 'ExportBoardSnapshot'
-    LongSummary = 'Export the active PCB to the neutral Core BoardSnapshot JSON'
+    LongSummary = 'Export the active PCB to a versioned Exchange Package'
 End
+
+
 
 PanelInfo
     Name              = 'EcadMcadBridgePanel'
