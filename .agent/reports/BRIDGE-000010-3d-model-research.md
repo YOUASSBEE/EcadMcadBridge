@@ -275,11 +275,25 @@ component rotation на Top и меняет знак на Bottom), а `ExportToS
 `rotationDeg`, `dzMm`, `bodyStandoffMm`, `bodyOverallHeightMm`, `componentSide`,
 `bodyProjection`) и `result/warnings`.
 
-`sourceOrigin`: `embedded` (подтверждено только `GetEmbed=true`), `linked`
-(пока неподтверждённый сценарий), `unknown` (`GetEmbed=false` или
-`GetModelSource=Undefined`), `native` (extruded/procedural без внешнего файла).
-`assetAcquisition`: `original` (исходное расширение; побайтовая идентичность не
-подтверждена), `exported`, `converted`.
+`sourceOrigin`: `embedded` — `GetEmbed=true`; `native` — известный
+native/procedural тип без внешнего файла; `linked` — только подтверждённая
+экспериментально внешняя ссылка на сохранённом PCB (в исследовании не
+подтверждена); `unknown` — недостаточно данных или противоречивые признаки.
+
+Приоритет классификации:
+
+1. `GetEmbed=true` → `embedded`.
+2. Известный native/procedural тип без внешнего файла → `native`.
+3. `linked` нельзя назначать только по `GetEmbed=false`.
+4. `GetModelSource=Undefined` — отсутствие дополнительной информации, а не
+   самостоятельное основание для `unknown`.
+5. `GetModelSource=Undefined` не переопределяет `GetEmbed=true` и известный
+   native/procedural тип.
+6. При противоречивых или недостаточных признаках → `unknown`; не предполагать.
+
+`assetAcquisition` — отдельное поле способа получения asset: `original`
+(исходное расширение; побайтовая идентичность не подтверждена), `exported`,
+`converted`.
 
 Текущие возможности пакета:
 
@@ -300,8 +314,9 @@ component rotation на Top и меняет знак на Bottom), а `ExportToS
   исходное имя только санитизированный basename; absolute paths запрещены;
 - `models.json` и assets должны входить в `manifest.files`; `checksums.sha256`
   покрывает nested files, reader проверяет размер/SHA и `PackagePath`;
-- capability `3d-models`; старые пакеты без `models/` читаются как «модели
-  отсутствуют»;
+- текущий Reader не интерпретирует `models/models.json`; будущий model-aware
+  Reader должен сохранять совместимость с пакетами без `models/`: отсутствие
+  каталога означает отсутствие описанных 3D assets, а не ошибку пакета;
 - `BoardSnapshot` 1.0.0 не меняется; при необходимости ссылок из snapshot —
   отдельный minor bump 1.1.0 и ADR;
 - дедупликация по SHA-256, но для сгенерированных STEP нужна нормализация
@@ -368,12 +383,13 @@ git diff --check          → OK
   произвольные assets не поддерживаются. Реализация asset-пакета требует отдельного
   расширения Writer (входной список файлов, копирование, SHA/размер, manifest,
   checksums, atomic publish).
-- **Классификация источника.** `GetEmbed=true` подтверждает embedded-признак только
-  для проверенных объектов; `GetEmbed=false` не доказывает linked; `GetModelSource`
-  на проверенных платах всегда `Undefined`. В предложении используются
-  `sourceOrigin = embedded | linked | unknown | native` и отдельный
-  `assetAcquisition = original | exported | converted`; окончательный JSON-контракт
-  не принят.
+- **Классификация источника.** `GetEmbed=true` → `embedded`; известный
+  native/procedural тип без файла → `native`; `GetEmbed=false` сам по себе не
+  доказывает `linked`; `GetModelSource=Undefined` не переопределяет `embedded` или
+  `native` и не является самостоятельным основанием для `unknown`. `linked`
+  остаётся неподтверждённым; при недостатке/противоречии данных используется
+  `unknown`. `assetAcquisition = original | exported | converted` отделён от
+  `sourceOrigin`; окончательный JSON-контракт не принят.
 - **Побайтовая идентичность.** Совпадение размера файла и `GetDataSize` на
   выбранных embedded generic STEP-моделях подтверждено, но побайтовая идентичность
   не проверена. Это кандидат на сохранение исходных данных, а не доказанное

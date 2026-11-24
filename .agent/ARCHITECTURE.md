@@ -586,12 +586,29 @@ JSON-контрактом. Массив `models` с записями:
 - `componentId` — ID из `board.snapshot.json`;
 - `bodyOrdinal`, `modelIndex` — порядок в компоненте;
 - `modelType` (`extruded`/`generic`/`cylinder`/`sphere`);
-- `sourceOrigin` — происхождение модели: `embedded` (подтверждено только
-  `GetEmbed=true`), `linked` (пока неподтверждённый сценарий), `unknown`
-  (`GetEmbed=false` или `GetModelSource=Undefined`), `native` (extruded/procedural
-  без внешнего файла);
+- `sourceOrigin` — происхождение модели в контексте Altium:
+  - `embedded` — `GetEmbed=true`; для исследованных embedded-моделей это
+    подтверждённый признак;
+  - `native` — известный native/procedural тип модели (например Extruded) без
+    внешнего файла;
+  - `linked` — только если реальная внешняя ссылка подтверждена экспериментально
+    на сохранённом PCB; текущее исследование linked-сценарий не подтвердило;
+  - `unknown` — если имеющихся данных недостаточно для одного из подтверждённых
+    состояний.
+
+  Приоритет классификации:
+  1. `GetEmbed=true` → `embedded`.
+  2. Известный native/procedural тип без внешнего файла → `native`.
+  3. `linked` нельзя назначать только по `GetEmbed=false`.
+  4. `GetModelSource=Undefined` — отсутствие дополнительной информации, а не
+     самостоятельное основание для `unknown`.
+  5. `GetModelSource=Undefined` не переопределяет подтверждённый `GetEmbed=true`
+     и известный native/procedural тип.
+  6. При противоречивых или недостаточных признаках → `unknown`; не делать
+     предположений.
 - `assetAcquisition` — способ получения asset: `original` (исходное расширение;
-  побайтовая идентичность не подтверждена), `exported`, `converted`;
+  побайтовая идентичность не подтверждена), `exported`, `converted`. Это отдельное
+  поле, не заменяющее `sourceOrigin`;
 - `sourceFileName` — только basename, без absolute path;
 - `assetPath`, `assetSha256`, `assetSize`, `format` (`step-ap214`/`parasolid-x_t`),
   `units`;
@@ -627,8 +644,11 @@ JSON-контрактом. Массив `models` с записями:
   хеша/формата, исходное имя только как санитизированный basename;
 - `models.json` и assets должны входить в `manifest.files`; `checksums.sha256`
   покрывает nested files, reader проверяет размер/SHA и безопасные POSIX-пути;
-- capability `3d-models`; старая версия пакета без `models/` читается как
-  «модели отсутствуют», `board.snapshot.json` остаётся 1.0.0;
+- capability `3d-models`; текущий Reader не интерпретирует `models/models.json`
+  и выполняет только общую проверку файлов/manifest/checksums. Будущий
+  model-aware Reader должен сохранять совместимость с пакетами без `models/`:
+  отсутствие каталога означает отсутствие описанных 3D assets, а не ошибку
+  пакета; `board.snapshot.json` остаётся 1.0.0;
 - при необходимости ссылок из snapshot — отдельный minor bump BoardSnapshot
   (1.1.0) и ADR; сейчас предлагается не менять Core-модель;
 - ZIP/attachments, абсолютные пути, внешние ссылки и STL-подмена B-Rep запрещены.
