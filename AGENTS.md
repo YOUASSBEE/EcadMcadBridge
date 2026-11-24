@@ -176,5 +176,6 @@ README.md                      входная точка
 `BRIDGE-000003` — Altium BoardSnapshot adapter: слои, компоненты, пады, nets, контур
 и Board Cutout. `FIX-004` подтвердил реальный Board Cutout через `IPCB_Region` +
 `ClipWithPolyRegShapes(false,false)`; `FIX-005` исправил дедупликацию, Region matching
-и трактовку дуг CCW; `FIX-006` добавил analytic bounds и устойчивый дуговой dedup.
-Полный обмен с SOLIDWORKS не реализуется до отдельного решения.
+и трактовку дуг CCW; `FIX-006` добавил analytic bounds и устойчивый дуговой dedup;
+`FIX-007` сделал dedup centroid scale-independent. Полный обмен с SOLIDWORKS
+не реализуется до отдельного решения.

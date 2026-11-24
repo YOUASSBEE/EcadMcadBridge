@@ -5,7 +5,7 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T12:45:00+03:00
-updated: 2026-11-24T17:00:00+03:00
+updated: 2026-11-24T21:27:57+03:00
 base: source
 branch: task/BRIDGE-000003-altium-board-adapter
 commit: cb509bc62b01609abe74d46d83236b0691a5f7bc
@@ -308,6 +308,19 @@ Smoke выполнен в AD26.12.2.9 через реальный Add-in и ко
 - Добавлены A6–A10 и B1–B12; Altium.Tests: 60/60, Core.Tests: 41/41.
 - На операторской плате сохранены оба Hole; на MiniPC/Bluetooth ложных cutout нет.
 
+## 7.7 FIX-007 — scale-independent дуговой dedup
+
+- Причина ложного отказа FIX-006: raw polygon centroid зависит от плотности
+  полилинии; при радиусе 100 000 IU и шаге 10° разница достигала ~140.4 IU при
+  допуске 100 IU, хотя все остальные проверки проходили.
+- Теперь для dedup сравниваются centroid характерных точек: каждая вершина Hole
+  проецируется на clip loop, затем сравниваются centroid Hole и centroid проекций.
+  Это не зависит от плотности sampling и не маскирует перенос контура.
+- Raw centroid остаётся диагностикой. Exact 2 IU, approximation 3500 IU,
+  площадь 5% и matched-centroid 100 IU сохранены раздельно.
+- Добавлены A11–A15; Altium.Tests: 65/65, Core.Tests: 41/41.
+- Smoke: оба Hole операторской платы сохранены; MiniPC/Bluetooth без ложных cutout.
+
 ## 8. Проверки
 
 ```text
@@ -318,10 +331,10 @@ dotnet build -c Release
 
 dotnet test -c Release
 Core.Tests: 41/41
-Altium.Tests: 60/60
+Altium.Tests: 65/65
 ```
 
-Текущее состояние: 41 Core + 60 Altium = 101 тест. Добавлены FIX-004/FIX-005/FIX-006
+Текущее состояние: 41 Core + 65 Altium = 106 тестов. Добавлены FIX-004…FIX-007
 тесты дедупликации, Region matching, analytic bounds, arc matching и arc-angle wrap.
 
 ## 9. Commit SHA и PR

@@ -138,18 +138,94 @@ public sealed class CutoutDeduplicationTests
         Assert.False(decision.ShouldExport);
     }
 
+    [Fact]
+    public void A11_LargeRadiusDifferentPolylineDensity_IsDuplicate()
+    {
+        var clip = QuarterLoop(0, 100000);
+        var hole = new CutoutExistingHole(0, QuarterPoints(0, 10, 100000));
+
+        var decision = CutoutDeduplicator.Evaluate(clip, new[] { hole });
+
+        Assert.Equal(CutoutDuplicateStatus.Duplicate, decision.Status);
+        Assert.Contains("matchedCentroidDistance", decision.Reason, StringComparison.Ordinal);
+        Assert.False(decision.ShouldExport);
+    }
+
+    [Fact]
+    public void A12_VeryLargeRadiusOneDegreeHole_IsDuplicate()
+    {
+        var clip = QuarterLoop(0, 5000000);
+        var hole = new CutoutExistingHole(0, QuarterPoints(0, 1, 5000000));
+
+        var decision = CutoutDeduplicator.Evaluate(clip, new[] { hole });
+
+        Assert.Equal(CutoutDuplicateStatus.Duplicate, decision.Status);
+        Assert.False(decision.ShouldExport);
+    }
+
+    [Fact]
+    public void A13_NearbyIndependentContour_IsNotDuplicate()
+    {
+        var clip = QuarterLoop(0, 100000);
+        var hole = new CutoutExistingHole(0, QuarterPoints(500, 10, 100000));
+
+        var decision = CutoutDeduplicator.Evaluate(clip, new[] { hole });
+
+        Assert.NotEqual(CutoutDuplicateStatus.Duplicate, decision.Status);
+        Assert.True(decision.ShouldExport);
+    }
+
+    [Fact]
+    public void A14_IntermediateVertexBeyondTolerance_IsNotDuplicate()
+    {
+        var clip = QuarterLoop(0, 100000);
+        var points = QuarterPoints(0, 10, 100000);
+        var index = points.FindIndex(point => point.YIu is > 70000 and < 85000);
+        Assert.True(index > 0);
+        var shifted = new List<Point2D>(points);
+        shifted[index] = Point(shifted[index].XIu!.Value, shifted[index].YIu!.Value + 5000);
+
+        var decision = CutoutDeduplicator.Evaluate(
+            clip,
+            new[] { new CutoutExistingHole(0, shifted) });
+
+        Assert.NotEqual(CutoutDuplicateStatus.Duplicate, decision.Status);
+        Assert.True(decision.ShouldExport);
+    }
+
+    [Fact]
+    public void A15_ReorderedAndReversedHole_IsDuplicate()
+    {
+        var clip = QuarterLoop(0, 100000);
+        var points = QuarterPoints(0, 10, 100000);
+        var reordered = points.Skip(3).Concat(points.Take(3)).ToList();
+        reordered.Reverse();
+
+        var decision = CutoutDeduplicator.Evaluate(
+            clip,
+            new[] { new CutoutExistingHole(0, reordered) });
+
+        Assert.Equal(CutoutDuplicateStatus.Duplicate, decision.Status);
+        Assert.False(decision.ShouldExport);
+    }
+
     private static CutoutExistingHole Hole(int index, params (int X, int Y)[] points) =>
         new(index, Points(points));
 
     private static Point2D[] Points(params (int X, int Y)[] points) =>
         points.Select(point => Point2D.FromIu(point.X, point.Y)).ToArray();
 
-    private static OutlineSegment[] QuarterLoop(int centreX) =>
+    private static OutlineSegment[] QuarterLoop(int centreX, int radius = 100) =>
         new[]
         {
-            Arc((centreX + 100, 0), (centreX, 100), (centreX, 0), 100, ArcSweepDirection.CounterClockwise),
-            Segment((centreX, 100), (centreX, 0)),
-            Segment((centreX, 0), (centreX + 100, 0)),
+            Arc(
+                (centreX + radius, 0),
+                (centreX, radius),
+                (centreX, 0),
+                radius,
+                ArcSweepDirection.CounterClockwise),
+            Segment((centreX, radius), (centreX, 0)),
+            Segment((centreX, 0), (centreX + radius, 0)),
         };
 
     private static List<Point2D> QuarterPoints(int centreX, int stepDegrees, int radius = 100)

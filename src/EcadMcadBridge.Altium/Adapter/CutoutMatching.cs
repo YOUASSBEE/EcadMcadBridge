@@ -148,15 +148,27 @@ internal static class CutoutDeduplicator
             return false;
         }
 
+        var projected = new List<Point2D>(hole.Count);
         foreach (var point in hole)
         {
-            var distance = OutlineContourMatcher.DistanceToLoop(point, clipLoop);
+            if (!OutlineContourMatcher.TryClosestPointOnLoop(
+                    point,
+                    clipLoop,
+                    out var closest,
+                    out var distance))
+            {
+                reason = "cannot project a hole vertex onto the clip loop";
+                return false;
+            }
+
             if (distance > ApproximationToleranceIu)
             {
                 reason =
                     $"hole vertex {Format(point)} is {distance:F2} IU from the clip loop";
                 return false;
             }
+
+            projected.Add(closest);
         }
 
         var clipSamples = CutoutRegionMatcher.SampleLoop(clipLoop, DedupArcSamples);
@@ -185,18 +197,28 @@ internal static class CutoutDeduplicator
             return false;
         }
 
-        var centroidDistance = Math.Sqrt(
-            Math.Pow(holeX - clipX, 2) + Math.Pow(holeY - clipY, 2));
-        if (centroidDistance > ApproximationCentroidToleranceIu)
+        // Compare the centroids of characteristic points, not raw polygon centroids:
+        // a different tessellation density changes the polygon centroid even when every
+        // Hole vertex lies on the analytic loop. Projection removes that bias while a
+        // translated independent contour still produces a real offset.
+        var holeCentroid = CutoutRegionMatcher.GetPointCentroid(hole);
+        var projectedCentroid = CutoutRegionMatcher.GetPointCentroid(projected);
+        var matchedCentroidDistance = Math.Sqrt(
+            Math.Pow(holeCentroid.X - projectedCentroid.X, 2)
+            + Math.Pow(holeCentroid.Y - projectedCentroid.Y, 2));
+        if (matchedCentroidDistance > ApproximationCentroidToleranceIu)
         {
             reason =
-                $"centroid distance {centroidDistance:F2} IU exceeds " +
+                $"matched centroid distance {matchedCentroidDistance:F2} IU exceeds " +
                 $"{ApproximationCentroidToleranceIu} IU";
             return false;
         }
 
+        var rawCentroidDistance = Math.Sqrt(
+            Math.Pow(holeX - clipX, 2) + Math.Pow(holeY - clipY, 2));
         reason =
-            $"areaRatio={areaRatio:P2} centroidDistance={centroidDistance:F2} " +
+            $"areaRatio={areaRatio:P2} matchedCentroidDistance={matchedCentroidDistance:F2} " +
+            $"rawCentroidDistance={rawCentroidDistance:F2} " +
             $"tolerance={ApproximationToleranceIu} IU";
         return true;
     }
@@ -528,7 +550,7 @@ internal static class CutoutRegionMatcher
 
         var sourceCentroid = PolygonCentroid(closed, sourceSignedArea);
         var clipCentroid = PolygonCentroid(clipSamples, clipSignedArea);
-        var centroidDistance = Math.Sqrt(
+        var rawCentroidDistance = Math.Sqrt(
             Math.Pow(sourceCentroid.X - clipCentroid.X, 2)
             + Math.Pow(sourceCentroid.Y - clipCentroid.Y, 2));
         var clipBounds = GetBounds(clipSamples);
@@ -538,15 +560,15 @@ internal static class CutoutRegionMatcher
             CentroidFloorIu,
             CentroidRelativeTolerance * Math.Sqrt(
                 ((double)clipWidth * clipWidth) + ((double)clipHeight * clipHeight)));
-        if (centroidDistance > centroidLimit)
+        if (rawCentroidDistance > centroidLimit)
         {
             reason =
-                $"centroid distance {centroidDistance:F2} IU exceeds {centroidLimit:F2} IU";
+                $"centroid distance {rawCentroidDistance:F2} IU exceeds {centroidLimit:F2} IU";
             return false;
         }
 
         reason =
-            $"areaRatio={areaRatio:P2} centroidDistance={centroidDistance:F2} " +
+            $"areaRatio={areaRatio:P2} centroidDistance={rawCentroidDistance:F2} " +
             $"maxVertexDistance={maxVertexDistance:F2} IU";
         return true;
     }
@@ -618,6 +640,22 @@ internal static class CutoutRegionMatcher
         const double twoPi = Math.PI * 2.0;
         var result = angle % twoPi;
         return result < 0 ? result + twoPi : result;
+    }
+
+    internal static (double X, double Y) GetPointCentroid(IReadOnlyList<Point2D> points)
+    {
+        if (points.Count == 0)
+            return (0, 0);
+
+        var x = 0.0;
+        var y = 0.0;
+        foreach (var point in points)
+        {
+            x += point.XIu ?? 0;
+            y += point.YIu ?? 0;
+        }
+
+        return (x / points.Count, y / points.Count);
     }
 
     internal static bool TryGetPolygonMetrics(

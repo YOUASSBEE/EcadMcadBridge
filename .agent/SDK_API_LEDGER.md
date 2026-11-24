@@ -227,6 +227,10 @@ FIX-001 уточнения:
   bounds остаются диагностикой/ранжированием и не отбрасывают Region. Dedup
   дуговых Hole использует отдельный approximation tolerance 3500 IU, двустороннее
   покрытие, площадь 5% и centroid 100 IU; exact tolerance остаётся 2 IU.
+- FIX-007: для approximation-dedup centroid сравнивается по характерным точкам
+  (вершины Hole, спроецированные на clip loop), а не по raw polygon centroid.
+  Это устраняет ложный отказ при большой дуге и разной плотности полилинии;
+  перенос независимого контура остаётся диагностируемым.
 
 ### 2.10 Доказательства, полученные в smoke-тесте BRIDGE-000001
 
@@ -315,3 +319,4 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | 2026-11-24 | BRIDGE-000003-FIX-004: добавлены C-85…C-88 (IPCB_Region, ClipWithPolyRegShapes, cutout shapes); реальный Board Cutout подтверждён, V-22 закрыт | local-agent |
 | 2026-11-24 | BRIDGE-000003-FIX-005: исправлены dedup по geometric.Points, Region matching с uniqueness/association и трактовка дуг CCW при переходе через 0° | local-agent |
 | 2026-11-24 | BRIDGE-000003-FIX-006: analytic arc bounds, geometry-first Region matching, отдельный approximation tolerance для дуговых Hole | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-007: scale-independent matched-centroid dedup для дуговых Hole | local-agent |

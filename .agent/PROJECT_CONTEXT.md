@@ -189,6 +189,10 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   (geometry-first). Дедупликация дуговых Hole использует отдельный approximation
   tolerance и двустороннюю проверку. На операторской плате сохранены оба Hole;
   Altium.Tests: 60; V-22 закрыт.
+- `BRIDGE-000003-FIX-007`: approximation-dedup сравнивает centroid характерных
+  точек (вершины Hole, спроецированные на clip loop), а не raw centroid полигона.
+  Исправлен ложный отказ при большой дуге и разной плотности полилинии; перенос
+  независимого контура по-прежнему отклоняется. Altium.Tests: 65.
 - Tracks, vias, regions, text items и Exchange Package в адаптере не реализованы.
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
   и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.

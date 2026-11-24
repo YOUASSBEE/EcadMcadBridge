@@ -161,6 +161,101 @@ internal static class OutlineContourMatcher
     internal static double DistanceToLoop(Point2D point, IReadOnlyList<OutlineSegment> loop) =>
         DistanceToLoop(point, loop, ToleranceIu);
 
+    internal static bool TryClosestPointOnLoop(
+        Point2D point,
+        IReadOnlyList<OutlineSegment> loop,
+        out Point2D closest,
+        out double distance)
+    {
+        closest = default;
+        distance = double.PositiveInfinity;
+        var found = false;
+        foreach (var segment in loop)
+        {
+            if (!TryClosestPointOnSegment(point, segment, out var candidate, out var candidateDistance))
+                continue;
+            if (candidateDistance < distance)
+            {
+                closest = candidate;
+                distance = candidateDistance;
+                found = true;
+            }
+        }
+
+        return found;
+    }
+
+    private static bool TryClosestPointOnSegment(
+        Point2D point,
+        OutlineSegment segment,
+        out Point2D closest,
+        out double distance)
+    {
+        closest = default;
+        distance = double.PositiveInfinity;
+        if (segment.SweepDirection is null)
+        {
+            if (!TryCoordinates(point, out var px, out var py)
+                || !TryCoordinates(segment.Start, out var sx, out var sy)
+                || !TryCoordinates(segment.End, out var ex, out var ey))
+                return false;
+
+            var dx = ex - sx;
+            var dy = ey - sy;
+            var lengthSquared = (dx * dx) + (dy * dy);
+            var projection = lengthSquared == 0
+                ? 0
+                : Math.Clamp((((px - sx) * dx) + ((py - sy) * dy)) / lengthSquared, 0, 1);
+            closest = Point2D.FromIu(
+                (int)Math.Round(sx + (projection * dx), MidpointRounding.AwayFromZero),
+                (int)Math.Round(sy + (projection * dy), MidpointRounding.AwayFromZero));
+            distance = Distance(point, closest) ?? double.PositiveInfinity;
+            return true;
+        }
+
+        if (segment.Radius <= 0
+            || !TryCoordinates(point, out var pointX, out var pointY)
+            || !TryCoordinates(segment.Center, out var cx, out var cy)
+            || !TryCoordinates(segment.Start, out var startX, out var startY)
+            || !TryCoordinates(segment.End, out var endX, out var endY))
+            return false;
+
+        var dx2 = pointX - cx;
+        var dy2 = pointY - cy;
+        var pointAngle = NormalizeAngle(Math.Atan2(dy2, dx2));
+        var startAngle = NormalizeAngle(Math.Atan2(startY - cy, startX - cx));
+        var endAngle = NormalizeAngle(Math.Atan2(endY - cy, endX - cx));
+        if (IsAngleOnArc(
+                pointAngle,
+                startAngle,
+                endAngle,
+                segment.SweepDirection.Value,
+                segment.Radius,
+                ToleranceIu))
+        {
+            closest = Point2D.FromIu(
+                (int)Math.Round(cx + (segment.Radius * Math.Cos(pointAngle)), MidpointRounding.AwayFromZero),
+                (int)Math.Round(cy + (segment.Radius * Math.Sin(pointAngle)), MidpointRounding.AwayFromZero));
+            distance = Distance(point, closest) ?? double.PositiveInfinity;
+            return true;
+        }
+
+        var startDistance = Distance(point, segment.Start) ?? double.PositiveInfinity;
+        var endDistance = Distance(point, segment.End) ?? double.PositiveInfinity;
+        if (startDistance <= endDistance)
+        {
+            closest = segment.Start;
+            distance = startDistance;
+        }
+        else
+        {
+            closest = segment.End;
+            distance = endDistance;
+        }
+
+        return true;
+    }
+
     private static double DistanceToLoop(
         Point2D point,
         IReadOnlyList<OutlineSegment> loop,
