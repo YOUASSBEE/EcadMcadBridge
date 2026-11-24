@@ -172,7 +172,7 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | C-84 | `DXP.IServerDocumentView.GetOwnerDocument()`; `IServerDocument.GetKind()`; `IPCB_Board.GetState_FileName()` | Проверка активного PCB и имени документа; ранее C-19/C-67/C-68 |
 
 Подтверждено smoke-тестом на `MiniPC.PcbDoc`: 31 слой, 1046 компонентов, 6004 пада,
-837 сетей, 31 pad stack с 16 слоями у multi-layer падов, 9669 форм; `rotations` включают
+837 сетей, 245 multi-layer PadStack с 16 shapes, 9669 форм; `rotations` включают
 `135°`, стороны Top/Bottom представлены. На `Bluetooth_Sentinel.PcbDoc` подтверждены
 2 аналитические дуги в контуре и 12 сегментов (10 линий + 2 дуги).
 
