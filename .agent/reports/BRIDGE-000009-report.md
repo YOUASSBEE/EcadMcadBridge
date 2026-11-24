@@ -267,4 +267,4 @@ board with cutout.PcbDoc   ED624C68DC315A3E022E96979C5A7B2B32F5BBAD3DB722BE0CCA2
 
 PR #8 обновлён дополнительными коммитами, остаётся направленным в `source`,
 не смержен и возвращён в состояние ready for review. Review-fix commit:
-`3295d92`.
+`3295d92128d338c407c50f8e2203ac9bc246678c`.
