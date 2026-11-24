@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T10:00:00+03:00
-updated: 2026-11-24T10:00:00+03:00
+updated: 2026-11-24T11:18:35+03:00
 base: task/BRIDGE-000001
 branch: agent/BRIDGE-000002-core-model
-commit: pending
-pr: pending
+commit: ff9053d4062acc9a1975425e3f1e2da1fc0191ad
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/3
 related: [BRIDGE-000002, BRIDGE-000001, D-005, D-009, D-010, D-014, D-015]
 ---
 
@@ -219,13 +219,16 @@ Smoke-тест в Altium не выполнялся: задача не меняе
 
 ## 8. Commit SHA и PR
 
-- Commit: `pending` (будет заполнен после коммита).
-- PR: `pending` (база `task/BRIDGE-000001`, ветка `agent/BRIDGE-000002-core-model`).
-- PR не мержится автором; после слияния PR #2 база следующего PR может быть перенесена
-  на `source`.
+- Commit (состояние PR на момент создания): `ff9053d4062acc9a1975425e3f1e2da1fc0191ad`.
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/3 — база `task/BRIDGE-000001`,
+  ветка `agent/BRIDGE-000002-core-model`, открыт и не слит автором.
+- После создания PR в отчёт отдельным коммитом добавлены только SHA и URL; код не менялся.
+- Зависимость: PR зависит от PR #2 (`task/BRIDGE-000001`); после его слияния базу можно
+  перенести на `source` отдельным решением.
 
 ## 9. История изменений
 
 | Дата | Изменение |
 |---|---|
 | 2026-11-24 | Первая версия отчёта: модель, JSON, валидатор, тесты, документация. |
+| 2026-11-24 | Добавлены commit SHA и URL PR #3; PR создан, не слит. |
