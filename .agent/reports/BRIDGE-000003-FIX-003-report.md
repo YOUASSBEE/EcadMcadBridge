@@ -5,10 +5,10 @@ status: blocked
 from: local-agent
 to: operator
 created: 2026-11-24T14:20:35+03:00
-updated: 2026-11-24T14:20:35+03:00
+updated: 2026-11-24T14:21:32+03:00
 base: source
 branch: task/BRIDGE-000003-altium-board-adapter
-commit: pending
+commit: 61ee4389b95d1874dabe1d3230f59f09d2701622
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/5
 related: [BRIDGE-000003, BRIDGE-000003-FIX-001, BRIDGE-000003-FIX-002, BRIDGE-000003-FIX-003]
 ---
@@ -123,9 +123,10 @@ V-22 **не закрыт**. Файл оператора снова содерж�
 
 ## 9. Commit / HEAD / PR
 
-- Commit: `pending`.
-- HEAD: `pending`.
+- Commit: `61ee4389b95d1874dabe1d3230f59f09d2701622`.
+- HEAD (состояние до отчётного коммита): `61ee4389b95d1874dabe1d3230f59f09d2701622`.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/5 (не слит).
+- После этого коммита добавлен только отчёт; фактический HEAD PR указан в описании PR.
 
 ## 10. Оставшиеся вопросы
 
