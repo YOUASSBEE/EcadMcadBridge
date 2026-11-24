@@ -1,0 +1,24 @@
+# Build output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Machine-specific SDK paths (never commit proprietary DLL locations)
+Directory.Build.local.props
+local.props
+
+# Proprietary binaries and CAD data must never enter Git
+*.dll
+*.exe
+*.pch
+*.pfx
+*.snk
+*.PcbDoc
+*.SchDoc
+*.step
+*.stp
+
+# Local smoke artifacts
+*.log

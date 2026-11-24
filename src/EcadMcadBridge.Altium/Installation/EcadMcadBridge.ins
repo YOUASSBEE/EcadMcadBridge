@@ -1,0 +1,33 @@
+ClientInsFile 1.0
+
+Server
+    EditorName        = 'EcadMcadBridge'
+    EditorExePath     = 'EcadMcadBridge.DLL'
+    EditorDescription = 'ECAD-MCAD Bridge - diagnostic PCB snapshot'
+    Version           = 'Version 0.1.0.0'
+    Date              = '24-Nov-2026'
+    HelpAboutInfo     = 'ECAD-MCAD Bridge smoke snapshot add-in'
+    Copyright         = 'ECAD-MCAD Bridge project'
+    SystemExtension   = True
+    Updates           = 'AdvPCB'
+    UpdatesUI         = 'AdvPCB'
+End
+
+Command
+    Name        = 'ExportSmokeSnapshot'
+    LongSummary = 'Write a diagnostic snapshot of the active PCB to the temporary directory'
+End
+
+PanelInfo
+    Name              = 'EcadMcadBridgePanel'
+    Category          = '&PCB'
+    Bitmap            = ''
+    Hotkey            = ''
+    ButtonVisible     = True
+    CanDockVertical   = True
+    CanDockHorizontal = True
+
+    DocumentKinds
+        'PCB'
+    End
+End
