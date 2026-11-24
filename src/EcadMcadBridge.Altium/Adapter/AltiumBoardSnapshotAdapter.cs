@@ -22,6 +22,9 @@ internal sealed record AltiumRegionInfo(
     string? Name,
     string? UniqueId,
     long Area,
+    string LayerId,
+    string? NetId,
+    bool IsKeepout,
     IReadOnlyList<AltiumRegionContour> Contours,
     int MinX,
     int MinY,
@@ -67,12 +70,35 @@ internal sealed class AltiumAdapterDiagnostics
     public int DuplicateCutoutContours { get; set; }
     public int ExportedCutoutContours { get; set; }
     public Dictionary<TRegionKind, int> RegionsByKind { get; } = new();
+    public HashSet<string> FallbackIdWarnings { get; } = new(StringComparer.Ordinal);
+    public int TracksDetected { get; set; }
+    public int TracksExported { get; set; }
+    public int TracksSkipped { get; set; }
+    public int TrackReadErrors { get; set; }
+    public int ViasDetected { get; set; }
+    public int ViasExported { get; set; }
+    public int ViasSkipped { get; set; }
+    public int ViaReadErrors { get; set; }
+    public int CoreRegionsDetected { get; set; }
+    public int CoreRegionsExported { get; set; }
+    public int CoreRegionsSkipped { get; set; }
+    public int RegionReadErrors { get; set; }
+    public int RegionUnknownKinds { get; set; }
+    public int CoreRegionOtherKinds { get; set; }
+    public int RegionGeometryFallbacks { get; set; }
+    public int TextsDetected { get; set; }
+    public int TextsExported { get; set; }
+    public int TextsSkipped { get; set; }
+    public int TextReadErrors { get; set; }
+    public int TextComponentLinkMisses { get; set; }
     public int ExactPadShapes { get; set; }
     public int SimplifiedPadShapes { get; set; }
     public int UnsupportedPadShapes { get; set; }
     public int OmittedPadStacks { get; set; }
 
     public Dictionary<TShape, int> PadShapeCounts { get; } = new();
+
+    public bool ShouldWarnFallbackId(string kind) => FallbackIdWarnings.Add(kind);
 
     public int CountPadShape(TShape shape)
     {
@@ -103,6 +129,15 @@ internal sealed class AltiumAdapterDiagnostics
             $"clipAmbiguousRegions={ClipAmbiguousCutoutRegions} " +
             $"duplicateCutoutContours={DuplicateCutoutContours} exportedCutoutContours={ExportedCutoutContours} " +
             $"regionsByKind=[{FormatRegionKinds()}] " +
+            $"tracksDetected={TracksDetected} tracksExported={TracksExported} tracksSkipped={TracksSkipped} " +
+            $"trackErrors={TrackReadErrors} viasDetected={ViasDetected} viasExported={ViasExported} " +
+            $"viasSkipped={ViasSkipped} viaErrors={ViaReadErrors} coreRegionsDetected={CoreRegionsDetected} " +
+            $"coreRegionsExported={CoreRegionsExported} coreRegionsSkipped={CoreRegionsSkipped} " +
+            $"regionErrors={RegionReadErrors} regionUnknownKinds={RegionUnknownKinds} " +
+            $"regionOtherKinds={CoreRegionOtherKinds} " +
+            $"regionGeometryFallbacks={RegionGeometryFallbacks} textsDetected={TextsDetected} " +
+            $"textsExported={TextsExported} textsSkipped={TextsSkipped} textErrors={TextReadErrors} " +
+            $"textComponentLinkMisses={TextComponentLinkMisses} " +
             $"padShapesExact={ExactPadShapes} padShapesSimplified={SimplifiedPadShapes} " +
             $"padShapesUnsupported={UnsupportedPadShapes} padStacksEmpty={OmittedPadStacks} " +
             $"shapeCounts=[{shapes}]";
@@ -143,14 +178,28 @@ internal static class AltiumBoardSnapshotAdapter
         var layers = ReadLayers(board, warnings);
         var nets = new NetCatalog();
         ReadNets(board, nets, warnings);
-        var regions = ReadRegions(board, warnings, diagnostics);
+        var regions = ReadRegions(board, layers, nets, warnings, diagnostics);
 
         var components = new List<ComponentInstance>();
         var padStacks = new List<PadStack>();
         var pads = new List<Pad>();
-        ReadComponents(board, layers, nets, components, padStacks, pads, warnings, diagnostics);
+        var componentIds = new Dictionary<string, string>(StringComparer.Ordinal);
+        ReadComponents(
+            board,
+            layers,
+            nets,
+            components,
+            padStacks,
+            pads,
+            componentIds,
+            warnings,
+            diagnostics);
 
         var outline = AltiumOutlineReader.Read(board, warnings, diagnostics, regions);
+        var tracks = ReadTracks(board, layers, nets, warnings, diagnostics);
+        var vias = ReadVias(board, layers, nets, warnings, diagnostics);
+        var coreRegions = BuildCoreRegions(regions, warnings, diagnostics);
+        var texts = ReadTexts(board, layers, componentIds, warnings, diagnostics);
         var fileName = Path.GetFileName(board.GetState_FileName() ?? string.Empty);
         if (string.IsNullOrWhiteSpace(fileName))
         {
@@ -181,10 +230,10 @@ internal static class AltiumBoardSnapshotAdapter
             PadStacks = padStacks.OrderBy(stack => stack.Id, StringComparer.Ordinal).ToArray(),
             Pads = pads.OrderBy(pad => pad.Id, StringComparer.Ordinal).ToArray(),
             Nets = nets.Items.OrderBy(net => net.Id, StringComparer.Ordinal).ToArray(),
-            Tracks = Array.Empty<Track>(),
-            Vias = Array.Empty<Via>(),
-            Regions = Array.Empty<Region>(),
-            Texts = Array.Empty<TextItem>(),
+            Tracks = tracks.OrderBy(track => track.Id, StringComparer.Ordinal).ToArray(),
+            Vias = vias.OrderBy(via => via.Id, StringComparer.Ordinal).ToArray(),
+            Regions = coreRegions.OrderBy(region => region.Id, StringComparer.Ordinal).ToArray(),
+            Texts = texts.OrderBy(text => text.Id, StringComparer.Ordinal).ToArray(),
         };
 
         return new AltiumBoardSnapshotResult(snapshot, warnings, regions, diagnostics);
@@ -251,6 +300,8 @@ internal static class AltiumBoardSnapshotAdapter
 
     private static IReadOnlyList<AltiumRegionInfo> ReadRegions(
         IPCB_Board board,
+        LayerCatalog layers,
+        NetCatalog nets,
         List<string> warnings,
         AltiumAdapterDiagnostics diagnostics)
     {
@@ -273,10 +324,10 @@ internal static class AltiumBoardSnapshotAdapter
                 diagnostics.RegionsByKind.TryGetValue(kind, out var kindCount);
                 diagnostics.RegionsByKind[kind] = kindCount + 1;
 
-                var contours = kind == TRegionKind.eRegionKind_BoardCutout
-                    ? ReadRegionContours(region, warnings)
-                    : Array.Empty<AltiumRegionContour>();
+                var contours = ReadRegionContours(region, warnings);
                 var bounds = GetBounds(contours.SelectMany(contour => contour.Points));
+                var layerId = layers.GetOrAdd((int)region.GetState_Layer(), null, warnings);
+                var netId = nets.GetOrAdd(region.GetState_Net(), warnings);
                 var info = new AltiumRegionInfo(
                     index++,
                     primitive.GetType().FullName ?? primitive.GetType().Name,
@@ -284,6 +335,9 @@ internal static class AltiumBoardSnapshotAdapter
                     region.GetState_Name(),
                     region.GetState_UniqueId(),
                     region.GetState_Area(),
+                    layerId,
+                    netId,
+                    region.GetState_IsKeepout(),
                     contours,
                     bounds.MinX,
                     bounds.MinY,
@@ -319,6 +373,333 @@ internal static class AltiumBoardSnapshotAdapter
                 (boardCutouts.Length == 0
                     ? "no eRegionKind_BoardCutout regions."
                     : "Board Cutout regions: " + FormatRegionInventory(boardCutouts)));
+        }
+
+        return result;
+    }
+
+    private static List<Track> ReadTracks(
+        IPCB_Board board,
+        LayerCatalog layers,
+        NetCatalog nets,
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
+    {
+        var result = new List<Track>();
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var iterator = board.BoardIterator_Create();
+        try
+        {
+            var objectSet = new TObjectSet { TObjectId.eTrackObject };
+            iterator.AddFilter_ObjectSet(objectSet);
+            iterator.AddFilter_Method(TIterationMethod.eProcessAll);
+            var index = 0;
+            for (var primitive = iterator.FirstPCBObject(); primitive is not null; primitive = iterator.NextPCBObject())
+            {
+                if (primitive is not IPCB_Track track)
+                    continue;
+
+                diagnostics.TracksDetected++;
+                index++;
+                try
+                {
+                    var x1 = track.GetState_X1();
+                    var y1 = track.GetState_Y1();
+                    var x2 = track.GetState_X2();
+                    var y2 = track.GetState_Y2();
+                    var width = track.GetState_Width();
+                    if ((x1 == x2 && y1 == y2) || width <= 0)
+                    {
+                        diagnostics.TracksSkipped++;
+                        if (diagnostics.TracksSkipped <= 5)
+                            warnings.Add("A track with zero length or non-positive width was omitted.");
+                        continue;
+                    }
+
+                    var layerId = layers.GetOrAdd((int)track.GetState_Layer(), null, warnings);
+                    var netId = nets.GetOrAdd(track.GetState_Net(), warnings);
+                    var id = EnsureUniqueId(
+                        MakeId("track", track.GetState_UniqueId(), "index:" + index, warnings, diagnostics),
+                        ids,
+                        index);
+                    var mapped = AltiumSnapshotMapping.MapTrack(id, x1, y1, x2, y2, width, layerId, netId);
+                    if (mapped is null)
+                    {
+                        diagnostics.TracksSkipped++;
+                        continue;
+                    }
+
+                    result.Add(mapped);
+                    diagnostics.TracksExported++;
+                }
+                catch (Exception ex)
+                {
+                    diagnostics.TrackReadErrors++;
+                    if (diagnostics.TrackReadErrors <= 5)
+                        warnings.Add("Track read failed: " + ex.GetType().Name + ".");
+                }
+            }
+        }
+        finally
+        {
+            board.BoardIterator_Destroy(ref iterator);
+        }
+
+        return result;
+    }
+
+    private static List<Via> ReadVias(
+        IPCB_Board board,
+        LayerCatalog layers,
+        NetCatalog nets,
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
+    {
+        var result = new List<Via>();
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var iterator = board.BoardIterator_Create();
+        try
+        {
+            var objectSet = new TObjectSet { TObjectId.eViaObject };
+            iterator.AddFilter_ObjectSet(objectSet);
+            iterator.AddFilter_Method(TIterationMethod.eProcessAll);
+            var index = 0;
+            for (var primitive = iterator.FirstPCBObject(); primitive is not null; primitive = iterator.NextPCBObject())
+            {
+                if (primitive is not IPCB_Via via)
+                    continue;
+
+                diagnostics.ViasDetected++;
+                index++;
+                try
+                {
+                    var size = via.GetState_Size();
+                    var hole = via.GetState_HoleSize();
+                    var start = via.GetState_StartLayer();
+                    var stop = via.GetState_StopLayer();
+                    if (size <= 0 || hole < 0 || hole > size || start is null || stop is null)
+                    {
+                        diagnostics.ViasSkipped++;
+                        if (diagnostics.ViasSkipped <= 5)
+                            warnings.Add("A via with invalid size/hole/layer data was omitted.");
+                        continue;
+                    }
+
+                    var startLayerId = layers.GetOrAdd((int)start.V6_LayerID(), start, warnings);
+                    var stopLayerId = layers.GetOrAdd((int)stop.V6_LayerID(), stop, warnings);
+                    var netId = nets.GetOrAdd(via.GetState_Net(), warnings);
+                    var id = EnsureUniqueId(
+                        MakeId("via", via.GetState_UniqueId(), "index:" + index, warnings, diagnostics),
+                        ids,
+                        index);
+                    var mapped = AltiumSnapshotMapping.MapVia(
+                        id,
+                        via.GetState_XLocation(),
+                        via.GetState_YLocation(),
+                        size,
+                        hole,
+                        startLayerId,
+                        stopLayerId,
+                        netId);
+                    if (mapped is null)
+                    {
+                        diagnostics.ViasSkipped++;
+                        continue;
+                    }
+
+                    result.Add(mapped);
+                    diagnostics.ViasExported++;
+                }
+                catch (Exception ex)
+                {
+                    diagnostics.ViaReadErrors++;
+                    if (diagnostics.ViaReadErrors <= 5)
+                        warnings.Add("Via read failed: " + ex.GetType().Name + ".");
+                }
+            }
+        }
+        finally
+        {
+            board.BoardIterator_Destroy(ref iterator);
+        }
+
+        return result;
+    }
+
+    private static List<TextItem> ReadTexts(
+        IPCB_Board board,
+        LayerCatalog layers,
+        Dictionary<string, string> componentIds,
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
+    {
+        var result = new List<TextItem>();
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var iterator = board.BoardIterator_Create();
+        try
+        {
+            var objectSet = new TObjectSet { TObjectId.eTextObject };
+            iterator.AddFilter_ObjectSet(objectSet);
+            iterator.AddFilter_Method(TIterationMethod.eProcessAll);
+            var index = 0;
+            for (var primitive = iterator.FirstPCBObject(); primitive is not null; primitive = iterator.NextPCBObject())
+            {
+                if (primitive is not IPCB_Text text)
+                    continue;
+
+                diagnostics.TextsDetected++;
+                index++;
+                try
+                {
+                    if (text.IsDesignator() || text.IsComment())
+                    {
+                        diagnostics.TextsSkipped++;
+                        continue;
+                    }
+
+                    if (text.GetState_TextKind() == TTextKind.eText_BarCode)
+                    {
+                        diagnostics.TextsSkipped++;
+                        if (diagnostics.TextsSkipped <= 5)
+                            warnings.Add("A barcode text object was omitted; Core TextItem represents text only.");
+                        continue;
+                    }
+
+                    var content = text.GetState_Text();
+                    if (string.IsNullOrWhiteSpace(content))
+                    {
+                        diagnostics.TextsSkipped++;
+                        if (diagnostics.TextsSkipped <= 5)
+                            warnings.Add("A text object with empty content was omitted.");
+                        continue;
+                    }
+
+                    var component = text.GetState_Component();
+                    string? componentId = null;
+                    if (component is not null)
+                    {
+                        var uniqueId = component.GetState_UniqueId();
+                        var sourceId = component.GetState_SourceUniqueId();
+                        if ((!string.IsNullOrWhiteSpace(uniqueId) && componentIds.TryGetValue(uniqueId, out componentId))
+                            || (!string.IsNullOrWhiteSpace(sourceId) && componentIds.TryGetValue(sourceId, out componentId)))
+                        {
+                            // Found a proven component relation.
+                        }
+                        else
+                        {
+                            diagnostics.TextComponentLinkMisses++;
+                            if (diagnostics.TextComponentLinkMisses <= 5)
+                            {
+                                warnings.Add(
+                                    "A text object references a component that is absent from the snapshot; " +
+                                    "ComponentId was left empty.");
+                            }
+                        }
+                    }
+
+                    var layerId = layers.GetOrAdd((int)text.GetState_Layer(), null, warnings);
+                    var size = text.GetState_Size();
+                    var strokeWidth = text.GetState_Width();
+                    var rotation = text.GetState_Rotation();
+                    var id = EnsureUniqueId(
+                        MakeId("text", text.GetState_UniqueId(), "index:" + index, warnings, diagnostics),
+                        ids,
+                        index);
+                    result.Add(AltiumSnapshotMapping.MapText(
+                        id,
+                        componentId,
+                        layerId,
+                        text.GetState_XLocation(),
+                        text.GetState_YLocation(),
+                        content,
+                        size,
+                        strokeWidth,
+                        rotation,
+                        out _));
+                    diagnostics.TextsExported++;
+                }
+                catch (Exception ex)
+                {
+                    diagnostics.TextReadErrors++;
+                    if (diagnostics.TextReadErrors <= 5)
+                        warnings.Add("Text read failed: " + ex.GetType().Name + ".");
+                }
+            }
+        }
+        finally
+        {
+            board.BoardIterator_Destroy(ref iterator);
+        }
+
+        return result;
+    }
+
+    private static List<Region> BuildCoreRegions(
+        IReadOnlyList<AltiumRegionInfo> regionInfos,
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
+    {
+        var result = new List<Region>();
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var otherKinds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var info in regionInfos)
+        {
+            if (info.Kind == TRegionKind.eRegionKind_BoardCutout)
+                continue;
+
+            diagnostics.CoreRegionsDetected++;
+            var kind = AltiumSnapshotMapping.MapRegionKind(info.Kind, info.IsKeepout, out var unknown);
+            if (unknown)
+            {
+                diagnostics.RegionUnknownKinds++;
+            }
+            else if (info.Kind is TRegionKind.eRegionKind_NamedRegion
+                or TRegionKind.eRegionKind_Cutout
+                or TRegionKind.eRegionKind_Cavity)
+            {
+                diagnostics.CoreRegionOtherKinds++;
+                otherKinds.Add(info.Kind!.Value.ToString());
+            }
+
+            var contours = AltiumSnapshotMapping.MapRegionContours(
+                info.Index,
+                info.Contours,
+                out var contourErrors);
+            diagnostics.RegionReadErrors += contourErrors;
+            if (contours.Count == 0)
+            {
+                diagnostics.CoreRegionsSkipped++;
+                continue;
+            }
+
+            var id = EnsureUniqueId(
+                MakeId("region", info.UniqueId, "index:" + info.Index, warnings, diagnostics),
+                ids,
+                info.Index);
+            result.Add(new Region
+            {
+                Id = id,
+                NetId = info.NetId,
+                LayerId = info.LayerId,
+                Kind = kind,
+                Polygon = new PolygonGeometry { Contours = contours },
+            });
+            diagnostics.CoreRegionsExported++;
+        }
+
+        if (result.Count > 0)
+        {
+            diagnostics.RegionGeometryFallbacks += result.Count;
+            warnings.Add(
+                "Region geometry uses IPCB_GeometricPolygon contour points as line segments; " +
+                "analytic region arc segments were not confirmed and may be approximated.");
+        }
+
+        if (otherKinds.Count > 0)
+        {
+            warnings.Add(
+                "Region kinds without a Core 1.0.0 representation were exported as RegionKind.Other: " +
+                string.Join(", ", otherKinds.OrderBy(kind => kind, StringComparer.Ordinal)) + ".");
         }
 
         return result;
@@ -422,6 +803,7 @@ internal static class AltiumBoardSnapshotAdapter
         List<ComponentInstance> components,
         List<PadStack> padStacks,
         List<Pad> pads,
+        Dictionary<string, string> componentIds,
         List<string> warnings,
         AltiumAdapterDiagnostics diagnostics)
     {
@@ -448,7 +830,16 @@ internal static class AltiumBoardSnapshotAdapter
 
                 var sourceUniqueId = component.GetState_SourceUniqueId();
                 var uniqueId = component.GetState_UniqueId();
-                var componentId = MakeId("component", uniqueId, sourceUniqueId ?? designator + ":" + index, warnings);
+                var componentId = MakeId(
+                    "component",
+                    uniqueId,
+                    sourceUniqueId ?? designator + ":" + index,
+                    warnings,
+                    diagnostics);
+                if (!string.IsNullOrWhiteSpace(uniqueId))
+                    componentIds[uniqueId] = componentId;
+                if (!string.IsNullOrWhiteSpace(sourceUniqueId))
+                    componentIds[sourceUniqueId] = componentId;
                 var rawLayer = (int)component.GetState_Layer();
                 var side = rawLayer == 32
                     ? BoardSide.Bottom
@@ -534,7 +925,8 @@ internal static class AltiumBoardSnapshotAdapter
                     "pad",
                     pad.GetState_UniqueId(),
                     componentId + ":" + padName + ":" + index,
-                    warnings);
+                    warnings,
+                    diagnostics);
                 var padLayer = pad.GetState_Layer();
                 var padLayerId = layers.GetOrAdd((int)padLayer, null, warnings);
                 var stackId = "altium:padstack:" + padId;
@@ -720,13 +1112,30 @@ internal static class AltiumBoardSnapshotAdapter
         }
     }
 
-    private static string MakeId(string kind, string? uniqueId, string fallback, List<string> warnings)
+    internal static string MakeId(
+        string kind,
+        string? uniqueId,
+        string fallback,
+        List<string> warnings,
+        AltiumAdapterDiagnostics? diagnostics = null)
     {
         if (!string.IsNullOrWhiteSpace(uniqueId))
             return "altium:" + kind + ":" + uniqueId;
 
-        warnings.Add($"A {kind} has no source unique id; a deterministic fallback id was used.");
+        if (diagnostics is null || diagnostics.ShouldWarnFallbackId(kind))
+            warnings.Add($"A {kind} has no source unique id; a deterministic fallback id was used.");
         return "altium:" + kind + ":fallback:" + fallback;
+    }
+
+    internal static string EnsureUniqueId(string id, HashSet<string> ids, int index)
+    {
+        if (ids.Add(id))
+            return id;
+
+        var candidate = id + ":dup:" + index;
+        while (!ids.Add(candidate))
+            candidate += "_";
+        return candidate;
     }
 
     private static BoardSide? MapSide(int layerId) => layerId switch

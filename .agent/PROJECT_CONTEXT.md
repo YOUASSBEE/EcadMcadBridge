@@ -5,8 +5,8 @@
 | Проект | ECAD-MCAD Bridge |
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
-| Текущая ветка | `agent/BRIDGE-000007-altium-package-export` |
-| Статус | `BRIDGE-000004` слит; реализуется Altium Exchange Package Export (`BRIDGE-000007`) |
+| Текущая ветка | `agent/BRIDGE-000009-complete-altium-snapshot` |
+| Статус | `BRIDGE-000007` слит; `BRIDGE-000009` дополняет BoardSnapshot tracks/vias/regions/texts |
 | Дата фиксации | 2026-11-24 |
 | Владелец продукта | Оператор проекта (человек) |
 
@@ -202,7 +202,8 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   `BRIDGE-000007`: `ExportBoardSnapshot` пишет Exchange Package через Core Writer,
   проверяет `GetFileName/GetModified`, вычисляет SHA-256 исходного `.PcbDoc` и
   отклоняет несохранённые документы; package root задаётся env/`LOCALAPPDATA`.
-  Tracks, vias, regions и text items в Altium adapter по-прежнему не реализованы.
+  `BRIDGE-000009`: adapter заполняет Tracks, Vias, Regions и Texts; region geometry
+  использует geometric polygon line fallback с явным warning (Q-010 частично открыт).
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
   и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.
@@ -224,7 +225,7 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 | Q-007 | Можно ли распространять SDK-сборки Altium в составе репозитория? | Открыт | Лицензионные ограничения; вероятно, ссылаться на локальную установку |
 | Q-008 | Достаточно ли `SourceUniqueId` для стабильной идентификации компонентов? | Открыт | Нужно для сопоставления ECAD/MCAD без ложных совпадений |
 | Q-009 | Какой Target Framework у SOLIDWORKS Add-in? | Открыт | Определяется отдельным решением (D-014, O-009) |
-| Q-010 | Полно ли `BoardSnapshot` покрывает данные, которые Altium отдаёт через подтверждённые `IPCB_*`? | Открыт | Извлечение в `BRIDGE-000002` не реализовано; нужна проверка на синтетическом adapter-экспорте |
+| Q-010 | Полно ли `BoardSnapshot` покрывает данные, которые Altium отдаёт через подтверждённые `IPCB_*`? | Частично закрыт в `BRIDGE-000009` | Tracks/vias/texts/regions извлекаются; region analytic arcs пока line-fallback, text font outline и часть region semantics не представлены в Core 1.0.0 |
 | Q-011 | Как проверять пространственную вложенность отверстий и контуров? | Открыт | Валидатор проверяет роли, замкнутость и непрерывность, но не point-in-polygon |
 | Q-012 | Как расширить Core для отверстий падов, pin designator, локальных координат и stack order? | Открыт | Требует отдельного решения до изменения публичного контракта |
 | Q-013 | Как различать signal и internal plane в `LayerKind`? | Открыт | Сейчас оба представлены как `Copper`; Plane-тип отсутствует |
