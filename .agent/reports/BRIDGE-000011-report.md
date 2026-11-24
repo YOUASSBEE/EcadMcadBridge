@@ -8,8 +8,8 @@ created: 2026-11-25T01:30:00+03:00
 updated: 2026-11-25T01:30:00+03:00
 base: source
 branch: agent/BRIDGE-000011-controlled-transform-validation
-commit: pending
-pr: pending
+commit: 2899a40
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/10
 related: [BRIDGE-000010, V-27, V-29, V-30, V-33]
 ---
 
@@ -317,9 +317,10 @@ X_T аналогично. Измерения на вложенном теле:
 
 ## 10. Commit и PR
 
-- Commit: `pending`.
-- PR: `pending`, ветка `agent/BRIDGE-000011-controlled-transform-validation`,
-  base `source`; merge запрещён.
+- Commit: `2899a40` (`docs(bridge-000011): add controlled 3D transform research`).
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/10, ветка
+  `agent/BRIDGE-000011-controlled-transform-validation`, base `source`;
+  merge запрещён.
 
 ## 11. Итоговая классификация вопросов
 
