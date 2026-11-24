@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T23:28:00+03:00
-updated: 2026-11-24T23:28:00+03:00
+updated: 2026-11-24T23:33:00+03:00
 base: source
 branch: agent/BRIDGE-000009-complete-altium-snapshot
 commit: 1f44629
-pr: pending
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/8
 related: [BRIDGE-000003, BRIDGE-000004, BRIDGE-000007, BRIDGE-000009, D-010, D-016]
 ---
 
@@ -181,8 +181,8 @@ board with cutout.PcbDoc   ED624C68DC315A3E022E96979C5A7B2B32F5BBAD3DB722BE0CCA2
 ## 6. Commit и PR
 
 - Feature commit: `1f44629` (`feat(altium): complete BoardSnapshot tracks/vias/regions/texts (BRIDGE-000009)`).
-- PR: будет добавлен после публикации ветки; PR направляется в `source` и не мержится
-  автором.
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/8 — направлен в `source`,
+  автором не мержится.
 
 ## 7. История изменений
 
