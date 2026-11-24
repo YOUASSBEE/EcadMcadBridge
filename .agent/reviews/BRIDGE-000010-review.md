@@ -6,7 +6,7 @@ pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/9
 base: source
 base_sha: 516e264a3cdea434a0d40ecffe1a06c2da0ffd6c
 reviewed_head: eb2a8ef474abdff87029b0a097e1668b1b87ace0
-fixed_head: 86b6c6c6c8d39c66971882c942b527554c1ff32b
+fixed_head: 6783a9b53b323278b2307d909aa32a9e61de07a2
 created: 2026-11-25
 resolved: 2026-11-25
 ---
