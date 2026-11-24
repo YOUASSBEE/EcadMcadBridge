@@ -186,6 +186,7 @@ board with cutout.PcbDoc   ED624C68DC315A3E022E96979C5A7B2B32F5BBAD3DB722BE0CCA2
 ## 6. Commit и PR
 
 - Feature commit: `1f44629` (`feat(altium): complete BoardSnapshot tracks/vias/regions/texts (BRIDGE-000009)`).
+- Review-fix commit: `3295d92` (`fix(core): allow unknown text rotation with warning (BRIDGE-000009)`).
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/8 — направлен в `source`,
   автором не мержится.
 
@@ -266,4 +267,4 @@ board with cutout.PcbDoc   ED624C68DC315A3E022E96979C5A7B2B32F5BBAD3DB722BE0CCA2
 
 PR #8 обновлён дополнительными коммитами, остаётся направленным в `source`,
 не смержен и возвращён в состояние ready for review. Review-fix commit:
-`<pending>`.
+`3295d92`.
