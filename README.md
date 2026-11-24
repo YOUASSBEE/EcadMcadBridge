@@ -10,8 +10,8 @@
 - сохранить прослеживаемость каждой передачи данных;
 - обеспечить возможность развития обмена в обе стороны без переделки архитектуры.
 
-> **Текущий этап:** bootstrap — создаётся только документация и структура репозитория.
-> Код ещё не реализован.
+> **Текущий этап:** `BRIDGE-000001` — каркас Altium Add-in собран, загружается в AD26
+> и проходит smoke-тест с диагностическим JSON. Полный обмен с SOLIDWORKS не реализуется.
 
 ## Согласованный стек
 
@@ -97,7 +97,18 @@ Git-протокол разработки (задачи, отчёты, ревь�
 
 ## Сборка и проверки
 
-Код появится в задаче `BRIDGE-000001`. Планируемые команды:
+Пути к SDK не коммитятся. Перед сборкой создайте `Directory.Build.local.props` рядом с
+`Directory.Build.props` (файл уже в `.gitignore`):
+
+```xml
+<Project>
+  <PropertyGroup>
+    <AltiumSdkDir>E:\Program Files\Altium\AD26\System</AltiumSdkDir>
+  </PropertyGroup>
+</Project>
+```
+
+Затем:
 
 ```powershell
 dotnet restore
@@ -105,7 +116,31 @@ dotnet build -c Release
 dotnet test -c Release
 ```
 
-Smoke-тест в Altium Designer 26 выполняется вручную и фиксируется в report задачи.
+`dotnet build -c Release` должен пройти с нулём предупреждений (include `TreatWarningsAsErrors=true`).
+
+## Установка Altium Add-in (текущий стенд)
+
+1. Скопируйте из `src/EcadMcadBridge.Altium/bin/Release/net10.0-windows/` в каталог
+   расширений AD26 (`...\Extensions\EcadMcadBridge\`):
+   `EcadMcadBridge.dll`, `EcadMcadBridge.Core.dll`, `EcadMcadBridge.deps.json`,
+   `Installation\EcadMcadBridge.ins` и `Installation\EcadMcadBridge.rcs`
+   (`.ins`/`.rcs` копируются в корень каталога расширения).
+2. В `ExtensionsRegistry.xml` добавьте/проверьте элемент `Item` с `HRID=EcadMcadBridge`,
+   `Guid=f2c9b1a4-6d5e-4c8b-9a31-7e0f2b8d4c10`, `Path` на каталог из шага 1 и `Status=0`.
+   Перед правкой сделайте резервную копию файла.
+3. Перезапустите Altium Designer. В открытом `.PcbDoc` появится `PCB → Tools → Export Smoke Snapshot`.
+4. После выполнения команды путь к JSON показывается в диалоге Altium. Файл пишется в
+   `%TEMP%\EcadMcadBridge\smoke-snapshot-<UTC>.json`; лог — в `%TEMP%\EcadMcadBridge\logs\bridge.log`.
+   Содержимое пользовательской платы в JSON не попадает: только имя файла, счётчики и одна контрольная
+   пара IU/мм.
+
+Автоматизация шага 2 и перенос расширения на другой стенд не реализованы в этой задаче
+(открытый вопрос O-006). Smoke-тест выполняется вручную и фиксируется в report задачи.
+
+Результат smoke-теста на синтетической плате `board.PcbDoc`: `components=28` (совпадает с
+`Board Information → Components on board` в AD26), `outlinePoints=42`, `warnings=0`,
+контрольная точка `40216536 IU → 102.15 mm`. Команда запускалась дважды без перезапуска AD,
+`.PcbDoc` остался неизменным (SHA256 до и после: `EC13CC84307C6393263624A1A2F4C10DDB767640B2860C3E71E655098A87E031`).
 
 ## Документы
 

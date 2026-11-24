@@ -1,0 +1,25 @@
+<Project>
+  <!--
+    Machine-specific paths are never committed. Create Directory.Build.local.props next to
+    this file (git-ignored) with, for example:
+
+      <Project>
+        <PropertyGroup>
+          <AltiumSdkDir>E:\Program Files\Altium\AD26\System</AltiumSdkDir>
+        </PropertyGroup>
+      </Project>
+
+    AltiumSdkDir may also be supplied on the command line or as an environment variable.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.local.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.local.props')" />
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+</Project>

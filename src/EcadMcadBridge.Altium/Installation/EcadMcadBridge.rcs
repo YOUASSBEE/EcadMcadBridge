@@ -1,0 +1,14 @@
+PL PLEcadMcadBridge:ExportSmokeSnapshot
+    Command='EcadMcadBridge:ExportSmokeSnapshot'
+    Caption='Export Smoke Snapshot'
+    Image=''
+    ShortCut1=''
+    ShortCut2=''
+    Params=''
+    Description='Write a diagnostic PCB snapshot to %TEMP%'
+End
+
+// PCB Tools: the single command is available while a PCB document is active.
+Insertion _MNPCB_EB_Tools1 TargetID='MNPCB_Tools10' InsertType='Before' RefID0='MNPCB_Tools100'
+    Link MNPCB_EB_ExportSmokeSnapshot PLID='PLEcadMcadBridge:ExportSmokeSnapshot' End
+End

@@ -37,7 +37,10 @@
 Совместимость AD26 + SDK 4.0.1 + .NET SDK 10 с `net10.0-windows` подтверждена оператором (C-65).
 TFM InteractiveBom зависит от версии Altium: `Directory.Build.props` читает `X2.runtimeconfig.json`
 (AD 26.1 → `net8.0`, AD 26.12 → `net10.0`). TFM Bridge зафиксирован как `net10.0-windows`.
-Выбор reference assemblies для Altium `net10.0-windows` остаётся открытым вопросом V-02.
+Для `BRIDGE-000001` в качестве reference assemblies использованы сборки установленного AD26
+(`$(AltiumSdkDir)\Altium.SDK.dll` и `Altium.SDK.Interfaces.dll`, `Private=false`), а не kit 4.0.1
+(.NET Framework 4.0). Решение сборки и загрузки в хосте зафиксировано в V-02; API-контракт 4.0.1
+остаётся источником сигнатур.
 
 ## 2. Подтверждено
 
@@ -67,8 +70,9 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | C-15 | `DXP.IClient DXP.GlobalVars.Client { get; set; }`; `DXP.IDXPWorkSpace DXP.GlobalVars.DXPWorkSpace { get; }` | `DXP.Classes.cs` | Доступ к клиенту/workspace |
 | C-16 | `EDP.IWorkspace` (совместим с `IDXPWorkSpace`); `object EDP.IWorkspace.Internal_DM_FocusedDocument()` | `EDP.Interfaces.cs` | Получение активного документа |
 | C-17 | `DXP.IServerDocumentView` содержит только `Internal_GetOwnerDocument()`, `PerformAutoZoom()`, `UpdateStatusBar()` | `DXP.Interfaces.cs` | В API нет `GetState`; см. V-04 |
-| C-18 | `object PCB.IPCB_ServerInterface.Internal_GetCurrentPCBBoard()` | `EDP.PCB.Interfaces.cs` | Получение текущей платы; см. V-03 |
-| C-19 | `string PCB.IPCB_Board.GetState_FileName()` | `EDP.PCB.Interfaces.cs` | Имя файла платы |
+| C-18 | `static PCB.IPCB_Board PCB.IPCB_ServerInterfaceHelper.GetCurrentPCBBoard(this PCB.IPCB_ServerInterface serverInterface)` | Метаданные `Altium.SDK.Interfaces.dll` 1.0.0.0 AD26; успешный типизированный вызов в smoke-тесте AD26 26.12.2.9 (`SNAPSHOT_OK`, `components=28`) | Получение текущей платы без reflection; R-03 |
+| C-19 | `string PCB.IPCB_Board.GetState_FileName()` | `EDP.PCB.Interfaces.cs`; smoke-тест вернул `board.PcbDoc` в JSON | Имя файла платы (только имя, без пути) |
+| C-66 | `static PCB.IPCB_ServerInterface PCB.GlobalVars.PCBServer { get; }` | Метаданные `Altium.SDK.Interfaces.dll` 1.0.0.0 AD26 (`PCB.GlobalVars.get_PCBServer`); успешный вызов в smoke-тесте | Доступ к PCB-серверу |
 
 ### 2.3 Итераторы и объекты платы
 
@@ -146,13 +150,28 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | C-64 | Регистрация расширения выполняется элементом `Item` в `ExtensionsRegistry.xml` с `HRID`, `Guid`, `Path`, `Status`, `Title`, `Version`, `PlatformVersions` | `ExtensionsRegistry.xml` на стенде; инструкция предоставленного проекта |
 | C-65 | Подтверждена совместимость Altium Designer 26 + Altium SDK 4.0.1 + .NET SDK 10 с `net10.0-windows` для Altium Add-in | Подтверждение оператора в ревью `BRIDGE-BOOTSTRAP-002`; целевой TFM Altium, не InteractiveBom `net8.0-windows` |
 
+### 2.9 Доказательства, полученные в smoke-тесте BRIDGE-000001
+
+| ID | Сигнатура / вызов | Доказательство | Использование |
+|---|---|---|---|
+| C-67 | `static DXP.IServerDocument DXP.IServerDocumentViewHelper.GetOwnerDocument(this DXP.IServerDocumentView view)` | Метаданные `Altium.SDK.Interfaces.dll` 1.0.0.0 AD26; успешный вызов в smoke-тесте | Активный документ без reflection (R-04) |
+| C-68 | `string DXP.IServerDocument.GetKind()` | Успешный вызов в smoke-тесте: документ `PCB` прошёл проверку, иначе команда вернула бы ошибку | Проверка того, что активный документ — PCB |
+| C-69 | `static void DXP.Utils.ShowInfo(string argText, string argCaption)` / `static void DXP.Utils.ShowWarning(string argText, string argCaption)` | Метаданные `Altium.SDK.Interfaces.dll` (`DXP.Utils`); в smoke-тесте появился `TMessageForm` с заголовком `EcadMcadBridge` и кнопкой `OK` | Показ пути к JSON и сообщений об ошибке |
+| C-70 | Повторное подтверждение C-20…C-29, C-51…C-55, C-57 | Smoke-тест AD26 26.12.2.9: `components=28`, `outlinePoints=42`, `warnings=0`; отчёт Board Information: `Components on board, 28`; `40216536 IU → 102.15 mm`, `40314961 IU → 102.4 mm` | Чтение компонентов, контура и пары IU/мм |
+| C-71 | Команда `EcadMcadBridge:ExportSmokeSnapshot` в `PCB → Tools` | `.ins` + исправленный `.rcs` (`MNPCB_Tools10`); UIA-дерево AD26 содержит `Export Smoke Snapshot` под `GUIPanelControls.TxpBarSubMenuControl` | Регистрация одной команды без ручных правок кода |
+| C-72 | `DXP.ServerPanelForm`; `DXP.ServerPanelView(DXP.ServerPanelForm form, string name, string caption)`; `void DXP.ServerModule.AddServerView(object view)` и `void DXP.IClient.AddServerView(object view)` | Метаданные `Altium.SDK.dll` / `Altium.SDK.Interfaces.dll`; `framework/shim/Panel.cs`; лог загрузки `BOOTSTRAP_MODULE` и панель `ECAD-MCAD Bridge` в UIA | Минимальный UI-слой на WinForms, старт сервера при загрузке AD (R-01, R-09) |
+
+Reflection и `dynamic` в каркасе не используются. Прямой типизированный вызов `GetCurrentPCBBoard()`
+(C-18) подтверждён успешным выполнением в хосте; обращение к внутреннему методу
+`Internal_GetCurrentPCBBoard()` не требуется и запрещено правилами репозитория.
+
 ## 3. Требует проверки
 
 | ID | Вопрос | Почему не подтверждено | Как проверить |
 |---|---|---|---|
-| V-02 | Какие reference assemblies использовать: kit 4.0.1 (.NET Framework 4.0) или runtime-сборки AD26 (`Altium.SDK` 1.0.7383.26074, .NET 8 и .NET 10 варианты)? | Версии и TFM различаются; установленные extension содержат оба варианта, какой грузит целевой хост — не зафиксировано | Сравнить публичный API сборок, собрать оба варианта, проверить загрузку |
-| V-03 | Работает ли прямой типизированный вызов `IPCB_ServerInterface.Internal_GetCurrentPCBBoard()` в AD26? | Референсный Add-in вызывает `GetCurrentPCBBoard` через reflection/dynamic | Smoke-тест прямого вызова; при отказе — зафиксировать обход |
-| V-04 | Как официально получить активный документ/вид без reflection? | В `IServerDocumentView` нет `GetState`; референс использует reflection | Исследовать `IWorkspace.Internal_DM_FocusedDocument` и `IClient` API; проверить в хосте |
+| V-02 | ~~Какие reference assemblies использовать: kit 4.0.1 или runtime-сборки AD26?~~ | Закрыт в `BRIDGE-000001`: сборка из `$(AltiumSdkDir)` (runtime AD26, версия `Altium.SDK` 1.0.7383.26074) собирается и загружается в AD26; kit 4.0.1 остаётся контрактом сигнатур, а не reference assembly | См. C-66…C-72, report `BRIDGE-000001`, раздел R-02 |
+| V-03 | ~~Работает ли прямой типизированный вызов getCurrentPCB без reflection в AD26?~~ | Закрыт в `BRIDGE-000001`: `PcbSnapshotReader` вызывает типизированный helper `GetCurrentPCBBoard()` (C-18), smoke-тест прошёл, reflection не используется | См. C-18, C-70 и report `BRIDGE-000001`, раздел R-03 |
+| V-04 | ~~Как получить активный документ без reflection?~~ | Закрыт в `BRIDGE-000001` для текущей команды: `view.GetOwnerDocument()` (C-67) и `GetKind()` (C-68) работают в хосте | См. report `BRIDGE-000001`, раздел R-04 |
 | V-05 | Как определить несохранённые изменения и хеш `.PcbDoc`? | `GetModified`, `GetFileName` объявлены, но поведение не проверено | Smoke-тест на новом/изменённом/сохранённом документе |
 | V-06 | Как извлекать 3D-модели и высоты для MCAD? | `SaveModelToFile`, `DefaultPCB3DModel` объявлены, поведение и формат не проверены | Отдельная задача MCAD-фазы; не использовать до проверки |
 | V-07 | Стабилен ли `SourceUniqueId` между сессиями и ECO? | Не проверено; возможны пустые/меняющиеся значения | Экспорт одного проекта до/после ECO, сравнение |
@@ -161,9 +180,9 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | V-10 | Семантика `GetState_Height()` и bounding box компонента | Не проверено, в каких единицах и с учётом чего считается | Сравнить с UI Altium на эталонной плате |
 | V-11 | Автоматизация установки расширения и правки `ExtensionsRegistry.xml` | Известен только ручной путь | Отдельная задача; учесть права администратора и блокировку файла |
 | V-12 | Лицензирование и допустимость поставки SDK-сборок Altium вместе с Add-in | Требуется проверка лицензии; в репозиторий DLL не коммитятся | Юридическая/техническая проверка, решение в `DECISIONS.md` |
-| V-13 | Точный build AD26 и набор runtime-сборок на целевом стенде | В установленных extension найдены варианты .NET 8 и .NET 10 при одной версии 1.0.7383.26074; используемый хостом вариант не зафиксирован | Записать `Help → About`, версии/TFM DLL из `AltiumSystemDir`, дату проверки |
+| V-13 | Точный build AD26 и runtime на целевом стенде | Частично закрыт в `BRIDGE-000001`: `X2.EXE` 26.12.2.9, `X2.runtimeconfig.json` → `tfm=net10.0`, `Microsoft.NETCore.App`/`Microsoft.WindowsDesktop.App` 10.0.10, CLR в логе Add-in — 10.0.10. Конкретный вариант `Altium.SDK.dll` внутри хоста по-прежнему не изолирован | Зафиксированы версия файла, runtimeconfig и лог загрузки; изоляция сборки — отдельная задача |
 | V-14 | API SOLIDWORKS 2026 (interop, версия, загрузка Add-in) | Ничего не проверено; в проекте нет кода | Отдельная задача MCAD-фазы |
-| V-15 | Поддержка WPF/WinForms внутри AD26 и тема оформления | Референс использует WPF и DevExpress, но это не согласованный стек | Минимальный UI-smoke-тест |
+| V-15 | Поддержка WPF/WinForms внутри AD26 и тема оформления | Частично закрыт в `BRIDGE-000001`: хост-диалог `DXP.Utils.ShowInfo` (C-69) и минимальная WinForms-панель (C-72) работают в AD26; полноценные панели не создавались | Отдельный smoke-тест полноценной панели; для текущей команды кастомный UI не нужен |
 | V-16 | Требования к потоку и COM-апартаменту для вызовов PCB API | Не проверено; возможны UI-thread-only ограничения | Smoke-тест с фоновым потоком и без него |
 | V-17 | Поведение `TIterationMethod.eProcessAll` на всех типах объектов | Значение известно, полный набор объектов не проверен | Сравнить счётчики с UI/отчётом Altium |
 
@@ -201,3 +220,4 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | 2026-11-24 | BRIDGE-BOOTSTRAP-002: добавлен C-65, закрыт V-01, уточнены C-57/C-58 для пары IU/мм | Bootstrap |
 | 2026-11-24 | BRIDGE-BOOTSTRAP-003: уточнён коэффициент IU→мм и источник сведений об InteractiveBom | Bootstrap |
 | 2026-11-24 | BRIDGE-BOOTSTRAP-005: исправлено происхождение runtime-сборок — установленные extension AD26 и копия `publish_out`, не архив; уточнены V-02/V-13 | Bootstrap |
+| 2026-11-24 | BRIDGE-000001: добавлены C-66…C-72 и доказательства хоста; закрыты V-02/V-03/V-04, уточнены V-13/V-15 | local-agent |
