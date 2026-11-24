@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -499,21 +500,32 @@ public sealed class ExchangePackageTests
         Directory.CreateDirectory(outside);
         File.WriteAllText(Path.Combine(outside, "secret.bin"), "secret");
         var link = Path.Combine(written.PackageDirectory!, "linked");
-        try
-        {
-            Directory.CreateSymbolicLink(link, outside);
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        if (!TryCreateDirectoryLink(link, outside))
         {
             // Creating reparse points requires privileges on some Windows hosts.
             return;
         }
 
-        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+        try
+        {
+            var read = ExchangePackageReader.Read(written.PackageDirectory!);
 
-        Assert.False(read.IsSuccess);
-        Assert.Contains(read.Errors, diagnostic => diagnostic.Code == PackageDiagnosticCodes.UnsupportedLink);
-        Assert.Null(read.Snapshot);
+            Assert.False(read.IsSuccess);
+            Assert.Contains(read.Errors, diagnostic => diagnostic.Code == PackageDiagnosticCodes.UnsupportedLink);
+            Assert.Null(read.Snapshot);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(link))
+                    Directory.Delete(link);
+            }
+            catch
+            {
+                // Best effort cleanup of the test link itself, never the target.
+            }
+        }
     }
 
     [Fact]
@@ -648,6 +660,45 @@ public sealed class ExchangePackageTests
         var text = File.ReadAllText(path);
         Assert.Contains(oldValue, text, StringComparison.Ordinal);
         File.WriteAllText(path, text.Replace(oldValue, newValue, StringComparison.Ordinal));
+    }
+
+    private static bool TryCreateDirectoryLink(string link, string target)
+    {
+        try
+        {
+            Directory.CreateSymbolicLink(link, target);
+            return true;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            if (!OperatingSystem.IsWindows())
+                return false;
+        }
+
+        try
+        {
+            var startInfo = new ProcessStartInfo("cmd.exe")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            startInfo.ArgumentList.Add("/c");
+            startInfo.ArgumentList.Add("mklink");
+            startInfo.ArgumentList.Add("/J");
+            startInfo.ArgumentList.Add(link);
+            startInfo.ArgumentList.Add(target);
+            using var process = Process.Start(startInfo);
+            if (process is null)
+                return false;
+            process.WaitForExit(5000);
+            return process.HasExited && process.ExitCode == 0 && Directory.Exists(link);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private sealed class TempDirectory : IDisposable
