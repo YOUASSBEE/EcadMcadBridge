@@ -170,6 +170,10 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | C-82 | `IPCB_BoardOutline` как `IPCB_Polygon`: `GetState_PointCount()`, `GetState_Segments(int)`; `PolySegment.Kind/Vx/Vy/Cx/Cy/Radius/Angle1/Angle2` | Контур с аналитическими дугами (`ePolySegmentArc`) |
 | C-83 | `TObjectId.eComponentObject/eNetObject/ePadObject/eTrackObject`; `TV6_Layer`; `TShape`; `TPolySegmentType` | Фильтры и преобразование layer/shape/segment |
 | C-84 | `DXP.IServerDocumentView.GetOwnerDocument()`; `IServerDocument.GetKind()`; `IPCB_Board.GetState_FileName()` | Проверка активного PCB и имени документа; ранее C-19/C-67/C-68 |
+| C-85 | `static PCB.TRegionKind PCB.IPCB_RegionHelper.GetState_Kind(this PCB.IPCB_Region region)`; `PCB.TRegionKind.eRegionKind_BoardCutout` / `eRegionKind_Copper` / `eRegionKind_Cutout` / `eRegionKind_NamedRegion` / `eRegionKind_Cavity` | Тип региона; enum проверен по `Altium.SDK.Interfaces.dll` AD26 |
+| C-86 | `PCB.IPCB_Region.GetState_Name()`, `GetState_Area()` (`int64`), `GetState_UniqueId()`; `static PCB.IPCB_GeometricPolygon PCB.IPCB_RegionHelper.GetGeometricPolygon(this PCB.IPCB_Region)`; `GetMainContour`, `GetHoleCount`, `GetHole(int)` | Инвентаризация регионов и их контуров; только чтение |
+| C-87 | `static PCB.IPCB_PolyRegShapesClipResult PCB.IPCB_BoardOutlineHelper.ClipWithPolyRegShapes(this PCB.IPCB_BoardOutline outline, bool useHolesFromViaPad, bool useEmbedded)` | Неразрушающее вычисление вырезов контура; `false,false` исключает pad/via holes |
+| C-88 | `static PCB.IPCB_Shapes PCB.IPCB_PolyRegShapesClipResultHelper.GetCutouts/GetNewPrims/GetInoperablePrims(this PCB.IPCB_PolyRegShapesClipResult)`; `int PCB.IPCB_Shapes.Count()`; `static PCB.IPCB_RegionShape PCB.IPCB_ShapesHelper.Items(this PCB.IPCB_Shapes, int)`; `int PCB.IPCB_RegionShape.GetState_ShapeSegmentCount()`; `static PCB.PolySegment PCB.IPCB_RegionShapeHelper.GetState_ShapeSegment(this PCB.IPCB_RegionShape, int)` | Извлечение клипованных Board Cutout как линий/дуг |
 
 Подтверждено smoke-тестом на `MiniPC.PcbDoc`: 31 слой, 1046 компонентов, 6004 пада,
 837 сетей, 245 multi-layer PadStack с 16 shapes, 9669 форм; `rotations` включают
@@ -195,8 +199,15 @@ FIX-001 уточнения:
 - `LayerKind` Core не различает signal и internal plane: оба `Copper`.
 - Локальные координаты падов, pin designator, stack order и наличие 3D-модели в Core
   отсутствуют; adapter их не подменяет.
-- Внутренние вырезы контура поддержаны через `GetState_IsHole`, но на выбранных
-  vendor-платах не встретились; synthetic cutout smoke не подтверждён (V-22).
+- Внутренние вырезы контура: `GeometricPolygon.GetState_IsHole` на проверенных
+  платах не дал hole-контуров, поэтому вырезы извлекаются из `IPCB_Region` с
+  `eRegionKind_BoardCutout` и подтверждаются `ClipWithPolyRegShapes(false,false)`
+  (C-85…C-88). Тип региона сам по себе недостаточен: `MiniPC.PcbDoc` содержит
+  `eRegionKind_BoardCutout` («Layer Stack Region 1»), но клиппер возвращает 0
+  вырезов; такие регионы остаются только диагностикой и не экспортируются.
+  Реальный `board with cutout.PcbDoc` дал 2 выреза, включая дуги; V-22 закрыт.
+  Pad/via holes исключены параметром `useHolesFromViaPad=false` и проверены
+  платой с 6004 падами, где клиппер вернул 0 вырезов.
 
 ### 2.10 Доказательства, полученные в smoke-тесте BRIDGE-000001
 
@@ -237,9 +248,9 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-19 | Как представлять отверстия падов, pin designator и локальные координаты пада? | В Core 1.0.0 нет соответствующих полей; adapter не подменяет данные | Отдельное решение/ADR до расширения Core |
 | V-20 | Как представлять oval и custom pad shapes? | `eRounded` с разными размерами отображён в rounded rectangle с предупреждением; `eCustomShape` не имеет вершин в API | Отдельная задача по PadShape; сейчас ограничение зафиксировано |
 | V-21 | Как сохранять порядок слоёв stackup и наличие 3D-модели? | Core не содержит этих полей; adapter их не заполняет | Расширение Core отдельным решением |
-| V-22 | Поддержаны ли внутренние вырезы контура (`GetState_IsHole`) на реальной плате? | Открыт: `BRIDGE-000003-FIX-003` проверил `board with cutout.PcbDoc` (SHA256 `ED624C…`), API вернул 1 outer-contour/140 points/0 holes. Вырезов в сохранённой геометрии нет | Оператору нужен файл, где `GetState_IsHole()` реально возвращает hole; smoke повторить |
+| V-22 | ~~Поддержаны ли внутренние вырезы контура на реальной плате?~~ | Закрыт в `BRIDGE-000003-FIX-004`: `board with cutout.PcbDoc` (SHA256 `ED624C…`) содержит 5 `eRegionKind_BoardCutout`; `ClipWithPolyRegShapes(false,false)` вернул 2 cutout-контура / 16 сегментов, экспортированы 2 hole-контура (7 линий; 6 линий + 3 дуги), все вершины внутри outer. `GetState_IsHole` для этого файла остаётся 0, поэтому источником вырезов является clip result, а не geometric polygon | См. C-85…C-88 и report `BRIDGE-000003-FIX-004` |
 | V-23 | Почему `IPCB_Pad.DefinitionLayerIterator` иногда возвращает V7-ID, не совпадающие с V6? | Adapter обходит это перебором copper-слоёв board layer iterator; высокие V7-ID не используются как V6 | Отдельное исследование V7 layer mapping при необходимости |
-| V-24 | Гарантирует ли `IPCB_Polygon.GetState_Segments()` все циклы Board Outline? | Нет: на `PC4-SODIMM` циклы не замкнулись, adapter перешёл на line-fallback для geometric contour. `GeometricPolygon` остаётся источником количества/ролей | Проверка на synthetic cutout; отдельное исследование API сегментов |
+| V-24 | Гарантирует ли `IPCB_Polygon.GetState_Segments()` все циклы Board Outline? | Нет: на `PC4-SODIMM` циклы не замкнулись, adapter перешёл на line-fallback для geometric contour. `GeometricPolygon` остаётся источником количества/ролей; Board Cutout берётся из `ClipWithPolyRegShapes`, а не из этого API | Отдельное исследование API сегментов при необходимости |
 | V-25 | Можно ли достоверно отличить `eRotatedRectShape`/`eArcShape`/`eTerminator` от поддерживаемых форм? | Семантика не подтверждена; adapter не преобразует их в круг/прямоугольник и выдаёт warning | Отдельный эксперимент с известными pad shape |
 
 ## 4. Запрещено
@@ -282,3 +293,4 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | 2026-11-24 | BRIDGE-000003-FIX-001: geometric contours сохраняются все, fallback диагностируется; уточнены TShape V-24/V-25 | local-agent |
 | 2026-11-24 | BRIDGE-000003-FIX-002: exact outline matcher отвергает partial/ambiguous; cutout-файл оператора без вырезов, V-22 открыт | local-agent |
 | 2026-11-24 | BRIDGE-000003-FIX-003: arc angular/midpoint matching; новый cutout-файл снова 0 holes, V-22 открыт | local-agent |
+| 2026-11-24 | BRIDGE-000003-FIX-004: добавлены C-85…C-88 (IPCB_Region, ClipWithPolyRegShapes, cutout shapes); реальный Board Cutout подтверждён, V-22 закрыт | local-agent |

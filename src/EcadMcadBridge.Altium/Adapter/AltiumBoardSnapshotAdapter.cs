@@ -10,7 +10,34 @@ namespace EcadMcadBridge.Altium.Adapter;
 internal sealed record AltiumBoardSnapshotResult(
     BoardSnapshot Snapshot,
     IReadOnlyList<string> Warnings,
+    IReadOnlyList<AltiumRegionInfo> Regions,
     AltiumAdapterDiagnostics Diagnostics);
+
+internal sealed record AltiumRegionContour(bool IsHole, IReadOnlyList<Point2D> Points);
+
+internal sealed record AltiumRegionInfo(
+    int Index,
+    string RuntimeType,
+    TRegionKind? Kind,
+    string? Name,
+    string? UniqueId,
+    long Area,
+    IReadOnlyList<AltiumRegionContour> Contours,
+    int MinX,
+    int MinY,
+    int MaxX,
+    int MaxY)
+{
+    public int HoleCount => Contours.Count(contour => contour.IsHole);
+
+    public IReadOnlyList<Point2D> MainPoints =>
+        Contours.FirstOrDefault(contour => !contour.IsHole)?.Points ?? Array.Empty<Point2D>();
+
+    public bool IsClosed =>
+        MainPoints.Count >= 2
+        && MainPoints[0].XIu == MainPoints[^1].XIu
+        && MainPoints[0].YIu == MainPoints[^1].YIu;
+}
 
 internal sealed class AltiumAdapterDiagnostics
 {
@@ -24,6 +51,21 @@ internal sealed class AltiumAdapterDiagnostics
     public int GeometricContourCount { get; set; }
     public int GeometricPointCount { get; set; }
     public int GeometricHoleCount { get; set; }
+    public int TotalRegions { get; set; }
+    public int BoardCutoutRegions { get; set; }
+    public int BoardCutoutContours { get; set; }
+    public int BoardCutoutHoles { get; set; }
+    public int ClipCutoutsCount { get; set; }
+    public int ClipNewPrimsCount { get; set; }
+    public int ClipInoperablePrimsCount { get; set; }
+    public int ClipCutoutContours { get; set; }
+    public int ClipCutoutSegments { get; set; }
+    public int ClipCutoutErrors { get; set; }
+    public int ClipMatchedCutoutRegions { get; set; }
+    public int ClipUnmatchedCutoutRegions { get; set; }
+    public int DuplicateCutoutContours { get; set; }
+    public int ExportedCutoutContours { get; set; }
+    public Dictionary<TRegionKind, int> RegionsByKind { get; } = new();
     public int ExactPadShapes { get; set; }
     public int SimplifiedPadShapes { get; set; }
     public int UnsupportedPadShapes { get; set; }
@@ -50,11 +92,25 @@ internal sealed class AltiumAdapterDiagnostics
             $"outlineUnmatchedLoops={UnmatchedAnalyticLoops} " +
             $"outlineAmbiguous={AmbiguousOutlineMatches} outlinePartial={PartialOutlineMatches} " +
             $"geometricContours={GeometricContourCount} geometricPoints={GeometricPointCount} " +
-            $"geometricHoles={GeometricHoleCount} " +
+            $"geometricHoles={GeometricHoleCount} totalRegions={TotalRegions} " +
+            $"boardCutoutRegions={BoardCutoutRegions} boardCutoutContours={BoardCutoutContours} " +
+            $"boardCutoutHoles={BoardCutoutHoles} clipCutouts={ClipCutoutsCount} " +
+            $"clipNewPrims={ClipNewPrimsCount} clipInoperable={ClipInoperablePrimsCount} " +
+            $"clipCutoutContours={ClipCutoutContours} clipCutoutSegments={ClipCutoutSegments} " +
+            $"clipCutoutErrors={ClipCutoutErrors} clipMatchedRegions={ClipMatchedCutoutRegions} " +
+            $"clipUnmatchedRegions={ClipUnmatchedCutoutRegions} " +
+            $"duplicateCutoutContours={DuplicateCutoutContours} exportedCutoutContours={ExportedCutoutContours} " +
+            $"regionsByKind=[{FormatRegionKinds()}] " +
             $"padShapesExact={ExactPadShapes} padShapesSimplified={SimplifiedPadShapes} " +
             $"padShapesUnsupported={UnsupportedPadShapes} padStacksEmpty={OmittedPadStacks} " +
             $"shapeCounts=[{shapes}]";
     }
+
+    private string FormatRegionKinds() =>
+        string.Join(
+            ",",
+            RegionsByKind.OrderBy(item => item.Key.ToString(), StringComparer.Ordinal)
+                .Select(item => item.Key + ":" + item.Value));
 }
 
 /// <summary>
@@ -85,13 +141,14 @@ internal static class AltiumBoardSnapshotAdapter
         var layers = ReadLayers(board, warnings);
         var nets = new NetCatalog();
         ReadNets(board, nets, warnings);
+        var regions = ReadRegions(board, warnings, diagnostics);
 
         var components = new List<ComponentInstance>();
         var padStacks = new List<PadStack>();
         var pads = new List<Pad>();
         ReadComponents(board, layers, nets, components, padStacks, pads, warnings, diagnostics);
 
-        var outline = AltiumOutlineReader.Read(board, warnings, diagnostics);
+        var outline = AltiumOutlineReader.Read(board, warnings, diagnostics, regions);
         var fileName = Path.GetFileName(board.GetState_FileName() ?? string.Empty);
         if (string.IsNullOrWhiteSpace(fileName))
         {
@@ -128,7 +185,7 @@ internal static class AltiumBoardSnapshotAdapter
             Texts = Array.Empty<TextItem>(),
         };
 
-        return new AltiumBoardSnapshotResult(snapshot, warnings, diagnostics);
+        return new AltiumBoardSnapshotResult(snapshot, warnings, regions, diagnostics);
     }
 
     private static LayerCatalog ReadLayers(IPCB_Board board, List<string> warnings)
@@ -189,6 +246,172 @@ internal static class AltiumBoardSnapshotAdapter
         if (nets.Items.Count == 0)
             warnings.Add("The board net iterator returned no nets.");
     }
+
+    private static IReadOnlyList<AltiumRegionInfo> ReadRegions(
+        IPCB_Board board,
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
+    {
+        var result = new List<AltiumRegionInfo>();
+        var iterator = board.BoardIterator_Create();
+        try
+        {
+            var objectSet = new TObjectSet { TObjectId.eRegionObject };
+            iterator.AddFilter_ObjectSet(objectSet);
+            iterator.AddFilter_Method(TIterationMethod.eProcessAll);
+
+            var index = 0;
+            for (var primitive = iterator.FirstPCBObject(); primitive is not null; primitive = iterator.NextPCBObject())
+            {
+                if (primitive is not IPCB_Region region)
+                    continue;
+
+                var kind = region.GetState_Kind();
+                diagnostics.TotalRegions++;
+                diagnostics.RegionsByKind.TryGetValue(kind, out var kindCount);
+                diagnostics.RegionsByKind[kind] = kindCount + 1;
+
+                var contours = kind == TRegionKind.eRegionKind_BoardCutout
+                    ? ReadRegionContours(region, warnings)
+                    : Array.Empty<AltiumRegionContour>();
+                var bounds = GetBounds(contours.SelectMany(contour => contour.Points));
+                var info = new AltiumRegionInfo(
+                    index++,
+                    primitive.GetType().FullName ?? primitive.GetType().Name,
+                    kind,
+                    region.GetState_Name(),
+                    region.GetState_UniqueId(),
+                    region.GetState_Area(),
+                    contours,
+                    bounds.MinX,
+                    bounds.MinY,
+                    bounds.MaxX,
+                    bounds.MaxY);
+
+                result.Add(info);
+
+                if (kind == TRegionKind.eRegionKind_BoardCutout)
+                {
+                    diagnostics.BoardCutoutRegions++;
+                    diagnostics.BoardCutoutContours += contours.Count;
+                    diagnostics.BoardCutoutHoles += contours.Count(contour => contour.IsHole);
+                }
+            }
+        }
+        finally
+        {
+            board.BoardIterator_Destroy(ref iterator);
+        }
+
+        if (result.Count == 0)
+        {
+            warnings.Add("The Region iterator returned no IPCB_Region objects.");
+        }
+        else
+        {
+            var boardCutouts = result
+                .Where(region => region.Kind == TRegionKind.eRegionKind_BoardCutout)
+                .ToArray();
+            warnings.Add(
+                $"Region kinds: [{string.Join(",", diagnostics.RegionsByKind.OrderBy(item => item.Key.ToString(), StringComparer.Ordinal).Select(item => item.Key + ":" + item.Value))}]; " +
+                (boardCutouts.Length == 0
+                    ? "no eRegionKind_BoardCutout regions."
+                    : "Board Cutout regions: " + FormatRegionInventory(boardCutouts)));
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyList<AltiumRegionContour> ReadRegionContours(
+        IPCB_Region region,
+        List<string> warnings)
+    {
+        var result = new List<AltiumRegionContour>();
+        try
+        {
+            var polygon = region.GetGeometricPolygon();
+            if (polygon is not null && polygon.GetState_Count() > 0)
+            {
+                for (var i = 0; i < polygon.GetState_Count(); i++)
+                {
+                    var points = ReadContourPoints(polygon.GetState_Contour(i));
+                    if (points.Count >= 2)
+                        result.Add(new AltiumRegionContour(polygon.GetState_IsHole(i), points));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            warnings.Add(
+                $"Region geometry read failed for kind={region.GetState_Kind()} " +
+                $"name='{region.GetState_Name()}': {ex.GetType().Name}.");
+        }
+
+        if (result.Count > 0)
+            return result;
+
+        try
+        {
+            var main = ReadContourPoints(region.GetMainContour());
+            if (main.Count >= 2)
+                result.Add(new AltiumRegionContour(false, main));
+
+            var holeCount = region.GetHoleCount();
+            for (var i = 0; i < holeCount; i++)
+            {
+                var hole = ReadContourPoints(region.GetHole(i));
+                if (hole.Count >= 2)
+                    result.Add(new AltiumRegionContour(true, hole));
+            }
+        }
+        catch (Exception ex)
+        {
+            warnings.Add(
+                $"Region contour read failed for kind={region.GetState_Kind()} " +
+                $"name='{region.GetState_Name()}': {ex.GetType().Name}.");
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyList<Point2D> ReadContourPoints(IPCB_Contour? contour)
+    {
+        if (contour is null)
+            return Array.Empty<Point2D>();
+
+        var points = new List<Point2D>(contour.GetState_Count());
+        for (var i = 0; i < contour.GetState_Count(); i++)
+            points.Add(Point2D.FromIu(contour.GetState_PointX(i), contour.GetState_PointY(i)));
+
+        return points;
+    }
+
+    private static (int MinX, int MinY, int MaxX, int MaxY) GetBounds(IEnumerable<Point2D> points)
+    {
+        var minX = int.MaxValue;
+        var minY = int.MaxValue;
+        var maxX = int.MinValue;
+        var maxY = int.MinValue;
+        foreach (var point in points)
+        {
+            if (point.XIu is not int x || point.YIu is not int y)
+                continue;
+            minX = Math.Min(minX, x);
+            minY = Math.Min(minY, y);
+            maxX = Math.Max(maxX, x);
+            maxY = Math.Max(maxY, y);
+        }
+
+        return minX == int.MaxValue ? (0, 0, 0, 0) : (minX, minY, maxX, maxY);
+    }
+
+    private static string FormatRegionInventory(IReadOnlyList<AltiumRegionInfo> regions) =>
+        string.Join(
+            "; ",
+            regions.Select(region =>
+                $"{region.Index}:{region.Kind}:{region.Name}:contours={region.Contours.Count}:" +
+                $"points={region.MainPoints.Count}:holes={region.HoleCount}:area={region.Area}:" +
+                $"bounds=({region.MinX},{region.MinY})-({region.MaxX},{region.MaxY})"));
 
     private static void ReadComponents(
         IPCB_Board board,

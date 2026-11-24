@@ -170,9 +170,14 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   `minipc.PcbDoc` оказался byte-identical vendor-копией без вырезов, поэтому V-22
   остаётся открытым.
 - `BRIDGE-000003-FIX-003`: matcher учитывает угловой диапазон дуг и середины
-  polyline-сегментов; новая плата оператора снова дала 1 outer-contour/0 holes,
-  поэтому V-22 остаётся открытым. Altium.Tests: 24.
-- Synthetic cutout smoke пока не подтверждён: на доступных vendor-платах вырезов нет.
+  polyline-сегментов; новая плата оператора снова дала 1 outer-contour/0 holes.
+- `BRIDGE-000003-FIX-004`: реальный Board Cutout извлечён из `IPCB_Region`
+  (`eRegionKind_BoardCutout`) и `ClipWithPolyRegShapes(false,false)`. На
+  `board with cutout.PcbDoc` получены 2 hole-контура (7 линий; 6 линий + 3 дуги),
+  все вершины внутри outer; `ClipWithPolyRegShapes(false,false)` не включает pad/via
+  holes. `MiniPC.PcbDoc` содержит BoardCutout-регион, но клиппер вернул 0 вырезов,
+  поэтому регион не экспортируется. Matcher дополнительно проверяет середины
+  дуг/линий самого loop. Altium.Tests: 26; V-22 закрыт.
 - Tracks, vias, regions, text items и Exchange Package в адаптере не реализованы.
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
   и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.
@@ -199,7 +204,7 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 | Q-011 | Как проверять пространственную вложенность отверстий и контуров? | Открыт | Валидатор проверяет роли, замкнутость и непрерывность, но не point-in-polygon |
 | Q-012 | Как расширить Core для отверстий падов, pin designator, локальных координат и stack order? | Открыт | Требует отдельного решения до изменения публичного контракта |
 | Q-013 | Как различать signal и internal plane в `LayerKind`? | Открыт | Сейчас оба представлены как `Copper`; Plane-тип отсутствует |
-| Q-014 | Как подтвердить внутренние вырезы контура на реальной плате? | Открыт | Код использует `GetState_IsHole`, но на выбранных vendor-платах вырезов нет |
+| Q-014 | Как подтвердить внутренние вырезы контура на реальной плате? | **Закрыт:** `BRIDGE-000003-FIX-004` | `IPCB_Region` + `ClipWithPolyRegShapes(false,false)` дали 2 выреза на `board with cutout.PcbDoc`; pad/via holes исключены и проверены на `MiniPC.PcbDoc` |
 
 Полные формулировки и способы проверки — в `SDK_API_LEDGER.md` и `DECISIONS.md`.
 

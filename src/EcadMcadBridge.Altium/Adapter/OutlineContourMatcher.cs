@@ -52,6 +52,16 @@ internal static class OutlineContourMatcher
                 return false;
         }
 
+        // An analytic arc can bulge outside a polyline without adding a vertex;
+        // check the interior of every loop segment against the contour too.
+        foreach (var segment in loop)
+        {
+            if (!TrySegmentMidpoint(segment, out var midpoint))
+                return false;
+            if (DistanceToPolyline(midpoint, contour) > ToleranceIu)
+                return false;
+        }
+
         return true;
     }
 
@@ -206,6 +216,37 @@ internal static class OutlineContourMatcher
         const double twoPi = Math.PI * 2.0;
         var result = angle % twoPi;
         return result < 0 ? result + twoPi : result;
+    }
+
+    private static bool TrySegmentMidpoint(OutlineSegment segment, out Point2D midpoint)
+    {
+        if (segment.SweepDirection is null)
+            return TryMidpoint(segment.Start, segment.End, out midpoint);
+
+        if (segment.Radius <= 0
+            || !TryCoordinates(segment.Center, out var cx, out var cy)
+            || !TryCoordinates(segment.Start, out var sx, out var sy)
+            || !TryCoordinates(segment.End, out var ex, out var ey))
+        {
+            midpoint = default;
+            return false;
+        }
+
+        const double twoPi = Math.PI * 2.0;
+        var startAngle = Math.Atan2(sy - cy, sx - cx);
+        var endAngle = Math.Atan2(ey - cy, ex - cx);
+        var delta = segment.SweepDirection == ArcSweepDirection.CounterClockwise
+            ? NormalizeAngle(endAngle - startAngle)
+            : NormalizeAngle(startAngle - endAngle);
+        if (delta < 1e-12)
+            delta = twoPi;
+
+        var direction = segment.SweepDirection == ArcSweepDirection.CounterClockwise ? 1.0 : -1.0;
+        var midAngle = startAngle + (direction * delta / 2.0);
+        midpoint = Point2D.FromIu(
+            (int)Math.Round(cx + (segment.Radius * Math.Cos(midAngle)), MidpointRounding.AwayFromZero),
+            (int)Math.Round(cy + (segment.Radius * Math.Sin(midAngle)), MidpointRounding.AwayFromZero));
+        return true;
     }
 
     private static bool TryMidpoint(Point2D left, Point2D right, out Point2D midpoint)

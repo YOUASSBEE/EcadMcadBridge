@@ -364,10 +364,20 @@ Core рассматривает ID как непрозрачную непуст�
   подтверждённого corner radius, oval через rounded rectangle radius=min/2;
   неподдерживаемые и не подменяемые — `eRotatedRectShape`, `eArcShape`, `eTerminator`,
   `eCustomShape`, `eNoShape`.
-- Внутренние вырезы контура поддержаны через `GetState_IsHole`; на выбранных vendor-платах
-  вырезы не встретились, поэтому synthetic cutout smoke пока не подтверждён (V-22).
+- Внутренние вырезы контура извлекаются из `IPCB_Region` с
+  `TRegionKind.eRegionKind_BoardCutout` и подтверждаются
+  `IPCB_BoardOutline.ClipWithPolyRegShapes(false,false)`; параметры `false,false`
+  исключают pad/via holes. `GeometricPolygon.GetState_IsHole` на проверенных платах
+  вырезов не дал и не является источником cutout. Тип региона без clip result
+  недостаточен: `MiniPC.PcbDoc` содержит `eRegionKind_BoardCutout`
+  («Layer Stack Region 1»), но клиппер возвращает 0 вырезов, поэтому регион остаётся
+  только диагностикой. Реальный `board with cutout.PcbDoc` дал 2 выреза, включая дуги
+  (V-22 закрыт в `BRIDGE-000003-FIX-004`).
+- Для analytic loop дополнительно проверяются середины дуг/линий самого loop, поэтому
+  дуга не может «выпучиваться» за polyline и получать ложный exact.
 - Полное соответствие Core всем структурам Altium не утверждается; adapter проверен на
-  `MiniPC.PcbDoc` и `Bluetooth_Sentinel.PcbDoc` в AD26.12.2.9 (см. отчёт `BRIDGE-000003`).
+  `MiniPC.PcbDoc`, `Bluetooth_Sentinel.PcbDoc` и `board with cutout.PcbDoc`
+  в AD26.12.2.9 (см. отчёты `BRIDGE-000003` и `BRIDGE-000003-FIX-004`).
 
 ## 6. Формат Exchange Package
 

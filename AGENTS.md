@@ -173,6 +173,7 @@ README.md                      входная точка
 
 ## 13. Текущий этап
 
-`BRIDGE-BOOTSTRAP-001` — создана документация; `BRIDGE-BOOTSTRAP-002` — исправления по ревью
-(TFM по проектам, IU+мм, разделение Git и runtime-обмена). Код не создаётся.
-Следующая задача — `BRIDGE-000001` (каркас Altium Add-in).
+`BRIDGE-000003` — Altium BoardSnapshot adapter: слои, компоненты, пады, nets, контур
+и Board Cutout. `BRIDGE-000003-FIX-004` подтвердил реальный Board Cutout через
+`IPCB_Region` + `ClipWithPolyRegShapes(false,false)` и закрыл V-22.
+Полный обмен с SOLIDWORKS не реализуется до отдельного решения.

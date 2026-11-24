@@ -144,6 +144,42 @@ public sealed class OutlineContourMatcherTests
     }
 
     [Fact]
+    public void ExactMatch_RejectsArcBulgeOutsidePolyline()
+    {
+        var contour = new[]
+        {
+            Point2D.FromIu(100, 0),
+            Point2D.FromIu(0, 100),
+            Point2D.FromIu(-100, 0),
+            Point2D.FromIu(0, -100),
+        };
+        var loop = new[]
+        {
+            Arc((100, 0), (0, 100), (0, 0), 100, ArcSweepDirection.CounterClockwise),
+            Segment((0, 100), (-100, 0)),
+            Segment((-100, 0), (0, -100)),
+            Segment((0, -100), (100, 0)),
+        };
+
+        Assert.False(OutlineContourMatcher.TryExactMatch(contour, loop));
+    }
+
+    [Fact]
+    public void ExactMatch_AcceptsSamePolylineWithoutArc()
+    {
+        var contour = new[]
+        {
+            Point2D.FromIu(100, 0),
+            Point2D.FromIu(0, 100),
+            Point2D.FromIu(-100, 0),
+            Point2D.FromIu(0, -100),
+        };
+        var loop = Loop((100, 0), (0, 100), (-100, 0), (0, -100));
+
+        Assert.True(OutlineContourMatcher.TryExactMatch(contour, loop));
+    }
+
+    [Fact]
     public void IsClosed_DetectsClosedPointSequence()
     {
         var closed = RectanglePoints(0, 0, 100, 100).Concat(new[] { Point2D.FromIu(0, 0) }).ToArray();
