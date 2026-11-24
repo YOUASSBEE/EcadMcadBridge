@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T03:05:00+03:00
-updated: 2026-11-24T03:05:00+03:00
+updated: 2026-11-24T09:41:47+03:00
 base: source
 branch: task/BRIDGE-000001
-commit: pending
-pr: pending
+commit: af9bb67a40c65619e02f8d5ab867ec3bcddd59e8
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/2
 related: [BRIDGE-000001, D-002, D-007, D-013, D-014, D-015, D-016, D-017]
 ---
 
@@ -142,11 +142,17 @@ README.md
 
 ## 6. Commit SHA и PR
 
-- Commit: `pending` (будет заполнен после коммита).
-- PR: `pending` (будет заполнен после создания PR в `source`).
+- Commit (состояние PR на момент создания): `af9bb67a40c65619e02f8d5ab867ec3bcddd59e8`.
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/2 — `source` ← `task/BRIDGE-000001`,
+  открыт, автором не слит; ожидается проверка Оператора.
+- Отдельным коммитом после создания PR в отчёт добавлены только SHA и URL; код не изменялся.
+- История ветки переписана по `BRIDGE-000001-FIX-001`: удалены локальный абсолютный путь и данные
+  заказчика; `source` не изменялся.
 
 ## 7. История изменений
 
 | Дата | Изменение |
 |---|---|
 | 2026-11-24 | Первая версия отчёта: итог, файлы, ответы R-01…R-10, проверки, версии, smoke-доказательства. |
+| 2026-11-24 | Добавлены финальный commit SHA и URL PR #2; PR создан, не слит. |
+| 2026-11-24 | BRIDGE-000001-FIX-001: удалены абсолютные пути с именем пользователя и данные заказчика; история ветки переписана, SHA обновлён. |
