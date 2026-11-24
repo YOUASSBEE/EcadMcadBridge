@@ -352,11 +352,12 @@ internal static class BoardSnapshotFixture
         IReadOnlyList<Via>? vias = null,
         IReadOnlyList<Region>? regions = null,
         IReadOnlyList<TextItem>? texts = null,
-        BoardOutline? outline = null)
+        BoardOutline? outline = null,
+        BoardSnapshotSource? snapshotSource = null)
     {
         return new BoardSnapshot
         {
-            Source = source.Source,
+            Source = snapshotSource ?? source.Source,
             SourceUnits = source.SourceUnits,
             Units = source.Units,
             Properties = source.Properties,

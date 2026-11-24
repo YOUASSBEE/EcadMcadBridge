@@ -423,7 +423,9 @@ public static class BoardSnapshotJson
 
         writer.WriteString(
             name,
-            value.Value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture));
+            value.Value.UtcDateTime.ToString(
+                "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'",
+                CultureInfo.InvariantCulture));
     }
 
     private static void WriteNullableEnum<T>(

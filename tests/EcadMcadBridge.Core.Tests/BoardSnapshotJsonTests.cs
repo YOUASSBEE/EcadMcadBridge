@@ -28,6 +28,55 @@ public sealed class BoardSnapshotJsonTests
     }
 
     [Fact]
+    public void Serialize_RoundTripsSubsecondTicks()
+    {
+        var timestamp = new DateTimeOffset(2026, 11, 24, 0, 0, 0, TimeSpan.Zero)
+            .AddTicks(1_234_567);
+        var json = BoardSnapshotJson.Serialize(WithTimestamp(timestamp));
+
+        Assert.Contains(
+            "\"exportedAtUtc\": \"2026-11-24T00:00:00.1234567Z\"",
+            json,
+            StringComparison.Ordinal);
+
+        var restored = BoardSnapshotJson.Deserialize(json).Source.ExportedAtUtc!.Value;
+        Assert.Equal(timestamp.UtcDateTime.Ticks, restored.UtcDateTime.Ticks);
+    }
+
+    [Fact]
+    public void Serialize_ZeroFractionUsesDeterministicSecondPrecision()
+    {
+        var timestamp = new DateTimeOffset(2026, 11, 24, 0, 0, 0, TimeSpan.Zero);
+        var json = BoardSnapshotJson.Serialize(WithTimestamp(timestamp));
+
+        Assert.Contains(
+            "\"exportedAtUtc\": \"2026-11-24T00:00:00Z\"",
+            json,
+            StringComparison.Ordinal);
+
+        var restored = BoardSnapshotJson.Deserialize(json).Source.ExportedAtUtc!.Value;
+        Assert.Equal(timestamp.UtcDateTime.Ticks, restored.UtcDateTime.Ticks);
+    }
+
+    [Fact]
+    public void Serialize_NormalizesEquivalentOffsetsToUtc()
+    {
+        var utc = new DateTimeOffset(2026, 11, 24, 0, 0, 0, TimeSpan.Zero);
+        var plusThree = new DateTimeOffset(2026, 11, 24, 3, 0, 0, TimeSpan.FromHours(3));
+        var minusFive = new DateTimeOffset(2026, 11, 23, 19, 0, 0, TimeSpan.FromHours(-5));
+
+        var utcJson = BoardSnapshotJson.Serialize(WithTimestamp(utc));
+        var plusThreeJson = BoardSnapshotJson.Serialize(WithTimestamp(plusThree));
+        var minusFiveJson = BoardSnapshotJson.Serialize(WithTimestamp(minusFive));
+
+        Assert.Equal(utcJson, plusThreeJson);
+        Assert.Equal(utcJson, minusFiveJson);
+
+        var restored = BoardSnapshotJson.Deserialize(utcJson).Source.ExportedAtUtc!.Value;
+        Assert.Equal(utc.UtcDateTime.Ticks, restored.UtcDateTime.Ticks);
+    }
+
+    [Fact]
     public void SerializeToUtf8_HasNoBom()
     {
         var bytes = BoardSnapshotJson.SerializeToUtf8(BoardSnapshotFixture.CreateValid());
@@ -184,5 +233,19 @@ public sealed class BoardSnapshotJsonTests
             diagnostic => diagnostic.Code == BoardDiagnosticCodes.InconsistentUnitPair
                 && diagnostic.Path == "components[0].placement.position.x");
         Assert.Throws<InvalidOperationException>(() => BoardSnapshotJson.Serialize(snapshot));
+    }
+
+    private static BoardSnapshot WithTimestamp(DateTimeOffset timestamp)
+    {
+        return BoardSnapshotFixture.With(
+            BoardSnapshotFixture.CreateMinimal(),
+            snapshotSource: new BoardSnapshotSource
+            {
+                Cad = "altium",
+                CadVersion = "26.12.2.9",
+                DocumentFileName = "timestamp.PcbDoc",
+                ExportedAtUtc = timestamp,
+                ToolVersion = "0.2.0",
+            });
     }
 }
