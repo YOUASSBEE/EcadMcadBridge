@@ -5,8 +5,8 @@
 | Проект | ECAD-MCAD Bridge |
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
-| Текущая ветка | `task/BRIDGE-000003-altium-board-adapter` |
-| Статус | Altium BoardSnapshot adapter реализован; слои, компоненты, пады, nets и контур проверены в AD26.12.2.9; готовится PR в `source` |
+| Текущая ветка | `task/BRIDGE-000004-exchange-package` |
+| Статус | Altium BoardSnapshot adapter слит в `source`; реализуется Core Exchange Package (`BRIDGE-000004`) |
 | Дата фиксации | 2026-11-24 |
 | Владелец продукта | Оператор проекта (человек) |
 
@@ -45,7 +45,9 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 - нейтральная модель платы `BoardSnapshot`, геометрия, электрические ссылки, JSON-контракт
   и CAD-независимый валидатор в Core;
 - read-only Altium adapter для слоёв, компонентов, падов/PadStacks, nets и контура платы,
-  команда `Export Board Snapshot` и smoke-проверка на vendor-платах AD26.
+  команда `Export Board Snapshot` и smoke-проверка на vendor-платах AD26;
+- Core Exchange Package: deterministic manifest, snapshot, checksums, atomic writer,
+  validating reader и безопасные относительные пути (`BRIDGE-000004`).
 
 Не входит в scope текущего этапа:
 
@@ -193,7 +195,11 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   точек (вершины Hole, спроецированные на clip loop), а не raw centroid полигона.
   Исправлен ложный отказ при большой дуге и разной плотности полилинии; перенос
   независимого контура по-прежнему отклоняется. Altium.Tests: 65.
-- Tracks, vias, regions, text items и Exchange Package в адаптере не реализованы.
+- `BRIDGE-000004`: в Core реализован Exchange Package — deterministic manifest 1.0.0,
+  snapshot/checksums, atomic writer, validating reader и защита относительных путей.
+  `BRIDGE-000004-FIX-001`: reader рекурсивно проверяет nested files, не обходит
+  symlink/reparse points и диагностирует их как `EMB-PKG-021`.
+  Tracks, vias, regions и text items в Altium adapter по-прежнему не реализованы.
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
   и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.

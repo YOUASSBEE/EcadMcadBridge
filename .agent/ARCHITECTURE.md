@@ -444,6 +444,32 @@ Core рассматривает ID как непрозрачную непуст�
 - Кодировка — UTF-8 без BOM, перевод строки — LF.
 - `units` и `sourceUnits` обязательны; несовпадение версий/единиц — ошибка чтения, а не autocast.
 
+### 6.1 Core Packaging (BRIDGE-000004)
+
+- `PackageManifest` содержит schema `ecad-mcad-bridge/package` 1.0.0, `packageId`,
+  `createdAtUtc`, producer/source, `sourceUnits`/`units`, `files` и capabilities.
+- `PackageManifestJson` пишет manifest в фиксированном порядке полей, UTF-8 без BOM,
+  LF, invariant culture; `files` и capabilities сортируются ordinal, capabilities
+  уникальны.
+- `checksums.sha256` — строки `<lowercase-sha256>  <relative-path>`, LF, UTF-8 без BOM,
+  сортировка по ordinal path; покрывает `manifest.json` и все `files`, но не сам файл.
+- `ExchangePackageWriter` валидирует `BoardSnapshot`, не перезаписывает существующий
+  package-id, пишет во временный каталог рядом с целевым, проверяет байты и только
+  затем выполняет atomic `Directory.Move`. Ошибка удаляет временный каталог.
+- `ExchangePackageReader` проверяет schema/major, metadata, units, безопасные
+  относительные пути (`/`, без `..`, absolute, `:` и `\`), набор checksum-файлов,
+  размеры, SHA-256, JSON snapshot и `BoardSnapshotValidator`.
+- Inventory файлов рекурсивный: nested regular files сравниваются с manifest/checksums;
+  заявленный nested file проверяется по размеру и SHA-256, незаявленный даёт
+  `EMB-PKG-019 ExtraFile`.
+- Directory/file reparse points и symlinks не обходятся и диагностируются как
+  `EMB-PKG-021 UnsupportedLink`; traversal не выходит за package root.
+- `PackagePath` не допускает выход за корень пакета; `checksums.sha256` не может
+  покрывать сам себя.
+- Диагностика — `PackageDiagnostic`/`PackageDiagnosticCodes` (`EMB-PKG-*`).
+- В MVP нет attachments, ZIP и чтения CAD-документа; `documentSha256` передаётся
+  вызывающей стороной как metadata.
+
 ## 7. Обработка ошибок и логирование
 
 - Все ошибки Core имеют стабильный код `EMB-<AREA>-<NNN>` и сообщение без привязки к UI.
