@@ -5,10 +5,10 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T13:22:03+03:00
-updated: 2026-11-24T13:22:03+03:00
+updated: 2026-11-24T13:26:41+03:00
 base: source
 branch: task/BRIDGE-000003-altium-board-adapter
-commit: pending
+commit: 976ea7f2db60a86d0526da79ee8437913b158bf8
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/5
 related: [BRIDGE-000003, BRIDGE-000003-FIX-001]
 ---
@@ -183,9 +183,10 @@ Altium.Tests: 15/15
 
 ## 12. Commit / HEAD / PR
 
-- Commit: `pending`.
-- Новый HEAD: `pending`.
+- Commit: `976ea7f2db60a86d0526da79ee8437913b158bf8`.
+- Новый HEAD (состояние до отчётного коммита): `976ea7f2db60a86d0526da79ee8437913b158bf8`.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/5 (не слит).
+- После этого коммита добавлен только отчёт; фактический HEAD PR указан в его описании.
 
 ## 13. Оставшиеся вопросы
 
