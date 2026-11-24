@@ -27,7 +27,7 @@ internal static class OutlineContourMatcher
 
         var contourPoints = UniquePoints(contour);
         var loopPoints = UniquePoints(loop.SelectMany(segment => new[] { segment.Start, segment.End }));
-        if (loopPoints.Count == 0 || contourPoints.Count == 0)
+        if (loopPoints.Count < 3 || contourPoints.Count < 3)
             return false;
 
         foreach (var point in loopPoints)
@@ -39,6 +39,16 @@ internal static class OutlineContourMatcher
         foreach (var point in contourPoints)
         {
             if (!IsPointOnLoop(point, loop))
+                return false;
+        }
+
+        // Check the interior of each geometric segment, not only its endpoints.
+        for (var i = 0; i < contour.Count; i++)
+        {
+            var next = (i + 1) % contour.Count;
+            if (!TryMidpoint(contour[i], contour[next], out var midpoint))
+                return false;
+            if (!IsPointOnLoop(midpoint, loop))
                 return false;
         }
 
@@ -123,25 +133,94 @@ internal static class OutlineContourMatcher
     public static bool IsClosed(IReadOnlyList<Point2D> points) =>
         points.Count >= 2 && PointsEqual(points[0], points[^1]);
 
-    private static bool IsPointOnLoop(Point2D point, IReadOnlyList<OutlineSegment> loop) =>
+    internal static bool IsPointOnLoop(Point2D point, IReadOnlyList<OutlineSegment> loop) =>
         DistanceToLoop(point, loop) <= ToleranceIu;
 
     private static double DistanceToLoop(Point2D point, IReadOnlyList<OutlineSegment> loop)
     {
+        if (!TryCoordinates(point, out var px, out var py))
+            return double.PositiveInfinity;
+
         var distance = double.PositiveInfinity;
         foreach (var segment in loop)
         {
             if (segment.SweepDirection is null)
             {
                 distance = Math.Min(distance, DistanceToSegment(point, segment.Start, segment.End));
+                continue;
             }
-            else if (Distance(point, segment.Center) is double centreDistance)
+
+            if (!TryCoordinates(segment.Center, out var cx, out var cy)
+                || !TryCoordinates(segment.Start, out var sx, out var sy)
+                || !TryCoordinates(segment.End, out var ex, out var ey))
             {
-                distance = Math.Min(distance, Math.Abs(centreDistance - segment.Radius));
+                continue;
             }
+
+            var dx = px - cx;
+            var dy = py - cy;
+            var centreDistance = Math.Sqrt((dx * dx) + (dy * dy));
+            var radialDistance = Math.Abs(centreDistance - segment.Radius);
+            var pointAngle = NormalizeAngle(Math.Atan2(dy, dx));
+            var startAngle = NormalizeAngle(Math.Atan2(sy - cy, sx - cx));
+            var endAngle = NormalizeAngle(Math.Atan2(ey - cy, ex - cx));
+
+            if (!IsAngleOnArc(pointAngle, startAngle, endAngle, segment.SweepDirection.Value, segment.Radius))
+            {
+                distance = Math.Min(distance, Math.Min(
+                    Distance(point, segment.Start) ?? double.PositiveInfinity,
+                    Distance(point, segment.End) ?? double.PositiveInfinity));
+                continue;
+            }
+
+            distance = Math.Min(distance, radialDistance);
         }
 
         return distance;
+    }
+
+    private static bool IsAngleOnArc(
+        double pointAngle,
+        double startAngle,
+        double endAngle,
+        ArcSweepDirection direction,
+        double radius)
+    {
+        const double twoPi = Math.PI * 2.0;
+        var delta = direction == ArcSweepDirection.CounterClockwise
+            ? NormalizeAngle(endAngle - startAngle)
+            : NormalizeAngle(startAngle - endAngle);
+        if (delta < 1e-12)
+            delta = twoPi;
+
+        var offset = direction == ArcSweepDirection.CounterClockwise
+            ? NormalizeAngle(pointAngle - startAngle)
+            : NormalizeAngle(startAngle - pointAngle);
+
+        var angularTolerance = radius > 0 ? Math.Min(0.05, ToleranceIu / radius) : 0.05;
+        return offset <= delta + angularTolerance || offset >= twoPi - angularTolerance;
+    }
+
+    private static double NormalizeAngle(double angle)
+    {
+        const double twoPi = Math.PI * 2.0;
+        var result = angle % twoPi;
+        return result < 0 ? result + twoPi : result;
+    }
+
+    private static bool TryMidpoint(Point2D left, Point2D right, out Point2D midpoint)
+    {
+        if (left.XIu is int lx && left.YIu is int ly
+            && right.XIu is int rx && right.YIu is int ry)
+        {
+            midpoint = Point2D.FromIu(
+                (int)Math.Round((lx + rx) / 2.0, MidpointRounding.AwayFromZero),
+                (int)Math.Round((ly + ry) / 2.0, MidpointRounding.AwayFromZero));
+            return true;
+        }
+
+        midpoint = default;
+        return false;
     }
 
     private static double DistanceToPolyline(Point2D point, IReadOnlyList<Point2D> contour)

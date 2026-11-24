@@ -73,6 +73,77 @@ public sealed class OutlineContourMatcherTests
     }
 
     [Fact]
+    public void ArcPointOutsideAngularRange_IsNotAccepted()
+    {
+        var loop = new[]
+        {
+            Arc((100, 0), (0, 100), (0, 0), 100, ArcSweepDirection.CounterClockwise),
+            Segment((0, 100), (100, 0)),
+        };
+
+        Assert.True(OutlineContourMatcher.IsPointOnLoop(Point2D.FromIu(70, 70), loop));
+        Assert.False(OutlineContourMatcher.IsPointOnLoop(Point2D.FromIu(0, -100), loop));
+    }
+
+    [Fact]
+    public void ArcPointOutsideCWRange_IsNotAccepted()
+    {
+        var loop = new[]
+        {
+            Arc((100, 0), (0, -100), (0, 0), 100, ArcSweepDirection.Clockwise),
+            Segment((0, -100), (100, 0)),
+        };
+
+        Assert.True(OutlineContourMatcher.IsPointOnLoop(Point2D.FromIu(70, -70), loop));
+        Assert.False(OutlineContourMatcher.IsPointOnLoop(Point2D.FromIu(0, 100), loop));
+    }
+
+    [Fact]
+    public void ArcCrossingZeroDegrees_UsesAngularRange()
+    {
+        var loop = new[]
+        {
+            Arc((0, -100), (100, 0), (0, 0), 100, ArcSweepDirection.CounterClockwise),
+            Segment((100, 0), (0, -100)),
+        };
+
+        Assert.True(OutlineContourMatcher.IsPointOnLoop(Point2D.FromIu(70, -70), loop));
+        Assert.False(OutlineContourMatcher.IsPointOnLoop(Point2D.FromIu(-70, -70), loop));
+    }
+
+    [Fact]
+    public void ArcEndpoints_AreOnTheArc()
+    {
+        var loop = new[]
+        {
+            Arc((100, 0), (0, 100), (0, 0), 100, ArcSweepDirection.CounterClockwise),
+            Segment((0, 100), (100, 0)),
+        };
+
+        Assert.True(OutlineContourMatcher.IsPointOnLoop(Point2D.FromIu(100, 0), loop));
+        Assert.True(OutlineContourMatcher.IsPointOnLoop(Point2D.FromIu(0, 100), loop));
+    }
+
+    [Fact]
+    public void ExactMatch_RejectsPolylineDeviationBetweenVertices()
+    {
+        var contour = new[]
+        {
+            Point2D.FromIu(100, 0),
+            Point2D.FromIu(0, 100),
+            Point2D.FromIu(50, 100),
+        };
+        var loop = new[]
+        {
+            Arc((100, 0), (0, 100), (0, 0), 100, ArcSweepDirection.CounterClockwise),
+            Segment((0, 100), (50, 100)),
+            Segment((50, 100), (100, 0)),
+        };
+
+        Assert.False(OutlineContourMatcher.TryExactMatch(contour, loop));
+    }
+
+    [Fact]
     public void IsClosed_DetectsClosedPointSequence()
     {
         var closed = RectanglePoints(0, 0, 100, 100).Concat(new[] { Point2D.FromIu(0, 0) }).ToArray();
@@ -109,4 +180,17 @@ public sealed class OutlineContourMatcherTests
             default,
             0,
             null);
+
+    private static OutlineSegment Arc(
+        (int X, int Y) start,
+        (int X, int Y) end,
+        (int X, int Y) center,
+        int radius,
+        ArcSweepDirection direction) =>
+        new(
+            Point2D.FromIu(start.X, start.Y),
+            Point2D.FromIu(end.X, end.Y),
+            Point2D.FromIu(center.X, center.Y),
+            radius,
+            direction);
 }

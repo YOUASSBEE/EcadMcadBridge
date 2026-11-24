@@ -169,6 +169,9 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   переведён с ложного exact на fallback с warning); исходный файл оператора
   `minipc.PcbDoc` оказался byte-identical vendor-копией без вырезов, поэтому V-22
   остаётся открытым.
+- `BRIDGE-000003-FIX-003`: matcher учитывает угловой диапазон дуг и середины
+  polyline-сегментов; новая плата оператора снова дала 1 outer-contour/0 holes,
+  поэтому V-22 остаётся открытым. Altium.Tests: 24.
 - Synthetic cutout smoke пока не подтверждён: на доступных vendor-платах вырезов нет.
 - Tracks, vias, regions, text items и Exchange Package в адаптере не реализованы.
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order

@@ -5,7 +5,7 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-24T12:45:00+03:00
-updated: 2026-11-24T14:00:24+03:00
+updated: 2026-11-24T14:20:35+03:00
 base: source
 branch: task/BRIDGE-000003-altium-board-adapter
 commit: cb509bc62b01609abe74d46d83236b0691a5f7bc
@@ -247,6 +247,26 @@ Smoke выполнен в AD26.12.2.9 через реальный Add-in и ко
   `geometricPoints=6`, `geometricHoles=0`.
 - V-22 остаётся открытым: реальный cutout smoke не подтверждён.
 
+## 7.3 FIX-003 — arc matching и новый cutout-файл
+
+- Файл `C:\Users\Anton\Desktop\board with cutout.PcbDoc`: 18,525,184 байт,
+  mtime `2026-11-24T14:09:36+03:00`, SHA256
+  `ED624C68DC315A3E022E96979C5A7B2B32F5BBAD3DB722BE0CCA2EB9C8647753`.
+  Рабочая копия: `%TEMP%\EcadMcadBridge\smoke-000003-fix-003\board-with-cutout.PcbDoc`.
+- API `GeometricPolygon`: **1 контур, 140 точек, 0 hole-контуров**. Внутренних
+  Board Cutout в файле не обнаружено; V-22 остаётся открытым.
+- JSON: 1 outer-контур, 140 line segments, `outlineExact=0`, `outlineFallback=1`,
+  `outlinePartial=1`. SHA256 исходника и копии до/после совпал.
+- Matcher теперь проверяет:
+  - угловой диапазон дуги, а не полную окружность (CW/CCW, переход 0°/360°);
+  - расстояние до конечных точек вне углового диапазона;
+  - середины сегментов geometric polyline, а не только вершины;
+  - уникальные вершины и замкнутость.
+- Добавлены 5 arc/midpoint тестов; Altium.Tests: 24/24, Core.Tests: 41/41,
+  всего 65/65.
+- На `Bluetooth_Sentinel.PcbDoc` подтверждён fallback/partial (не false exact):
+  `uniqueLoop=12`, `uniqueContour=140`, `maxContourToLoop=4718.66 IU`.
+
 ## 8. Проверки
 
 ```text
@@ -257,11 +277,11 @@ dotnet build -c Release
 
 dotnet test -c Release
 Core.Tests: 41/41
-Altium.Tests: 19/19
+Altium.Tests: 24/24
 ```
 
 Существующие 33 теста Core не регрессировали; добавлены 8 тестов `AngleNormalizer`
-и 19 тестов Altium adapter.
+и 24 теста Altium adapter (включая arc/angular/midpoint matcher).
 
 ## 9. Commit SHA и PR
 
@@ -278,3 +298,4 @@ Altium.Tests: 19/19
 | 2026-11-24 | Добавлены commit SHA и URL PR #5; PR создан, не слит. |
 | 2026-11-24 | FIX-001: все geometric contours сохраняются, fallback и PadShape-преобразования диагностируются; tests 56. |
 | 2026-11-24 | FIX-002: exact matcher отвергает partial/ambiguous; cutout-файл оператора без вырезов, V-22 открыт; tests 60. |
+| 2026-11-24 | FIX-003: arc angular range/midpoint matching; новый cutout-файл оператора снова дал 0 holes; tests 65. |
