@@ -4,12 +4,12 @@ type: report
 status: ready_for_review
 from: local-agent
 to: operator
-created: 2026-11-24T12:50:00+03:00
-updated: 2026-11-24T12:50:00+03:00
+created: 2026-11-24T12:45:00+03:00
+updated: 2026-11-24T12:45:36+03:00
 base: source
 branch: task/BRIDGE-000003-altium-board-adapter
-commit: pending
-pr: pending
+commit: cb509bc62b01609abe74d46d83236b0691a5f7bc
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/5
 related: [BRIDGE-000003, BRIDGE-000002, D-005, D-009, D-010, D-015]
 ---
 
@@ -210,12 +210,14 @@ dotnet test -c Release
 
 ## 9. Commit SHA и PR
 
-- Commit: `pending` (будет заполнен после коммита).
-- PR: `pending` (база `source`, ветка `task/BRIDGE-000003-altium-board-adapter`).
-- PR не мержится автором.
+- Commit (состояние PR на момент создания): `cb509bc62b01609abe74d46d83236b0691a5f7bc`.
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/5 — база `source`,
+  ветка `task/BRIDGE-000003-altium-board-adapter`, открыт и не слит автором.
+- Отдельным коммитом после создания PR в отчёт добавлены только SHA и URL.
 
 ## 10. История изменений
 
 | Дата | Изменение |
 |---|---|
 | 2026-11-24 | Первая версия: adapter, слои, компоненты, пады, nets, контур, JSON, smoke. |
+| 2026-11-24 | Добавлены commit SHA и URL PR #5; PR создан, не слит. |
