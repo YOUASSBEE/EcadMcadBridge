@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-25T01:05:00+03:00
-updated: 2026-11-25T01:05:00+03:00
+updated: 2026-11-25T01:20:00+03:00
 base: source
 branch: agent/BRIDGE-000010-altium-3d-model-research
-commit: pending
-pr: pending
+commit: 6e84b3c
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/9
 related: [BRIDGE-000009, BRIDGE-000010, V-06, V-26, V-27, V-28, V-29, V-30, V-31, V-32, V-33]
 ---
 
@@ -323,9 +323,9 @@ git diff --check          → OK
 
 ## 10. Commit и PR
 
-- Commit: `pending`.
-- PR: `pending`; ветка `agent/BRIDGE-000010-altium-3d-model-research`, база `source`,
-  merge запрещён.
+- Commit: `6e84b3c` (`docs(bridge-000010): research Altium 3D model extraction`).
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/9 — ветка
+  `agent/BRIDGE-000010-altium-3d-model-research`, база `source`, merge запрещён.
 
 ## 11. История изменений
 
