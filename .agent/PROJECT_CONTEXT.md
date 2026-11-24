@@ -5,8 +5,8 @@
 | Проект | ECAD-MCAD Bridge |
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
-| Текущая ветка | `task/BRIDGE-000004-exchange-package` |
-| Статус | Altium BoardSnapshot adapter слит в `source`; реализуется Core Exchange Package (`BRIDGE-000004`) |
+| Текущая ветка | `agent/BRIDGE-000007-altium-package-export` |
+| Статус | `BRIDGE-000004` слит; реализуется Altium Exchange Package Export (`BRIDGE-000007`) |
 | Дата фиксации | 2026-11-24 |
 | Владелец продукта | Оператор проекта (человек) |
 
@@ -199,6 +199,9 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   snapshot/checksums, atomic writer, validating reader и защита относительных путей.
   `BRIDGE-000004-FIX-001`: reader рекурсивно проверяет nested files, не обходит
   symlink/reparse points и диагностирует их как `EMB-PKG-021`.
+  `BRIDGE-000007`: `ExportBoardSnapshot` пишет Exchange Package через Core Writer,
+  проверяет `GetFileName/GetModified`, вычисляет SHA-256 исходного `.PcbDoc` и
+  отклоняет несохранённые документы; package root задаётся env/`LOCALAPPDATA`.
   Tracks, vias, regions и text items в Altium adapter по-прежнему не реализованы.
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
   и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.

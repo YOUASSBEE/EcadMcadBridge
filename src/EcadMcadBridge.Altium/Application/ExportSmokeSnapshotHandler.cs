@@ -9,7 +9,7 @@ namespace EcadMcadBridge.Altium.Application;
 internal static class ExportSmokeSnapshotHandler
 {
     public const string CommandName = "ExportSmokeSnapshot";
-    private const string AddInVersion = "0.2.0";
+    private const string AddInVersion = "0.3.0";
     private const string Caption = "EcadMcadBridge";
 
     public static void Execute(IServerDocumentView view, ref string parameters)

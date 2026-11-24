@@ -18,7 +18,7 @@ namespace CSharpPlugin
     {
         public object InvokePluginFactory(IClient client)
         {
-            BridgeLogger.Write("INFO", "BOOTSTRAP_FACTORY", "addin=0.2.0 clr=" + Environment.Version);
+            BridgeLogger.Write("INFO", "BOOTSTRAP_FACTORY", "addin=0.3.0 clr=" + Environment.Version);
             return new BridgeServerModule(client, BridgeServerModule.ServerName);
         }
     }

@@ -121,7 +121,7 @@ internal sealed class AltiumAdapterDiagnostics
 /// </summary>
 internal static class AltiumBoardSnapshotAdapter
 {
-    private const string ToolVersion = "0.2.0";
+    private const string ToolVersion = "0.3.0";
 
     public static AltiumBoardSnapshotResult Read(IServerDocumentView? view)
     {

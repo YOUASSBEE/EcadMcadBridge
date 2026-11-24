@@ -3,77 +3,39 @@ using System.Globalization;
 using System.IO;
 using DXP;
 using EcadMcadBridge.Altium.Adapter;
-using EcadMcadBridge.Core.Serialization;
-using EcadMcadBridge.Core.Validation;
+using EcadMcadBridge.Core.Packaging;
 
 namespace EcadMcadBridge.Altium.Application;
 
 internal static class ExportBoardSnapshotHandler
 {
     public const string CommandName = "ExportBoardSnapshot";
-    private const string AddInVersion = "0.2.0";
+    private const string AddInVersion = "0.3.0";
     private const string Caption = "EcadMcadBridge";
+    private const string ProducerComponent = "EcadMcadBridge.Altium";
+
+    private static readonly string[] Capabilities =
+    {
+        "board-outline",
+        "component-placement",
+        "layers",
+        "nets",
+        "pad-stacks",
+        "pads",
+    };
 
     public static void Execute(IServerDocumentView view, ref string parameters)
     {
         var stopwatch = Stopwatch.StartNew();
         string message;
-        var warning = false;
+        bool warning;
         try
         {
-            var result = AltiumBoardSnapshotAdapter.Read(view);
-            foreach (var adapterWarning in result.Warnings)
-                BridgeLogger.Write("WARN", "ADAPTER", adapterWarning);
-            BridgeLogger.Write("INFO", "ADAPTER_SUMMARY", result.Diagnostics.Summary());
-
-            var validation = BoardSnapshotValidator.Validate(result.Snapshot);
-            foreach (var diagnostic in validation.Diagnostics.Take(50))
-            {
-                BridgeLogger.Write(
-                    diagnostic.Severity == BoardDiagnosticSeverity.Error ? "ERROR" : "WARN",
-                    diagnostic.Code,
-                    diagnostic.Path + ": " + diagnostic.Message);
-            }
-
-            if (validation.Diagnostics.Count > 50)
-            {
-                BridgeLogger.Write(
-                    "INFO",
-                    "VALIDATION_TRUNCATED",
-                    $"{validation.Diagnostics.Count - 50} additional diagnostics were not logged.");
-            }
-
-            if (!validation.IsValid)
-            {
-                warning = true;
-                var first = validation.Errors[0];
-                message = $"Board snapshot validation failed: {validation.Errors.Count} error(s).\n" +
-                    $"{first.Code} at {first.Path}: {first.Message}";
-            }
-            else
-            {
-                var directory = Path.Combine(Path.GetTempPath(), "EcadMcadBridge");
-                Directory.CreateDirectory(directory);
-                var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'", CultureInfo.InvariantCulture);
-                var path = Path.Combine(directory, "board-snapshot-" + stamp + ".json");
-                File.WriteAllBytes(path, BoardSnapshotJson.SerializeToUtf8(result.Snapshot));
-                message = "Board snapshot written to:\n" + path +
-                    $"\nlayers={result.Snapshot.Layers.Count} components={result.Snapshot.Components.Count} " +
-                    $"pads={result.Snapshot.Pads.Count} nets={result.Snapshot.Nets.Count} " +
-                    $"warnings={validation.Warnings.Count + result.Warnings.Count}";
-                BridgeLogger.Write(
-                    "INFO",
-                    "BOARD_SNAPSHOT_OK",
-                    $"addin={AddInVersion} cad=26 doc={result.Snapshot.Source.DocumentFileName} " +
-                    $"layers={result.Snapshot.Layers.Count} components={result.Snapshot.Components.Count} " +
-                    $"pads={result.Snapshot.Pads.Count} nets={result.Snapshot.Nets.Count} " +
-                    $"adapterWarnings={result.Warnings.Count} validationWarnings={validation.Warnings.Count} " +
-                    result.Diagnostics.Summary());
-            }
+            (message, warning) = Export(view);
         }
         catch (Exception ex)
         {
-            BridgeLogger.Write("ERROR", ErrorCode(ex), ex.Message);
+            BridgeLogger.Write("ERROR", ErrorCode(ex), ex.GetType().Name);
             message = ex.Message;
             warning = true;
         }
@@ -92,6 +54,108 @@ internal static class ExportBoardSnapshotHandler
             DXP.Utils.ShowInfo(message, Caption);
     }
 
+    private static (string Message, bool Warning) Export(IServerDocumentView view)
+    {
+        var document = view?.GetOwnerDocument();
+        if (!AltiumDocumentStateReader.TryRead(document, out var before, out var stateError)
+            || before is null)
+        {
+            BridgeLogger.Write("WARN", "E_SOURCE_STATE", stateError);
+            return (stateError, true);
+        }
+
+        if (before.IsModified)
+        {
+            const string unsaved = "The active PCB has unsaved changes; save it and retry the export.";
+            BridgeLogger.Write("WARN", "E_SOURCE_MODIFIED", unsaved);
+            return (unsaved, true);
+        }
+
+        BridgeLogger.Write(
+            "INFO",
+            "SOURCE_STATE",
+            $"doc={Path.GetFileName(before.FilePath)} kind={before.DocumentKind} " +
+            "modified=false pathRooted=true");
+
+        var data = AltiumBoardSnapshotAdapter.Read(view);
+        foreach (var adapterWarning in data.Warnings)
+            BridgeLogger.Write("WARN", "ADAPTER", adapterWarning);
+        BridgeLogger.Write("INFO", "ADAPTER_SUMMARY", data.Diagnostics.Summary());
+
+        if (!AltiumDocumentStateReader.TryRecheck(document, before, out var recheckError))
+        {
+            BridgeLogger.Write("WARN", "E_SOURCE_CHANGED", recheckError);
+            return (recheckError, true);
+        }
+
+        var source = PackageSourceMetadataReader.Read(before.FilePath, isModified: false);
+        if (!source.IsSuccess || source.Metadata is null)
+        {
+            BridgeLogger.Write("WARN", "E_SOURCE_HASH", source.Message);
+            return (source.Message, true);
+        }
+
+        var packageRoot = PackageRootResolver.Resolve();
+        if (!packageRoot.IsSuccess || packageRoot.Root is null)
+        {
+            BridgeLogger.Write("WARN", "E_PACKAGE_ROOT", packageRoot.Message);
+            return (packageRoot.Message, true);
+        }
+
+        var packageId = Guid.NewGuid();
+        var options = new PackageWriteOptions
+        {
+            PackageId = packageId,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            Producer = new PackageProducer
+            {
+                Component = ProducerComponent,
+                Version = AddInVersion,
+            },
+            Source = new PackageSource
+            {
+                Cad = "altium",
+                DocumentSha256 = source.Metadata.Sha256,
+            },
+            Capabilities = Capabilities,
+        };
+
+        var package = ExchangePackageWriter.Write(packageRoot.Root, data.Snapshot, options);
+        if (!package.IsSuccess)
+        {
+            foreach (var diagnostic in package.Errors)
+            {
+                BridgeLogger.Write(
+                    "ERROR",
+                    diagnostic.Code,
+                    diagnostic.Path + ": " + diagnostic.Message);
+            }
+
+            var first = package.Errors.Count > 0
+                ? package.Errors[0].Code + " at " + package.Errors[0].Path +
+                  ": " + package.Errors[0].Message
+                : "Package writer returned failure without a diagnostic.";
+            return ("Exchange Package export failed.\n" + first, true);
+        }
+
+        var packageDirectory = package.PackageDirectory ?? packageRoot.Root;
+        var message =
+            "Exchange Package written to:\n" + packageDirectory +
+            "\npackageId=" + packageId.ToString("D") +
+            $"\nlayers={data.Snapshot.Layers.Count} components={data.Snapshot.Components.Count} " +
+            $"pads={data.Snapshot.Pads.Count} nets={data.Snapshot.Nets.Count}" +
+            $"\nadapterWarnings={data.Warnings.Count} packageWarnings={package.Warnings.Count}";
+        BridgeLogger.Write(
+            "INFO",
+            "PACKAGE_EXPORT_OK",
+            $"addin={AddInVersion} cad=26 doc={Path.GetFileName(before.FilePath)} " +
+            $"packageId={packageId:D} layers={data.Snapshot.Layers.Count} " +
+            $"components={data.Snapshot.Components.Count} pads={data.Snapshot.Pads.Count} " +
+            $"nets={data.Snapshot.Nets.Count} adapterWarnings={data.Warnings.Count} " +
+            $"packageWarnings={package.Warnings.Count}");
+        return (message, false);
+    }
+
     public static void GetState(
         IServerDocumentView view,
         ref string parameters,
@@ -107,5 +171,5 @@ internal static class ExportBoardSnapshotHandler
 
     private static string ErrorCode(Exception ex) => ex.Message.Contains("No active PCB", StringComparison.Ordinal)
         ? "E_NO_ACTIVE_BOARD"
-        : "E_BOARD_SNAPSHOT_FAILED";
+        : "E_PACKAGE_EXPORT_FAILED";
 }

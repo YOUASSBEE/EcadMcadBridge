@@ -470,6 +470,25 @@ Core рассматривает ID как непрозрачную непуст�
 - В MVP нет attachments, ZIP и чтения CAD-документа; `documentSha256` передаётся
   вызывающей стороной как metadata.
 
+### 6.2 Altium Package Export (BRIDGE-000007)
+
+- Команда `EcadMcadBridge:ExportBoardSnapshot` проверяет активный PCB через
+  `IServerDocument.GetKind/GetFileName/GetModified`.
+- `GetFileName()` сохранённого PCB даёт absolute path; новый/несохранённый PCB может
+  вернуть относительное имя (`PCB1.PcbDoc`) и отклоняется.
+- При `GetModified() == true` экспорт отклоняется с просьбой сохранить плату;
+  автоматическое сохранение запрещено.
+- После извлечения snapshot путь и `GetModified` проверяются повторно.
+- `documentSha256` — SHA-256 исходного `.PcbDoc`, вычисленный после проверки
+  стабильности размера/mtime; это не хеш snapshot.
+- Package root: `ECAD_MCAD_BRIDGE_PACKAGE_ROOT` (absolute), иначе
+  `%LOCALAPPDATA%\EcadMcadBridge\Packages`.
+- `PackageId` — новый GUID, `CreatedAtUtc` — UTC, producer — `EcadMcadBridge.Altium`
+  `0.3.0`, capabilities — только реально извлекаемые данные.
+- Writer создаёт пакет атомарно и не перезаписывает существующий каталог;
+  пользователю показываются путь, package id, counts и warnings, но в лог не
+  попадают absolute user paths.
+
 ## 7. Обработка ошибок и логирование
 
 - Все ошибки Core имеют стабильный код `EMB-<AREA>-<NNN>` и сообщение без привязки к UI.
