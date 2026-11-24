@@ -459,6 +459,11 @@ Core рассматривает ID как непрозрачную непуст�
 - `ExchangePackageReader` проверяет schema/major, metadata, units, безопасные
   относительные пути (`/`, без `..`, absolute, `:` и `\`), набор checksum-файлов,
   размеры, SHA-256, JSON snapshot и `BoardSnapshotValidator`.
+- Inventory файлов рекурсивный: nested regular files сравниваются с manifest/checksums;
+  заявленный nested file проверяется по размеру и SHA-256, незаявленный даёт
+  `EMB-PKG-019 ExtraFile`.
+- Directory/file reparse points и symlinks не обходятся и диагностируются как
+  `EMB-PKG-021 UnsupportedLink`; traversal не выходит за package root.
 - `PackagePath` не допускает выход за корень пакета; `checksums.sha256` не может
   покрывать сам себя.
 - Диагностика — `PackageDiagnostic`/`PackageDiagnosticCodes` (`EMB-PKG-*`).

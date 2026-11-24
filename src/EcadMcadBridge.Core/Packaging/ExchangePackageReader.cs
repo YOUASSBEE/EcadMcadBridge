@@ -35,6 +35,10 @@ public static class ExchangePackageReader
         if (!Directory.Exists(root))
             return Fail(PackageDiagnosticCodes.MissingPackage, "package", "Package directory does not exist.");
 
+        var actualPaths = CollectRegularFiles(root, diagnostics);
+        if (diagnostics.Any(item => item.Severity == PackageDiagnosticSeverity.Error))
+            return PackageReadResult.Failure(null, null, diagnostics);
+
         var manifestPath = Path.Combine(root, PackageManifest.ManifestFileName);
         if (!File.Exists(manifestPath))
             return Fail(PackageDiagnosticCodes.MissingManifest, PackageManifest.ManifestFileName, "Manifest is missing.");
@@ -108,12 +112,6 @@ public static class ExchangePackageReader
                     "Checksums do not cover exactly the manifest files."));
         }
 
-        var actualPaths = Directory
-            .GetFiles(root, "*", SearchOption.TopDirectoryOnly)
-            .Select(Path.GetFileName)
-            .Where(name => !string.IsNullOrEmpty(name))
-            .Select(name => name!.Replace('\\', '/'))
-            .ToHashSet(StringComparer.Ordinal);
         actualPaths.Remove(PackageManifest.ChecksumsFileName);
 
         foreach (var extra in actualPaths.Where(path => !expectedPaths.Contains(path)))
@@ -252,6 +250,86 @@ public static class ExchangePackageReader
 
         return PackageReadResult.Failure(manifest, null, diagnostics);
     }
+
+    private static HashSet<string> CollectRegularFiles(
+        string root,
+        List<PackageDiagnostic> diagnostics)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        var visitedDirectories = new HashSet<string>(
+            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            var directory = pending.Pop();
+            if (!visitedDirectories.Add(directory))
+                continue;
+
+            IReadOnlyList<string> entries;
+            try
+            {
+                entries = Directory.GetFileSystemEntries(directory);
+            }
+            catch (Exception ex)
+            {
+                diagnostics.Add(
+                    Error(
+                        PackageDiagnosticCodes.InvalidPath,
+                        RelativePath(root, directory),
+                        "Directory cannot be enumerated: " + ex.GetType().Name));
+                continue;
+            }
+
+            foreach (var entry in entries)
+            {
+                FileAttributes attributes;
+                try
+                {
+                    attributes = File.GetAttributes(entry);
+                }
+                catch (Exception ex)
+                {
+                    diagnostics.Add(
+                        Error(
+                            PackageDiagnosticCodes.InvalidPath,
+                            RelativePath(root, entry),
+                            "File system entry cannot be inspected: " + ex.GetType().Name));
+                    continue;
+                }
+
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    diagnostics.Add(
+                        Error(
+                            PackageDiagnosticCodes.UnsupportedLink,
+                            RelativePath(root, entry),
+                            "Reparse points and symbolic links are not allowed in a package."));
+                    continue;
+                }
+
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    pending.Push(entry);
+                    continue;
+                }
+
+                var relative = RelativePath(root, entry);
+                if (!PackagePath.IsSafeRelative(relative, out var pathReason))
+                {
+                    diagnostics.Add(Error(PackageDiagnosticCodes.InvalidPath, relative, pathReason));
+                    continue;
+                }
+
+                result.Add(relative);
+            }
+        }
+
+        return result;
+    }
+
+    private static string RelativePath(string root, string path) =>
+        Path.GetRelativePath(root, path).Replace('\\', '/');
 
     private static PackageDiagnostic ToPackageDiagnostic(BoardDiagnostic diagnostic) =>
         new(

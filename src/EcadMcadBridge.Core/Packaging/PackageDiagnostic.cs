@@ -35,4 +35,5 @@ public static class PackageDiagnosticCodes
     public const string InvalidMetadata = "EMB-PKG-018";
     public const string ExtraFile = "EMB-PKG-019";
     public const string UnsupportedManifestField = "EMB-PKG-020";
+    public const string UnsupportedLink = "EMB-PKG-021";
 }

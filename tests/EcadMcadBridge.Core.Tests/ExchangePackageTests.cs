@@ -435,6 +435,88 @@ public sealed class ExchangePackageTests
     }
 
     [Fact]
+    public void Reader_RejectsUnlistedNestedFile()
+    {
+        using var temp = new TempDirectory();
+        var written = Write(temp.Path, BoardSnapshotFixture.CreateValid());
+        var extraDirectory = Path.Combine(written.PackageDirectory!, "extra");
+        Directory.CreateDirectory(extraDirectory);
+        File.WriteAllBytes(Path.Combine(extraDirectory, "unexpected.bin"), new byte[] { 1, 2, 3 });
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.False(read.IsSuccess);
+        Assert.Contains(read.Errors, diagnostic => diagnostic.Code == PackageDiagnosticCodes.ExtraFile);
+        Assert.Null(read.Snapshot);
+    }
+
+    [Fact]
+    public void Reader_VerifiesDeclaredNestedFile()
+    {
+        using var temp = new TempDirectory();
+        var written = Write(temp.Path, BoardSnapshotFixture.CreateValid());
+        var extraDirectory = Path.Combine(written.PackageDirectory!, "extra");
+        Directory.CreateDirectory(extraDirectory);
+        var extraBytes = new byte[] { 4, 5, 6 };
+        File.WriteAllBytes(Path.Combine(extraDirectory, "data.bin"), extraBytes);
+        var manifestPath = Path.Combine(written.PackageDirectory!, "manifest.json");
+        var manifest = PackageManifestJson.Deserialize(File.ReadAllText(manifestPath));
+        var changed = new PackageManifest
+        {
+            PackageId = manifest.PackageId,
+            CreatedAtUtc = manifest.CreatedAtUtc,
+            Producer = manifest.Producer,
+            Source = manifest.Source,
+            Files = manifest.Files
+                .Concat(new[]
+                {
+                    new PackageFileEntry
+                    {
+                        Path = "extra/data.bin",
+                        Sha256 = Sha(extraBytes),
+                        Size = extraBytes.Length,
+                    },
+                })
+                .ToArray(),
+            Capabilities = manifest.Capabilities,
+        };
+        var manifestBytes = PackageManifestJson.SerializeToUtf8(changed);
+        File.WriteAllBytes(manifestPath, manifestBytes);
+        WriteChecksums(written.PackageDirectory!, manifestBytes, "extra/data.bin");
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.True(read.IsSuccess);
+        Assert.NotNull(read.Snapshot);
+    }
+
+    [Fact]
+    public void Reader_RejectsNestedDirectoryLink()
+    {
+        using var temp = new TempDirectory();
+        var written = Write(temp.Path, BoardSnapshotFixture.CreateValid());
+        var outside = Path.Combine(temp.Path, "outside");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "secret.bin"), "secret");
+        var link = Path.Combine(written.PackageDirectory!, "linked");
+        try
+        {
+            Directory.CreateSymbolicLink(link, outside);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            // Creating reparse points requires privileges on some Windows hosts.
+            return;
+        }
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.False(read.IsSuccess);
+        Assert.Contains(read.Errors, diagnostic => diagnostic.Code == PackageDiagnosticCodes.UnsupportedLink);
+        Assert.Null(read.Snapshot);
+    }
+
+    [Fact]
     public void Reader_RejectsExtraFile()
     {
         using var temp = new TempDirectory();
@@ -535,11 +617,28 @@ public sealed class ExchangePackageTests
     private static string Sha(byte[] bytes) =>
         Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
-    private static void WriteChecksums(string packageDirectory, byte[] manifestBytes)
+    private static void WriteChecksums(
+        string packageDirectory,
+        byte[] manifestBytes,
+        params string[] extraPaths)
     {
-        var snapshotBytes = File.ReadAllBytes(Path.Combine(packageDirectory, "board.snapshot.json"));
-        var text = Sha(snapshotBytes) + "  board.snapshot.json\n"
-            + Sha(manifestBytes) + "  manifest.json\n";
+        var entries = new List<(string Path, string Hash)>
+        {
+            ("manifest.json", Sha(manifestBytes)),
+            ("board.snapshot.json", Sha(File.ReadAllBytes(Path.Combine(packageDirectory, "board.snapshot.json")))),
+        };
+        foreach (var extraPath in extraPaths)
+        {
+            var fullPath = Path.Combine(packageDirectory, extraPath.Replace('/', Path.DirectorySeparatorChar));
+            entries.Add((extraPath, Sha(File.ReadAllBytes(fullPath))));
+        }
+
+        var text = string.Join(
+            "\n",
+            entries
+                .OrderBy(entry => entry.Path, StringComparer.Ordinal)
+                .Select(entry => entry.Hash + "  " + entry.Path))
+            + "\n";
         File.WriteAllText(Path.Combine(packageDirectory, "checksums.sha256"), text, new UTF8Encoding(false));
     }
 

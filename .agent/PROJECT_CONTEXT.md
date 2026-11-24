@@ -197,6 +197,8 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   независимого контура по-прежнему отклоняется. Altium.Tests: 65.
 - `BRIDGE-000004`: в Core реализован Exchange Package — deterministic manifest 1.0.0,
   snapshot/checksums, atomic writer, validating reader и защита относительных путей.
+  `BRIDGE-000004-FIX-001`: reader рекурсивно проверяет nested files, не обходит
+  symlink/reparse points и диагностирует их как `EMB-PKG-021`.
   Tracks, vias, regions и text items в Altium adapter по-прежнему не реализованы.
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
   и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.
