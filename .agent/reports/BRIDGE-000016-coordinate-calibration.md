@@ -58,7 +58,7 @@ R1 исправил математическую композицию:
 
 R2 получил полный board STEP и подтвердил board frame, `GetOrigin`, `R_state`, `dz`, Bottom `Rx(180°)` для rot0 и C366 feature-level placement. Однако Altium full board STEP **не содержит component RotationDeg** для test bodies: C62/C63/C59/C61/C524/C516/C573/C567/C571 имеют identity/state-only transforms. Поэтому component-rotation 3D placement остаётся **blocked**; R2 не закрывает full Top placement sign-off.
 
-R3-FIX-001 recovered partial native fixture creation: `BRIDGE_ROT_3D` footprint exists with a library-owned Generic/Embedded `control-generic` body; PcbLib changed from SHA `A8DDA92D…` to `5981FB91…`. The footprint still contains two body primitives from repeated placement, and four-component PCB placement/full STEP export are not done; R3 is **not cleanly closed**.
+R3-FIX-001 completed native fixture creation: `BRIDGE_ROT_3D` footprint exists with exactly one library-owned Generic/Embedded `control-generic` body; PcbLib changed from SHA `A8DDA92D…` to `3A01172B…`. Four-component PCB placement and full STEP export are not done, so component RotationDeg calibration remains **blocked** for the next task.
 
 R2/R3 не реализуют production placement, не меняют Core schema и не меняют PR #13/#14. Bottom с rotation и full feature-level sign-off остаются blockers.
 
@@ -536,16 +536,16 @@ Postconditions:
 | Check | Result |
 |---|---|
 | Footprint name | `BRIDGE_ROT_3D` |
-| Footprint list row | `BRIDGE_ROT_3D; 0; 2` (0 pads, 2 primitives) |
+| Footprint list row | `BRIDGE_ROT_3D; 0; 1` (0 pads, 1 primitive) after operator removed duplicate |
 | Selected 3D Body properties | Generic, Embedded Model, `control-generic`, Mechanical 1 |
-| Component Body Manager | `Component bodies in: BRIDGE_ROT_3D` lists 2 bodies: 49 500 sq mils and 130 200.271 sq mils |
+| Component Body Manager | `Component bodies in: BRIDGE_ROT_3D` lists exactly 1 body: `130 200.271 sq mils` |
 | Document after Save | no asterisk; saved |
-| Final size | `115 200` bytes |
-| Final SHA-256 | `5981FB919EF582595FAA682D0C5C2A3AA9C40DEB5BE6B28DF8652FB5FF64494A` |
+| Final size | `104 448` bytes |
+| Final SHA-256 | `3A01172B12DD99A2200A2EB75143D826B2C20707E901C9FC07E29586091A7320` |
 
-Body ownership is confirmed by the PCB Library panel row + `Component Body Manager for component: BRIDGE_ROT_3D`; the expected Generic/Embed model is present. However the footprint contains **two** 3D body primitives from repeated placement. The duplicate must be removed and the footprint must contain exactly one body before R3 can be treated as a clean fixture. Also component placement on PCB, full STEP export and occurrence-transform comparison were not completed in this task.
+Body ownership is confirmed by the PCB Library panel row + `Component Body Manager for component: BRIDGE_ROT_3D`; the expected Generic/Embed model is present, and after removing the duplicate the footprint contains exactly one 3D body. The PcbLib file SHA differs from the initial shell, so **R3 fixture creation is complete**.
 
-R3-FIX-001 therefore achieves partial fixture creation only: PcbLib file changed and a library-owned Generic body exists, but the fixture is not yet clean/ready for four-instance export.
+Component placement on PCB, full STEP export and occurrence-transform comparison were not completed in this task. Therefore component `RotationDeg` calibration remains **blocked** until the full STEP occurrence-transform comparison is performed in the next task.
 
 ## 14. Неподтверждённые параметры
 
@@ -661,7 +661,7 @@ SOLIDWORKS backend (после отдельного решения):
 - Component rotation sign: pad landmark check passed.
 - Board origin: outline/component absolute-frame check passed.
 - Full Altium board STEP: obtained, SHA `7FC3E1…B9894`; block/origin/state/dz/Bottom rot0 checks passed; component RotationDeg not encoded, so rotation-bearing Top/Bottom remains blocked.
-- R3-FIX library fixture: partial (footprint `BRIDGE_ROT_3D` with Generic/Embed body; two body primitives, no PCB placement/full STEP export).
+- R3-FIX library fixture: complete (footprint `BRIDGE_ROT_3D`, one Generic/Embed body, PcbLib SHA `3A01172B…`); PCB placement/full STEP export not done, rotation calibration remains blocked.
 - Full MiniPC assembly не запускался.
 
 ## 20. Commit и PR
