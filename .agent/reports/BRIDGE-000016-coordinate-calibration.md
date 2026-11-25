@@ -8,7 +8,7 @@ created: 2026-11-25T20:30:00+03:00
 updated: 2026-11-25T20:55:30+03:00
 base: source
 branch: task/BRIDGE-000016-coordinate-contract
-commit: 20654ac
+commit: 9137616
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 related:
   - BRIDGE-000009
@@ -525,7 +525,7 @@ SOLIDWORKS backend (после отдельного решения):
 
 ## 20. Commit и PR
 
-- Commit: `20654ac` (`docs(bridge-000016): add coordinate calibration report`).
+- Commit: `9137616` (`docs(bridge-000016): refine coordinate contract and calibration`).
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 - Base: `source`
 - Merge: запрещён.
