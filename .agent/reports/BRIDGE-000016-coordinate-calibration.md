@@ -5,7 +5,7 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-25T20:30:00+03:00
-updated: 2026-11-25T23:10:00+03:00
+updated: 2026-11-26T01:10:00+03:00
 base: source
 branch: task/BRIDGE-000016-coordinate-contract
 commit: ab76100
@@ -58,7 +58,15 @@ R1 исправил математическую композицию:
 
 R2 получил полный board STEP и подтвердил board frame, `GetOrigin`, `R_state`, `dz`, Bottom `Rx(180°)` для rot0 и C366 feature-level placement. Однако Altium full board STEP **не содержит component RotationDeg** для test bodies: C62/C63/C59/C61/C524/C516/C573/C567/C571 имеют identity/state-only transforms. Поэтому component-rotation 3D placement остаётся **blocked**; R2 не закрывает full Top placement sign-off.
 
-R3-FIX-001 completed native fixture creation: `BRIDGE_ROT_3D` footprint exists with exactly one library-owned Generic/Embedded `control-generic` body; PcbLib SHA is `FECA6F37…`. R3-FIX-003 used the SDK to create U101–U104 with correct Designators, one owned Generic body each, saved/reopened the PCB, exported the full STEP, and confirmed Top component rotation in SOLIDWORKS with matrix and feature residuals ≤ 0.000014 mm. Top Component RotationDeg is **confirmed**; Bottom remains blocked.
+R3-FIX-001 completed native fixture creation: `BRIDGE_ROT_3D` footprint exists with exactly one library-owned Generic/Embedded `control-generic` body; PcbLib SHA is `FECA6F37…`. R3-FIX-003 used the SDK to create U101–U104 with correct Designators, one owned Generic body each, saved/reopened the PCB, exported the full STEP, and confirmed Top component rotation in SOLIDWORKS with matrix and feature residuals ≤ 0.000014 mm.
+
+R4 extended the contract to Bottom, projection mismatch and compound rotation, each on its own scratch board and full STEP:
+
+- **R4-A Bottom rotation:** rotation is `Rz(+θ)` in board frame (CCW, determinant +1). Candidate A has the right rotation but a pivot offset; Candidate B with `Rx(180)` conjugation reverses rotation and fails. A measured pivot offset `e = +3.371316 mm` in board X makes the rigid transform exact (feature residual ≤ 0.000024 mm).
+- **R4-B BodyProjection mismatch:** `Component.Side` controls the XY model origin, while `BodyProjection` alone controls the body Z side and orientation. Top projection = identity above the board; Bottom projection = `Rx(180)` below the board, regardless of Component.Side. Both mismatch directions are rigid and pass ≤ 0.000016 mm.
+- **R4-C Top compound rotation:** `T(modelOrigin) · Tz(dz) · Rz(rz) · Ry(ry) · Rx(rx)` matches all four components (≤ 0.000015 mm); other Euler orders and `R_state · Tz(dz)` fail at mm level. Component rotation is applied exactly once; no double rotation.
+
+Top rotation, Top compound rotation, both projection-mismatch directions and Bottom rotation for this library-relative Generic fixture are **confirmed**. A general Bottom pivot rule still requires the footprint's Top/Bottom model-origin X measurement.
 
 R2/R3 не реализуют production placement, не меняют Core schema и не меняют PR #13/#14. Bottom с rotation и `BodyProjection != Component.Side` остаются blockers; Top component rotation закрыт.
 
@@ -638,21 +646,188 @@ Landmarks used: local `(0,0,0)`, `(12,0,0)`, `(0,7,3)`, `(10,7,3)`, `(12,7,0)` m
 | U103 | 5 | 0.0000136 | 0.0000132 | 0.01 | Yes |
 | U104 | 5 | 0.0000028 | 0.0000028 | 0.01 | Yes |
 
-**Top Component RotationDeg blocker is removed** for library-relative Generic bodies. The component rotation is confirmed in translation, rotation matrix, basis, determinant, and feature-level XYZ. Bottom remains outside R3-FIX-003 and is still blocked.
+**Top Component RotationDeg blocker is removed** for library-relative Generic bodies. The component rotation is confirmed in translation, rotation matrix, basis, determinant, and feature-level XYZ. Bottom was outside R3-FIX-003 and was resolved separately in R4-A (13.6).
+
+## 13.6. R4-A — Bottom component rotation
+
+### 13.6.1. Fixture and readback
+
+Scratch board `r4-bottom-rotation.PcbDoc`; source PcbLib `FECA6F37…B19F` unchanged. Four `BRIDGE_ROT_3D` components were created Top, added to the board, flipped with `IPCB_Component.FlipComponent()`, then set to the target rotation.
+
+`FlipComponent()` behaviour measured in AD26.12.2.9:
+
+- layer changed Top → Bottom;
+- `GetState_Rotation()` changed to `180°`;
+- `GetBodyProjection()` changed automatically Top → Bottom;
+- no forced `SetBodyProjection` was needed (`projectionForced=false` for all four).
+
+After the target rotation was applied:
+
+| Designator | Layer | RotationDeg | BodyProjection | Model state rz after placement |
+|---|---|---:|---|---:|
+| B201 | Bottom | 0 | Bottom | 0 |
+| B202 | Bottom | 90 | Bottom | 270 |
+| B203 | Bottom | 180 | Bottom | 180 |
+| B204 | Bottom | 270 | Bottom | 90 |
+
+The placed-body `rz` is `(−RotationDeg) mod 360` for this Bottom fixture, while R3 Top had `rz = RotationDeg`. Designators and comments were written and read back independently.
+
+Runtime JSON: `r4-A-create.json`, `r4-A-read.json`; zero errors. Values survived save, close and reopen. Board SHA-256 after save: `B308124FAE053CFDFE835D4D882D8C030342546FD178C0EA6B0674707CA8E585`.
+
+### 13.6.2. Candidate comparison
+
+Board-local positions in the full STEP: `P0 = (27.4, 92.8) mm`, `P2 = (67.4, 92.8)`, `P3 = (107.4, 92.8)`, `P4 = (147.4, 92.8)`. `M0` is the B201 occurrence matrix.
+
+| Candidate | Rotation result | Translation error, mm (B202/B203/B204) | Max feature residual, mm |
+|---|---|---|---|
+| A: `T(Pi)·Rz(θ)·T(−P0)·M0` | `Rz(+θ)`, diff ≤ 1.8e-7 | 4.7678 / 6.7426 / 4.7678 | 4.7678 / 6.7426 / 4.7678 |
+| B: `T(Pi)·S·Rz(θ)·S⁻¹·T(−P0)·M0`, `S=Rx(180)` | reverses rotation, diff 2.0 | 8.6367 / 6.7426 / 5.2585 | 15.4061 / 6.7426 / 9.7984 |
+| C: same as A with measured pivot offset `e` | `Rz(+θ)`, diff ≤ 1.8e-7 | ≤ 0.000022 | ≤ 0.000024 |
+
+Candidate C:
+
+```text
+e = (+3.371316, 0, 0) mm
+M_pred(θ) = T(Pi + e) · Rz(θ) · T(−P0 − e) · M0
+```
+
+Feature residuals for C: B202 max `0.0000017` mm / RMS `0.0000011`; B203 max `0.0000230` / RMS `0.0000224`; B204 max `0.0000160` / RMS `0.0000156`. Determinants are `+1`.
+
+### 13.6.3. Bottom rotation rule
+
+- The board-frame rotation is `Rz(+θ)` (CCW), determinant `+1`; it is **not** `S·Rz·S⁻¹` with `S=Rx(180)`.
+- The pivot is not the component position. For this fixture it is `P0 + e`, where `e = d_bottom.x − d_top.x` = `−0.943031 − (−4.314346) = +3.371315 mm`. `d_top` is the model-origin offset of the same footprint placed Top (confirmed in R3); `d_bottom` is measured after the flip.
+- The Bottom side transform therefore contributes a Z-side placement plus an in-plane pivot offset, not a rotation-axis reversal.
+- The rule is experimental for this library-relative Generic body. A production backend must measure `d_top`/`d_bottom` per footprint (e.g. place one Top reference instance) and apply the measured pivot offset.
+
+## 13.7. R4-B — BodyProjection ≠ Component.Side
+
+### 13.7.1. Four combinations
+
+Scratch board `r4-body-projection.PcbDoc`; all components RotationDeg `0`, model state `(0,0,0,0)`, one Generic Embedded body.
+
+| Designator | Component.Side | BodyProjection | Model origin offset from P, mm | STEP body Z range, mm | STEP R |
+|---|---|---|---|---|---|
+| P301 | Top | Top | (−4.314346, +1.740448) | 0 … +3.000 | identity |
+| P302 | Top | Bottom | (−4.314346, +1.740448) | −5.028002 … −2.028001 | `Rx(180)` |
+| P303 | Bottom | Bottom | (−0.943031, −1.740448) | −5.028002 … −2.028001 | `Rx(180)` |
+| P304 | Bottom | Top | (−0.943031, −1.740448) | 0 … +3.000 | identity |
+
+`BodyProjection` was set with the typed `IPCB_ComponentBodyHelper.SetBodyProjection(body, TBoardSide)` overload and read back. For P303/P304 `FlipComponent()` set projection to Bottom automatically; P304 was then forced to Top. `StandoffHeight=0`, `OverallHeight=3.0 mm` before and after the projection setter: it did not recalculate heights.
+
+All four values survived save/close/reopen. Board SHA-256: `70D8FC71E5D439CE6A770D5D30AFEAA103D449D4B65A557A9A54D9CA166BA7C3`. STEP SHA-256: `1AD830983D00208A3810C2C68E0EDE1141C6549466D69CE697FBB3DBDFA6705E`, 86 154 594 bytes.
+
+### 13.7.2. Measured rule
+
+- **Component.Side** determines the footprint/model XY origin: Top offset `(−4.314, +1.740)`, Bottom offset `(−0.943, −1.740)`.
+- **BodyProjection** determines the body Z side and Z orientation, independently of Component.Side:
+  - Top projection: body above the board (`z = 0 … +3 mm`), orientation identity;
+  - Bottom projection: body below the board (`z = −T … −T+3 mm`), orientation `Rx(180)`.
+- Flipping only projection is a rigid transform:
+
+```text
+M_projection_flip = T(0, 2·y_body, −T) · Rx(180)
+```
+
+about the line `y = body origin Y`, `z = board mid-plane`, plus the XY translation to the new component position.
+
+Board solid Z range was `−2.028002 … 0 mm`. The `2.02800204 mm` STEP thickness still differs from Altium BoardProperties `2.00800208 mm`; the measured STEP surfaces were used as Z reference.
+
+Feature residuals:
+
+| Case | Rule | Max, mm | RMS, mm | Pass |
+|---|---|---:|---:|---|
+| P302 Top component / Bottom projection | from P301 + projection flip | 0.0000153 | 0.0000153 | Yes |
+| P304 Bottom component / Top projection | from P303 + projection flip | 0.0000010 | 0.0000007 | Yes |
+
+Both mismatch directions are supported by the same rigid projection rule; no fallback or “unsupported mismatch” state is required for this body type.
+
+## 13.8. R4-C — Top compound rotation
+
+### 13.8.1. Model-state prototype and persistence
+
+Scratch board `r4-top-compound.PcbDoc`. A temporary `TMP401` instance received State A directly through `body.GetModel().SetState(23, 37, 41, +1 mm)`. Immediate readback matched exactly, and the state survived save/close/reopen. `GetDataSize()` remained `27 834` bytes, so the Generic Embedded geometry stayed intact. `TMP401` was removed before the main series.
+
+`IPCB_Model.GetDataHash("SHA256")` returned `Hash type "SHA256" not supported`; component `GetState_ModelHash()` was used instead.
+
+### 13.8.2. Order of operations and readback
+
+If the model state is set **after** the component rotation, the full STEP keeps the body unrotated while the occurrence translation moves to the rotated position. The working order is: create at rotation 0 → replicate model + set state → set component rotation.
+
+Setting rotation after the model state folds the rotation into the placed-body state:
+
+| Designator | RotationDeg | State before rotation | State after rotation / after reopen |
+|---|---:|---|---|
+| M401 | 0 | (23, 37, 41, +1) | (23, 37, 41, +1) |
+| M402 | 90 | (23, 37, 41, +1) | (23, 37, **131**, +1) |
+| M403 | 0 | (−17, 29, −53, −1) | (−17, 29, −53, −1) |
+| M404 | 270 | (−17, 29, −53, −1) | (−17, 29, **217**, −1) |
+
+The post-reopen values persisted (M404 `rz=307` equivalent to −53° was accepted). Board SHA-256: `31AD5D1B983A0D8732DD706977E9145888C5097BD52CE6D90A4A690C52D6327E`. STEP SHA-256: `E8B9BD6E45556498880A20270798595AE84D146FAD26751027B370F77C9F1F5B`, 86 156 648 bytes.
+
+### 13.8.3. Confirmed composition
+
+The absolute asset-to-board rule that matched all four occurrences:
+
+```text
+M = T(modelOrigin) · Tz(dz) · Rz(rz) · Ry(ry) · Rx(rx)
+```
+
+| Component | Residual max, mm | RMS, mm | Rotation diff | Applied state (rx,ry,rz,dz) |
+|---|---:|---:|---:|---|
+| M401 | 0.0000041 | 0.0000037 | 2.0e-7 | (23, 37, 41, +1) |
+| M402 | 0.0000039 | 0.0000033 | 1.8e-7 | (23, 37, 131, +1) |
+| M403 | 0.0000143 | 0.0000132 | 2.3e-7 | (−17, 29, −53, −1) |
+| M404 | 0.0000066 | 0.0000061 | 2.1e-7 | (−17, 29, 217, −1) |
+
+Relative check:
+
+```text
+M_pred(θ) = T(Pi) · Rz(θ) · T(−P0) · M0
+```
+
+- M402 vs M401 (`Rz +90°`): max `0.0000033` mm, rotation diff `4.3e-8`;
+- M404 vs M403 (`Rz −90°`): max `0.0000182` mm, rotation diff `3.7e-8`.
+
+Euler-order alternatives for M401/M403 (best six of 24 candidates; all use `Tz(dz)` before/after and model origin):
+
+| Order | dz order | Residual max, mm (M401 / M403) |
+|---|---|---:|
+| `Rz·Ry·Rx` | `Tz` before R | **0.000004 / 0.000014** |
+| `Rz·Ry·Rx` | `Tz` after R | 0.727812 / 0.572021 |
+| `Rz·Rx·Ry` | either | ≥ 2.011524 / 2.088739 |
+| `Rx·Rz·Ry` | either | ≥ 2.929737 |
+| `Ry·Rz·Rx` | either | ≥ 2.912187 |
+
+The rotation is applied exactly once: M402 and M404 read back with the component rotation already included in `rz`; a formula that also multiplies by `Rz(component)` would double-rotate. Alternatively, use the source state plus one component rotation, but never both.
+
+## 13.9. R4 evidence summary and host notes
+
+| Experiment | Scratch PCB SHA-256 | STEP SHA-256 | STEP size |
+|---|---|---|---|
+| R4-A Bottom rotation | `B308124F…A8E585` | `3C6CBE33…CF55FB1` | 86 154 810 |
+| R4-B Projection mismatch | `70D8FC71…66BA7C3` | `1AD83098…DFA6705E` | 86 154 594 |
+| R4-C Top compound | `31AD5D1B…C52D6327E` | `E8B9BD6E…7C9F1F5B` | 86 156 648 |
+
+Environment: Altium Designer 26.12.2.9, SOLIDWORKS 2026 SP3.2, SDK 4.0.1, PcbLib `FECA6F37…B19F` unchanged before and after.
+
+Host observation: in this session `IServerDocument.DoFileSave`, `DoSafeFileSave` and `DXP.Utils.RunCommand("File:Save")` returned without changing the `.PcbDoc` even after `SetModified(true)`. The proven save path was the editor's **File → Save** menu command. The diagnostic handler therefore created/read objects and the runner performed UI File→Save; the saved files were reopened and re-enumerated before STEP export.
 
 ## 14. Неподтверждённые параметры
 
 | Параметр | Статус | Причина |
 |---|---|---|
-| Component `RotationDeg` sign/3D rotation | **Confirmed for Top library-relative body** | R3-FIX-003: U101–U104, full STEP relative matrices and 5-landmark residuals ≤ 0.000014 mm; Bottom remains separate |
-| Bottom proper rotation axis / reflection | **Rx(180°) confirmed for rot0; rotation-bearing Bottom Blocked** | full board STEP C572 = `diag(1,-1,-1)`; C573/C567/C571 same state-only, component rotation missing |
-| `BodyProjection != Component.Side` | **Unknown** | в fixture все тела совпали со стороной компонента |
+| Component `RotationDeg` sign/3D rotation | **Confirmed for Top and Bottom library-relative body** | R3 Top; R4-A Bottom: `Rz(+θ)`, determinant +1, feature residual ≤ 0.000024 mm |
+| Bottom proper rotation axis / reflection | **Confirmed with measured pivot offset** | R4-A: Candidate A rotation correct but pivot off; Candidate C with `e = +3.371316 mm` exact; `S=Rx(180)` conjugation fails |
+| General Bottom pivot for arbitrary footprint | **Measured, not yet universal** | rule uses `d_bottom.x − d_top.x`; requires one Top reference per footprint |
+| `BodyProjection != Component.Side` | **Confirmed both directions** | R4-B P302/P304 rigid transform; residuals ≤ 0.0000153 mm |
+| Bottom + compound Rx/Ry/Rz | **Unknown** | R4-C tested Top compound only; Bottom compound not exercised |
 | `IPCB_Model.Rotation` | **Unknown** | на fixture 0; отдельное свойство, не совпало с state rotZ |
 | `GetOrigin.Z` | **Unknown** | API даёт X/Y; Z не предоставлен |
 | Board origin | **Altium absolute in Core; STEP uses board-local `T_BS`** | `T_BS = T(-212.6,-167.2,-T/2)`; C366 matched STEP within ~0.000006 mm; отдельного boardOrigin поля в Core нет |
 | `SnapCount` / `SnapPoint` | **Unknown** | API документирован, значения fixture не сняты |
-| Body projection polygon → 3D matrix | **Partially confirmed** | rectangle sides/orientation and Z bounds matched RzRyRx; full board model state confirmed, component rotation blocked |
-| Full board STEP golden reference | **Obtained; rotation coverage incomplete** | file SHA `7FC3E1C…B9894`; board/origin/state/dz/Bottom rot0 confirmed; component RotationDeg not encoded |
+| Body projection polygon → 3D matrix | **Confirmed for Generic body** | RzRyRx and Z bounds; R4-C absolute residuals ≤ 0.0000143 mm |
+| Full board STEP golden reference | **Obtained; rotation/projection coverage confirmed** | R2 `7FC3E1C…B9894`; R3 Top rotation; R4 Bottom rotation, projection mismatch and compound state |
 | Board thickness | **Mismatch 0.02 mm** | Altium properties 2.00800208 mm; STEP board body 2.02800204 mm; unresolved |
 | Board cutout landmarks | **Unknown** | board volume deficit confirms voids; exact cutout XYZ not extracted |
 | Component height vs body height | Not used | `Component.Height` не равен body Overall (C75: 10.5 vs 4.0 mm) |
@@ -665,13 +840,15 @@ Landmarks used: local `(0,0,0)`, `(12,0,0)`, `(0,7,3)`, `(10,7,3)`, `(12,7,0)` m
 | Top combined Rx/Ry/Rz + dz (component rot0) | Full board state matrix/dz matches C524/C516 at rot0-relative frame | Allowed only with component rotation excluded |
 | Top non-zero model-origin offset + component rot90/180/−90 | R3-FIX-003: `M0` offset differs from `P0`; relative matrix and 5 landmarks ≤0.000014 mm | Confirmed for library-relative Generic body |
 | Top component RotationDeg 90/180/270 | R3-FIX-003 full board STEP: U102/U103/U104 transforms are `Rz(+90/+180/−90)` with determinant +1 | Confirmed |
-| Top private model state (placed body rotZ already includes component rotation) | R3-FIX-003: do not add `Rz(component)` to placed-body `rotZ` | Rule recorded in ledger C-107…C-112 note |
-| Bottom rot0 | Full board STEP confirms `Rx(180°)` and translation | Confirmed but excluded from R2 implementation |
-| Bottom with component rotation | Reference omits rotation | **Blocked** |
-| BodyProjection != Component.Side | Not exercised | Excluded |
+| Top compound Rx/Ry/Rz + component rotation | R4-C absolute `T(origin)·Tz(dz)·Rz·Ry·Rx`, residuals ≤0.0000143 mm; relative checks ≤0.0000182 mm | Confirmed |
+| Top private model state (placed body rotZ already includes component rotation) | R3 and R4-C: do not add `Rz(component)` to placed-body `rotZ` | Rule recorded in ledger |
+| Bottom rot0 | R4-A B201 and R2 full STEP `Rx(180°)` | Confirmed |
+| Bottom with component rotation | R4-A: `Rz(+θ)`, pivot `P0 + (d_bottom.x − d_top.x)`, residuals ≤0.000024 mm | Confirmed for this library-relative Generic body |
+| BodyProjection mismatch, Top component / Bottom body | R4-B P302 rigid projection flip, residual ≤0.0000153 mm | Confirmed |
+| BodyProjection mismatch, Bottom component / Top body | R4-B P304 rigid projection flip, residual ≤0.0000010 mm | Confirmed |
 | Multi-body component | Mapping exists; 3D transform not separately validated | Mapping only, no placement claim |
 | SnapPoint origin correction | Runtime values Unknown | Excluded |
-| Full board STEP reference | R2 board/origin/state/dz/Bottom rot0; R3 adds rotation-bearing Top U101–U104 | Confirmed for Top; Bottom rotation not covered |
+| Full board STEP reference | R2 base frame; R3 Top rotation; R4 Bottom rotation, projection mismatch, compound | Confirmed for covered combinations |
 
 ## 15. Рекомендуемая структура assembly
 
@@ -758,12 +935,16 @@ SOLIDWORKS backend (после отдельного решения):
 - R3-FIX library fixture: complete (footprint `BRIDGE_ROT_3D`, one Generic/Embed body, PcbLib SHA `FECA6F37…`).
 - R3-FIX-003: SDK placed U101–U104 with correct Designators and one owned Generic body each; PCB SHA `69C62604…3D67` after save/reopen; full STEP SHA `75B8DD8D…8ED` (AP214, mm, 86 154 564 bytes); SOLIDWORKS occurrence transforms, determinants, basis and 5-landmark residuals ≤0.000014 mm.
 - Temporary diagnostic handler removed; installed `EcadMcadBridge` extension restored to the clean 0.4.0 build, registration untouched.
+- R4-A: Bottom rotation four angles, full STEP and SOLIDWORKS transforms; Candidate C residuals ≤0.000024 mm.
+- R4-B: both projection-mismatch directions, full STEP and Z ranges; residuals ≤0.0000153 mm.
+- R4-C: model-state prototype persisted; absolute compound residual ≤0.0000143 mm; Euler alternatives fail at mm level.
+- R4 scratch boards and STEPs were saved/reopened and re-enumerated before export; all three STEPs contained the expected occurrences and one body each.
 - `dotnet build -c Release` and `dotnet test -c Release` repeated on branch after restoring the worktree.
 - Full MiniPC assembly не запускался.
 
 ## 20. Commit и PR
 
-- Commit: `ab76100` (`docs(bridge-000016): record R3-FIX-003 SDK placement and Top rotation confirmation`); предыдущий blocker commit — `1402e3a`.
+- Commit: `ab76100` (`docs(bridge-000016): record R3-FIX-003 SDK placement and Top rotation confirmation`); R4 documentation commit — см. финальный коммит ветки; предыдущий blocker commit — `1402e3a`.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 - Base: `source`
 - Merge: запрещён.
@@ -775,3 +956,4 @@ SOLIDWORKS backend (после отдельного решения):
 - 2026-11-25: R2 добавлен full board STEP reference, board frame, C366 residuals и capability matrix.
 - 2026-11-25: R3-FIX-001 создан `BRIDGE_ROT_3D` с одним Generic/Embedded телом; R3-FIX-002 упёрся в UI-автоматизацию свойств (Designator попал в Comment).
 - 2026-11-25: R3-FIX-003 выполнен SDK-native placement U101–U104, save/reopen, full STEP и SOLIDWORKS проверка; Top component rotation подтверждён, Bottom остаётся blocked.
+- 2026-11-26: R4-A подтвердил Bottom rotation `Rz(+θ)` с измеренным pivot offset; R4-B разделил Component.Side (XY origin) и BodyProjection (Z side/orientation); R4-C подтвердил compound `Tz(dz)·Rz·Ry·Rx` без double rotation.

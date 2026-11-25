@@ -188,6 +188,12 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | C-110 | `IPCB_ComponentBody.GetState_Component()`, `GetState_InComponent()`, `GetState_Board()`; `IPCB_ComponentBody.GetModel()`; `IPCB_Model.GetState(out double, out double, out double, out int)`, `GetEmbed()`, `GetDataSize()`, `GetState_ModelType()` (`e3DModelType_Generic`); `IPCB_ComponentBody.GetBodyProjection()` | R3-FIX-003: у каждого U101–U104 ровно одно тело, `GetState_Component()` возвращает владельца, `GetState_InComponent=true`, `GetState_Board()` не null, `GetEmbed=true`, data size `27 834` байт, тип Generic, projection Top | Проверка владения телом и модели |
 | C-111 | `IPCB_Component.GroupIterator_Create()/Destroy()`; `AddFilter_ObjectSet(new TObjectSet { TObjectId.eComponentBodyObject })`; `FirstPCBObject()/NextPCBObject()` приводится к `IPCB_ComponentBody`; `AddFilter_Method` для фильтра тел не требуется | R3-FIX-003: перечисление тел компонента дало ровно 1 body на компонент; фильтр `eComponentBodyObject` работает без `AddFilter_Method` | Перебор 3D-тел компонента |
 | C-112 | `IPCB_Component.GetState_Name().GetState_Text()` как Designator и `GetState_Comment().GetState_Text()` как Comment; `IPCB_Component.GetState_SourceUniqueId()` после `LoadFromLibrary` может вернуть `null` | R3-FIX-003: designator/comment читаются раздельно; `SourceUniqueId` у новых компонентов `null` — нельзя использовать как ключ до сохранения/присвоения | Идентификация после создания |
+| C-113 | `IPCB_Component.FlipComponent()` | BRIDGE-000016-R4-A/B AD26.12.2.9: Top → Bottom; `GetState_Rotation()` становится `180°`; `GetBodyProjection()` автоматически меняется Top → Bottom; принудительный `SetBodyProjection` не потребовался | Перенос компонента на Bottom |
+| C-114 | `static PCB.TBoardSide PCB.IPCB_ComponentBodyHelper.GetBodyProjection(PCB.IPCB_ComponentBody)`; `static void ...SetBodyProjection(PCB.IPCB_ComponentBody, PCB.TBoardSide)` | R4-B: setter меняет Z-сторону и Z-ориентацию тела, не меняя `StandoffHeight`/`OverallHeight`; значение сохраняется после save/reopen; `TBoardSide.eBoardSide_Top/Bottom` | Управление стороной 3D-тела |
+| C-115 | `static PCB.IPCB_Model PCB.IPCB_ModelHelper.I_Replicate(PCB.IPCB_Model)`; `IPCB_Model.SetState(double rx, double ry, double rz, int dzIU)`; `static void PCB.IPCB_ComponentBodyHelper.SetModel(PCB.IPCB_ComponentBody, PCB.IPCB_Model)`; `IPCB_Model.SetEmbed(bool)` | R4-C: prototype `body.GetModel().SetState(23,37,41,+1mm)` прочитался сразу и сохранился после save/reopen; для серии использован `I_Replicate → SetState → SetModel`; `GetDataSize()` остался `27 834`; состояния A/B сохранились, `rz` после повторного открытия нормализуется в `[0,360)` | Изоляция и запись model state |
+| C-116 | `IPCB_Component.GetState_ModelHash()`; `static PCB.CoordPoint PCB.IPCB_ModelHelper.GetOrigin(PCB.IPCB_Model)` (`X`, `Y` в IU); `IPCB_Model.GetDataSize()` | R4: ModelHash меняется после записи/повторного открытия; `GetOrigin` даёт X/Y модели; `GetDataSize` неизменен при смене state | Идентичность модели и origin |
+| C-117 | `IPCB_Board.RemovePCBObject(IPCB_Primitive)` | R4-C: временный `TMP401` удалён с платы перед основной серией; повторная проверка `Exists` показала отсутствие | Удаление временного prototype |
+| C-118 | `IPCB_Model.GetDataHash(string)` с аргументом `"SHA256"` | R4-C: вызов вернул `Hash type "SHA256" not supported`; корректный токен не подтверждён — использовать `GetState_ModelHash()` | Не использовать до проверки (V-26) |
 
 Важное уточнение R3-FIX-003: у **размещённого** компонента `IPCB_ComponentBody.GetModel().GetState(...)`
 возвращает `rotZ`, уже включающий поворот компонента (`0/90/180/270` совпали с `GetState_Rotation()`),
@@ -196,6 +202,27 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 Generic-тела используется либо исходное состояние модели + поворот компонента, либо состояние
 размещённого тела без повторного поворота. Полный STEP и SOLIDWORKS подтвердили одну ротацию
 (остатки ≤ 0.000014 мм).
+
+Уточнения R4:
+
+- `Component.Side` определяет **XY origin** модели: Top offset `(−4.314346, +1.740448) mm`,
+  Bottom `(−0.943031, −1.740448) mm` для фикстуры; он не задаёт итоговую Z-ориентацию тела.
+- `BodyProjection` определяет **Z-сторону и Z-ориентацию** тела независимо от `Component.Side`:
+  Top → identity над платой (`z = 0…+3 mm`), Bottom → `Rx(180)` под платой
+  (`z = −T…−T+3 mm`). Обе mismatch-комбинации описываются одним жёстким правилом
+  (остатки ≤ 0.0000153 мм).
+- Bottom rotation: матрица `Rz(+θ)` в board frame, determinant `+1`; pivot смещён на
+  `e = d_bottom.x − d_top.x` (`+3.371316 mm` для фикстуры). Кандидат с `S = Rx(180)`
+  и сопряжением `S·Rz·S⁻¹` **неверен** — он меняет знак вращения.
+- Compound Top: `M = T(modelOrigin) · Tz(dz) · Rz(rz) · Ry(ry) · Rx(rx)`;
+  порядок `Rz·Ry·Rx`, `Tz` до `R_state`. При установке state до rotation Altium
+  добавляет `RotationDeg` к `rz` размещённого тела (`41 → 131`, `−53 → 217`), поэтому
+  повторно применять `Rz(component)` нельзя. При обратном порядке (rotation до SetModel)
+  тело остаётся не повёрнутым — это отдельный наблюдаемый случай.
+- Host-наблюдение: в AD26.12.2.9 `IServerDocument.DoFileSave`, `DoSafeFileSave` и
+  `DXP.Utils.RunCommand("File:Save")` в этом сценарии не записали `.PcbDoc` даже после
+  `SetModified(true)`; запись выполнилась только командой меню **File → Save**.
+- `IPCB_Model.GetDataHash("SHA256")` не поддерживается; корректный токен неизвестен (V-26).
 
 Подтверждено smoke-тестом на `MiniPC.PcbDoc`: 31 слой, 1046 компонентов, 6004 пада,
 837 сетей, 245 multi-layer PadStack с 16 shapes, 9669 форм; `rotations` включают
@@ -297,6 +324,7 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-23 | Почему `IPCB_Pad.DefinitionLayerIterator` иногда возвращает V7-ID, не совпадающие с V6? | Adapter обходит это перебором copper-слоёв board layer iterator; высокие V7-ID не используются как V6 | Отдельное исследование V7 layer mapping при необходимости |
 | V-24 | Гарантирует ли `IPCB_Polygon.GetState_Segments()` все циклы Board Outline? | Нет: на `PC4-SODIMM` циклы не замкнулись, adapter перешёл на line-fallback для geometric contour. `GeometricPolygon` остаётся источником количества/ролей; Board Cutout берётся из `ClipWithPolyRegShapes`, а не из этого API | Отдельное исследование API сегментов при необходимости |
 | V-25 | Можно ли достоверно отличить `eRotatedRectShape`/`eArcShape`/`eTerminator` от поддерживаемых форм? | Семантика не подтверждена; adapter не преобразует их в круг/прямоугольник и выдаёт warning | Отдельный эксперимент с известными pad shape |
+| V-26 | Какой аргумент принимает `IPCB_Model.GetDataHash(string)`? | R4-C: `"SHA256"` вернул `Hash type "SHA256" not supported`; корректный токен не найден | Проверить документацию/исходники SDK или использовать `Component.GetState_ModelHash()` |
 
 ## 4. Запрещено
 
