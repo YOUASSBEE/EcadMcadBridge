@@ -216,11 +216,17 @@ capabilities сохранены.
 
 ## 11. Фактический smoke
 
-| Плата | PackageId | Components | Bodies | STEP assets | Multi-body | Model warnings | Package warnings | Model ms | Total ms |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| multi | `4f0f3f17-b06b-4905-b550-08ddb4482ca4` | 73 | 152 | 152 | 45 | 0 | 28 | 3 768 | 6 042 |
-| mini | `a609896e-4f3c-4cf6-bd47-5238abe83c0b` | 1 046 | 1 055 | 1 055 | 7 | 0 | 1 029 | 79 905 | 122 796 |
-| cutout | `052375f2-7672-4fd2-8267-17c91c663587` | 73 | 152 | 152 | 45 | 0 | 28 | 3 707 | 5 083 |
+| Плата | PackageId | Components | Bodies | Exported body assets | Unique STEP files | Multi-body | Model warnings | Package warnings | Model ms | Total ms |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| multi | `4f0f3f17-b06b-4905-b550-08ddb4482ca4` | 73 | 152 | 152 | 152 | 45 | 0 | 28 | 3 768 | 6 042 |
+| mini | `a609896e-4f3c-4cf6-bd47-5238abe83c0b` | 1 046 | 1 055 | 1 055 | 155 | 7 | 0 | 1 029 | 79 905 | 122 796 |
+| cutout | `052375f2-7672-4fd2-8267-17c91c663587` | 73 | 152 | 152 | 152 | 45 | 0 | 28 | 3 707 | 5 083 |
+
+`Exported body assets` — число успешных body export; `Unique STEP files` — число
+файлов в `assets/3d/` после content-addressed dedupe Core Writer. На MiniPC
+1 055 успешных body export ссылаются на 155 уникальных STEP-файлов; это
+ожидаемое поведение контракта, а не потеря тел. Manifest MiniPC содержит
+155 asset files + snapshot + models.
 
 Для всех трёх:
 
