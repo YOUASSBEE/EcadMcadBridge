@@ -8,7 +8,7 @@ created: 2026-11-25T20:30:00+03:00
 updated: 2026-11-25T20:55:30+03:00
 base: source
 branch: task/BRIDGE-000016-coordinate-contract
-commit: 9137616
+commit: bf603d6
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 related:
   - BRIDGE-000009
@@ -608,7 +608,7 @@ SOLIDWORKS backend (после отдельного решения):
 
 ## 20. Commit и PR
 
-- Commit: `9137616` (`docs(bridge-000016): refine coordinate contract and calibration`).
+- Commit: `bf603d6` (`docs(bridge-000016): add R2 full board STEP reference`).
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 - Base: `source`
 - Merge: запрещён.
