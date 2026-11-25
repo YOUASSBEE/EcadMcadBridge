@@ -8,8 +8,8 @@ created: 2026-11-25T15:30:00+03:00
 updated: 2026-11-25T15:30:00+03:00
 base: source
 branch: agent/BRIDGE-000014-altium-3d-model-export
-commit: pending
-pr: pending
+commit: 0b21301
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/13
 related:
   - BRIDGE-000003
   - BRIDGE-000004
@@ -275,12 +275,12 @@ capabilities сохранены.
 
 ## 14. Commit и PR
 
-- Commit: `pending`.
-- PR: `pending`, ветка `agent/BRIDGE-000014-altium-3d-model-export`, base
-  `source`, merge запрещён.
+- Commit: `0b21301` (`feat(altium): export component 3D bodies to exchange package`).
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/13, ветка
+  `agent/BRIDGE-000014-altium-3d-model-export`, base `source`, merge запрещён.
 
 ## 15. История изменений
 
 - 2026-11-25: реализованы Altium per-body extraction, identity resolver,
   classification/metadata, temp export, handler integration, tests, smoke и
-  документация.
+  документация. Первый commit `0b21301`; PR #13 открыт без merge.
