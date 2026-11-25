@@ -14,6 +14,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\EcadMcadBridge.SolidWorks\EcadMcadBridge.SolidWorks.csproj" />
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.sldworks.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.swconst.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <!-- Local-only interop resolution for the test host if a type is inspected. -->

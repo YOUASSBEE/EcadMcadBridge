@@ -185,7 +185,9 @@ tests/
 
 ## 13. Текущий этап
 
-`BRIDGE-000015` — SOLIDWORKS STEP import backend: Core Exchange Package →
+`BRIDGE-000015-R1` — SOLIDWORKS STEP import backend: Core Exchange Package →
 unique STEP assets → native `.SLDPRT`, плюс assembly API smoke. D-020.
+R1 добавляет baseline-отслеживание документов, защиту пользовательских документов,
+assembly→part через временную настройку, no-overwrite guard и декодирование warnings.
 Altium 3D export (`BRIDGE-000014`) остаётся в открытом PR #13; полный placement
 в SOLIDWORKS не реализуется до подтверждения системы координат.

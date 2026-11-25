@@ -580,22 +580,39 @@ Core рассматривает ID как непрозрачную непуст�
   `AssetPath`; один asset импортируется один раз, несколько bodies ссылаются на
   одну деталь.
 - `SolidWorksImportService`: `GetImportFileData`/`MapConfigurationData=false`,
-  `LoadFile4`, проверка `swDocPART`, `PartDoc.GetBodies2(swSolidBody)`,
-  `ModelDocExtension.SaveAs3(swSaveAsCurrentVersion, swSaveAsOptions_Silent)`,
-  закрытие импортированного документа, `OpenDoc6` native part, повторная
-  проверка solid bodies.
+  `LoadFile4`, проверка `swDocPART`/`swDocASSEMBLY`,
+  `PartDoc.GetBodies2(swSolidBody)`, `ModelDocExtension.SaveAs3(
+  swSaveAsCurrentVersion, swSaveAsOptions_Silent)`. Target `.SLDPRT` проверяется
+  до импорта: существующий или уже открытый файл отклоняется без перезаписи.
+- `SaveAs3` считается успешным только при `returned=true`, `Errors=0`, existing
+  file и size > 0. Результат сохраняется сначала во временный `.SLDPRT` внутри
+  выходного каталога; после закрытия imported-документов файл атомарно
+  перемещается в content-addressed native path. Для проверки повторного открытия
+  используется байтовая копия с уникальным именем: SOLIDWORKS отклоняет второй
+  документ с совпадающим basename, а пользовательские документы не должны
+  закрываться. Body count сравнивается с импортированным значением.
 - Если STEP импортируется как `swDocASSEMBLY`, backend считает solid bodies
   всех component instances и сохраняет assembly как native part через
-  `SaveAs3(.SLDPRT)`; после повторного открытия сравнивается body count. Это
-  сохраняет геометрию asset без ручного merge.
+  `SaveAs3(.SLDPRT)`. Перед сохранением настройка
+  `swSaveAssemblyAsPartOptions` выставляется в `swSaveAsmAsPart_AllComponents`
+  и безусловно восстанавливается в `finally`; неудача восстановления — Error.
+- `SolidWorksWarningDecoder` разбирает `swFileSaveWarning_e` и
+  `swFileLoadWarning_e` по именам; бит `128` — известный warning
+  (`AnimatorCameraViews` / `AlreadyOpen`), а не «unknown» и не ошибка.
 - `SolidWorksAssemblyService` — только API smoke: `NewDocument` по явному
-  assembly template, загрузка native parts в память, `AddComponent5(0,0,0)`,
-  `GetComponents`, `SaveAs3`, повторное открытие и сравнение количества
-  компонентов. Это не placement ECAD.
+  assembly template, загрузка временных байтовых копий native parts в память,
+  `AddComponent5(0,0,0)`, `GetComponents`, `SaveAs3`, повторное открытие и
+  сравнение количества компонентов. Это не placement ECAD.
+- `SolidWorksDocumentTracker` снимает baseline через `GetDocuments()` до операции
+  и закрывает только документы, появившиеся после baseline. Идентичность и
+  текущие `GetTitle()`/`GetPathName()` перечитываются на этапе cleanup; документы
+  из baseline и документы с `swFileLoadWarning_AlreadyOpen` защищены от закрытия.
+  Успех cleanup подтверждается повторным `GetDocuments()`, а не возвратом
+  `CloseDoc`/`QuitDoc`.
 - Smoke harness подключается к уже запущенному SOLIDWORKS через ROT, работает в
   STA, вызывает API последовательно, не запускает/не завершает пользовательский
-  процесс и закрывает только созданные им документы. Входные STEP assets не
-  изменяются.
+  процесс. Входные STEP assets не изменяются; smoke фиксирует baseline, remaining
+  и `baselinePreserved`.
 - `T_B_S`, Z/Bottom, Euler composition, ECAD placement, Add-in registration,
   Registry и установщик остаются вне scope.
 

@@ -452,6 +452,21 @@ SOLIDWORKS interop. D-019 зарезервирован открытым PR #13 (
 - Assembly smoke только проверяет API `NewDocument`/`AddComponent5`/
   `GetComponents` и сохранение/повторное открытие `.SLDASM`; компоненты
   вставляются в `0,0,0`. Это не ECAD placement.
+- R1 уточняет жизненный цикл без изменения архитектуры: baseline открытых
+  документов снимается через `ISldWorks.GetDocuments()`; закрываются только
+  документы, появившиеся после baseline. Текущие `GetTitle()`/`GetPathName()`
+  перечитываются после `SaveAs3`; документы baseline и `AlreadyOpen` защищены.
+  Успех cleanup подтверждается повторным `GetDocuments()`, а не возвратом
+  `CloseDoc`/`QuitDoc`.
+- R1 запрещает перезапись существующего/open target: `.SLDPRT`/`.SLDASM`
+  проверяется до импорта. `SaveAs3` считается успешным только при `true`,
+  `Errors=0`, существующем файле ненулевого размера. Временный output и
+  уникальные копии для повторного открытия изолируют пользовательские документы
+  от ошибки SOLIDWORKS при совпадающих basename.
+- Для assembly→part `swSaveAssemblyAsPartOptions` временно выставляется в
+  `swSaveAsmAsPart_AllComponents` и восстанавливается в `finally`; отказ
+  восстановления — Error. Warning-биты `swFileSaveWarning_e`/
+  `swFileLoadWarning_e` декодируются по именам; known bit `128` не ошибка.
 - В текущей задаче нет регистрации `ISwAddin`, изменения Registry, установщика
   и UI. `T_B_S`, Bottom reflection, Euler composition и реальное размещение
   платы не реализуются.

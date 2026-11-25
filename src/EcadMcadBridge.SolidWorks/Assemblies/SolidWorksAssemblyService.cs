@@ -1,5 +1,6 @@
 using System.Globalization;
 using EcadMcadBridge.SolidWorks.Importing;
+using EcadMcadBridge.SolidWorks.Interop;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 
@@ -13,11 +14,12 @@ public sealed record SolidWorksAssemblyResult(
     bool Reopened,
     int Errors,
     int Warnings,
-    IReadOnlyList<SolidWorksDiagnostic> Diagnostics);
+    IReadOnlyList<SolidWorksDiagnostic> Diagnostics,
+    SolidWorksDocumentLifecycle Lifecycle);
 
 /// <summary>
 /// Minimal API-level assembly smoke: insert already-created native parts at 0,0,0.
-/// This is not ECAD placement.
+/// This is not ECAD placement. Only documents newly opened by this operation are closed.
 /// </summary>
 public sealed class SolidWorksAssemblyService
 {
@@ -34,6 +36,7 @@ public sealed class SolidWorksAssemblyService
         IReadOnlyList<string> partPaths)
     {
         var diagnostics = new List<SolidWorksDiagnostic>();
+        var tracker = SolidWorksDocumentTracker.Capture(_solidWorks);
         if (partPaths.Count < 2)
         {
             diagnostics.Add(new SolidWorksDiagnostic(
@@ -41,15 +44,7 @@ public sealed class SolidWorksAssemblyService
                 SolidWorksDiagnosticSeverity.Error,
                 "assembly",
                 "At least two native parts are required for the assembly smoke."));
-            return new SolidWorksAssemblyResult(
-                assemblyPath,
-                0,
-                0,
-                false,
-                false,
-                0,
-                0,
-                diagnostics);
+            return Failure(assemblyPath, 0, 0, false, false, 0, 0, diagnostics, tracker);
         }
 
         if (string.IsNullOrWhiteSpace(templatePath) || !File.Exists(templatePath))
@@ -59,20 +54,21 @@ public sealed class SolidWorksAssemblyService
                 SolidWorksDiagnosticSeverity.Error,
                 "template",
                 "Assembly template is missing."));
-            return new SolidWorksAssemblyResult(
-                assemblyPath,
-                0,
-                0,
-                false,
-                false,
-                0,
-                0,
-                diagnostics);
+            return Failure(assemblyPath, 0, 0, false, false, 0, 0, diagnostics, tracker);
+        }
+
+        if (!SolidWorksFileGuard.TryValidateNewTarget(assemblyPath, _solidWorks, out var targetReason))
+        {
+            diagnostics.Add(new SolidWorksDiagnostic(
+                "SW-ASM-014",
+                SolidWorksDiagnosticSeverity.Error,
+                "assembly",
+                targetReason));
+            return Failure(assemblyPath, 0, 0, false, false, 0, 0, diagnostics, tracker);
         }
 
         ModelDoc2? document = null;
-        string? title = null;
-        var openedPartTitles = new List<string>();
+        var temporaryParts = new List<string>();
         try
         {
             document = _solidWorks.NewDocument(templatePath, 0, 0, 0) as ModelDoc2;
@@ -83,10 +79,11 @@ public sealed class SolidWorksAssemblyService
                     SolidWorksDiagnosticSeverity.Error,
                     "assembly",
                     "NewDocument did not create an assembly."));
-                return BuildFailure(assemblyPath, diagnostics);
+                return Failure(assemblyPath, 0, 0, false, false, 0, 0, diagnostics, tracker);
             }
 
-            title = document.GetTitle();
+            tracker.Track(document);
+            var title = document.GetTitle();
             var activateErrors = 0;
             var active = _solidWorks.ActivateDoc3(title, false, 0, ref activateErrors) as ModelDoc2;
             if (active is null || activateErrors != 0)
@@ -96,21 +93,34 @@ public sealed class SolidWorksAssemblyService
                     SolidWorksDiagnosticSeverity.Error,
                     "assembly",
                     "The new assembly could not be activated."));
-                return BuildFailure(assemblyPath, diagnostics);
+                return Failure(assemblyPath, 0, 0, false, false, 0, 0, diagnostics, tracker);
             }
 
+            var verifyDirectory = Path.Combine(
+                Path.GetDirectoryName(assemblyPath)!,
+                ".bridge-verify");
+            Directory.CreateDirectory(verifyDirectory);
             var openParts = new List<string>();
             foreach (var partPath in partPaths.Take(2))
             {
+                // SOLIDWORKS rejects a second document with the same basename, so the
+                // assembly smoke loads byte-identical unique copies of the native parts.
+                var verifyPartPath = Path.Combine(
+                    verifyDirectory,
+                    Guid.NewGuid().ToString("N") + ".SLDPRT");
+                File.Copy(partPath, verifyPartPath, overwrite: false);
+                temporaryParts.Add(verifyPartPath);
+
                 var partOpenErrors = 0;
                 var partOpenWarnings = 0;
                 var part = _solidWorks.OpenDoc6(
-                    partPath,
+                    verifyPartPath,
                     (int)swDocumentTypes_e.swDocPART,
                     (int)swOpenDocOptions_e.swOpenDocOptions_Silent,
                     string.Empty,
                     ref partOpenErrors,
                     ref partOpenWarnings);
+                AddLoadWarnings(diagnostics, partOpenWarnings);
                 if (part is null || partOpenErrors != 0)
                 {
                     diagnostics.Add(new SolidWorksDiagnostic(
@@ -121,16 +131,8 @@ public sealed class SolidWorksAssemblyService
                     continue;
                 }
 
-                openParts.Add(partPath);
-                var partTitle = part.GetTitle();
-                if (!string.IsNullOrWhiteSpace(partTitle) && !openedPartTitles.Contains(partTitle, StringComparer.Ordinal))
-                    openedPartTitles.Add(partTitle);
-            }
-
-            if (openParts.Count > 0)
-            {
-                activateErrors = 0;
-                _solidWorks.ActivateDoc3(title, false, 0, ref activateErrors);
+                tracker.Track(part, partOpenWarnings);
+                openParts.Add(verifyPartPath);
             }
 
             if (openParts.Count < 2)
@@ -140,8 +142,11 @@ public sealed class SolidWorksAssemblyService
                     SolidWorksDiagnosticSeverity.Error,
                     "assembly",
                     "Fewer than two native parts could be loaded."));
-                return BuildFailure(assemblyPath, diagnostics);
+                return Failure(assemblyPath, 0, 0, false, false, 0, 0, diagnostics, tracker);
             }
+
+            activateErrors = 0;
+            _solidWorks.ActivateDoc3(title, false, 0, ref activateErrors);
 
             var assembly = document as AssemblyDoc;
             if (assembly is null)
@@ -151,7 +156,7 @@ public sealed class SolidWorksAssemblyService
                     SolidWorksDiagnosticSeverity.Error,
                     "assembly",
                     "AssemblyDoc is unavailable."));
-                return BuildFailure(assemblyPath, diagnostics);
+                return Failure(assemblyPath, 0, 0, false, false, 0, 0, diagnostics, tracker);
             }
 
             foreach (var partPath in openParts)
@@ -167,15 +172,12 @@ public sealed class SolidWorksAssemblyService
                     0);
                 if (component is null)
                 {
-                diagnostics.Add(new SolidWorksDiagnostic(
-                    "SW-ASM-005",
-                    SolidWorksDiagnosticSeverity.Error,
-                    "assembly",
-                    "AddComponent5 returned null for a native part (" +
-                    Path.GetFileName(partPath) + ", components=" +
-                    assembly.GetComponentCount(false).ToString(CultureInfo.InvariantCulture) +
-                    ", openParts=" + openParts.Count.ToString(CultureInfo.InvariantCulture) +
-                    ", activateErrors=" + activateErrors.ToString(CultureInfo.InvariantCulture) + ")."));
+                    diagnostics.Add(new SolidWorksDiagnostic(
+                        "SW-ASM-005",
+                        SolidWorksDiagnosticSeverity.Error,
+                        "assembly",
+                        "AddComponent5 returned null for a native part (" +
+                        Path.GetFileName(partPath) + ")."));
                 }
             }
 
@@ -187,11 +189,21 @@ public sealed class SolidWorksAssemblyService
                     SolidWorksDiagnosticSeverity.Error,
                     "assembly",
                     "Assembly contains fewer than two components."));
-                return BuildFailure(assemblyPath, diagnostics);
+                return Failure(assemblyPath, components, 0, false, false, 0, 0, diagnostics, tracker);
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(assemblyPath)!);
             var extension = document.Extension;
+            if (extension is null)
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-ASM-017",
+                    SolidWorksDiagnosticSeverity.Error,
+                    "assembly",
+                    "ModelDoc2.Extension is unavailable."));
+                return Failure(assemblyPath, components, 0, false, false, 0, 0, diagnostics, tracker);
+            }
+
             var saveErrors = 0;
             var saveWarnings = 0;
             var saved = extension.SaveAs3(
@@ -202,14 +214,17 @@ public sealed class SolidWorksAssemblyService
                 null,
                 ref saveErrors,
                 ref saveWarnings);
-            if (!saved || !File.Exists(assemblyPath) || new FileInfo(assemblyPath).Length <= 0)
+            AddSaveWarnings(diagnostics, saveWarnings);
+            if (!SolidWorksFileGuard.IsSaveSuccessful(saved, saveErrors, assemblyPath))
             {
                 diagnostics.Add(new SolidWorksDiagnostic(
                     "SW-ASM-006",
                     SolidWorksDiagnosticSeverity.Error,
                     "assembly",
-                    "Saving the test assembly failed."));
-                return new SolidWorksAssemblyResult(
+                    "Saving the test assembly failed (returned=" +
+                    saved.ToString(CultureInfo.InvariantCulture) +
+                    ", errors=" + saveErrors.ToString(CultureInfo.InvariantCulture) + ")."));
+                return Failure(
                     assemblyPath,
                     components,
                     0,
@@ -217,14 +232,11 @@ public sealed class SolidWorksAssemblyService
                     false,
                     saveErrors,
                     saveWarnings,
-                    diagnostics);
+                    diagnostics,
+                    tracker);
             }
 
-            Close(title);
-            title = null;
-            foreach (var partTitle in openedPartTitles)
-                Close(partTitle);
-            openedPartTitles.Clear();
+            AddCleanupWarnings(diagnostics, tracker.CloseCreated(document));
 
             var openErrors = 0;
             var openWarnings = 0;
@@ -235,14 +247,16 @@ public sealed class SolidWorksAssemblyService
                 string.Empty,
                 ref openErrors,
                 ref openWarnings);
-            if (reopened is null || openErrors != 0)
+            AddLoadWarnings(diagnostics, openWarnings);
+            var alreadyOpen = (openWarnings & (int)swFileLoadWarning_e.swFileLoadWarning_AlreadyOpen) != 0;
+            if (alreadyOpen)
             {
                 diagnostics.Add(new SolidWorksDiagnostic(
                     "SW-ASM-007",
                     SolidWorksDiagnosticSeverity.Error,
                     "assembly",
-                    "Reopening the test assembly failed."));
-                return new SolidWorksAssemblyResult(
+                    "The saved assembly was already open during reopen verification."));
+                return Failure(
                     assemblyPath,
                     components,
                     0,
@@ -250,14 +264,43 @@ public sealed class SolidWorksAssemblyService
                     false,
                     saveErrors,
                     saveWarnings + openWarnings,
-                    diagnostics);
+                    diagnostics,
+                    tracker);
             }
 
-            var reopenedTitle = reopened.GetTitle();
+            if (reopened is null || openErrors != 0)
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-ASM-007",
+                    SolidWorksDiagnosticSeverity.Error,
+                    "assembly",
+                    "Reopening the test assembly failed."));
+                return Failure(
+                    assemblyPath,
+                    components,
+                    0,
+                    true,
+                    false,
+                    saveErrors,
+                    saveWarnings + openWarnings,
+                    diagnostics,
+                    tracker);
+            }
+
+            tracker.Track(reopened, openWarnings);
             var reopenedComponents = reopened is AssemblyDoc reopenedAssembly
                 ? CountComponents(reopenedAssembly)
                 : 0;
-            Close(reopenedTitle);
+            if (reopenedComponents != components)
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-ASM-016",
+                    SolidWorksDiagnosticSeverity.Error,
+                    "assembly",
+                    "Reopened assembly has a different component count."));
+            }
+
+            AddCleanupWarnings(diagnostics, tracker.CloseCreated(reopened));
             return new SolidWorksAssemblyResult(
                 assemblyPath,
                 components,
@@ -266,7 +309,8 @@ public sealed class SolidWorksAssemblyService
                 reopenedComponents == components,
                 saveErrors,
                 saveWarnings + openWarnings,
-                diagnostics);
+                diagnostics,
+                tracker.Snapshot());
         }
         catch (Exception ex)
         {
@@ -275,29 +319,51 @@ public sealed class SolidWorksAssemblyService
                 SolidWorksDiagnosticSeverity.Error,
                 "assembly",
                 "SOLIDWORKS assembly smoke failed: " + ex.GetType().Name + "."));
-            return BuildFailure(assemblyPath, diagnostics);
+            return Failure(assemblyPath, 0, 0, false, false, 0, 0, diagnostics, tracker);
         }
         finally
         {
-            if (title is not null)
-                Close(title);
-            foreach (var partTitle in openedPartTitles)
-                Close(partTitle);
+            AddCleanupWarnings(diagnostics, tracker.CloseCreated());
+            foreach (var path in temporaryParts)
+            {
+                try
+                {
+                    if (File.Exists(path))
+                        File.Delete(path);
+                }
+                catch
+                {
+                    // Temporary assembly inputs live inside the Bridge output directory.
+                }
+            }
         }
     }
 
-    private SolidWorksAssemblyResult BuildFailure(
+    private SolidWorksAssemblyResult Failure(
         string assemblyPath,
-        IReadOnlyList<SolidWorksDiagnostic> diagnostics) =>
-        new(
+        int componentCount,
+        int reopenedComponentCount,
+        bool saved,
+        bool reopened,
+        int errors,
+        int warnings,
+        IReadOnlyList<SolidWorksDiagnostic> diagnostics,
+        SolidWorksDocumentTracker tracker)
+    {
+        var cleanup = tracker.CloseCreated();
+        if (diagnostics is List<SolidWorksDiagnostic> list)
+            AddCleanupWarnings(list, cleanup);
+        return new SolidWorksAssemblyResult(
             assemblyPath,
-            0,
-            0,
-            false,
-            false,
-            0,
-            0,
-            diagnostics);
+            componentCount,
+            reopenedComponentCount,
+            saved,
+            reopened,
+            errors,
+            warnings,
+            diagnostics,
+            tracker.Snapshot());
+    }
 
     private static int CountComponents(AssemblyDoc assembly)
     {
@@ -305,15 +371,43 @@ public sealed class SolidWorksAssemblyService
         return components?.Length ?? 0;
     }
 
-    private void Close(string title)
+    private static void AddSaveWarnings(List<SolidWorksDiagnostic> diagnostics, int warnings)
     {
-        try
+        foreach (var flag in SolidWorksWarningDecoder.DecodeSaveWarnings(warnings))
         {
-            _solidWorks.CloseDoc(title);
+            diagnostics.Add(new SolidWorksDiagnostic(
+                "SW-ASM-015",
+                SolidWorksDiagnosticSeverity.Warning,
+                "assembly",
+                "Save warning " + flag.Name + " (" +
+                flag.Value.ToString(CultureInfo.InvariantCulture) + ")."));
         }
-        catch
+    }
+
+    private static void AddLoadWarnings(List<SolidWorksDiagnostic> diagnostics, int warnings)
+    {
+        foreach (var flag in SolidWorksWarningDecoder.DecodeLoadWarnings(warnings))
         {
-            // Best effort; only documents created by this service are targeted.
+            diagnostics.Add(new SolidWorksDiagnostic(
+                "SW-ASM-016",
+                SolidWorksDiagnosticSeverity.Warning,
+                "assembly",
+                "Open warning " + flag.Name + " (" +
+                flag.Value.ToString(CultureInfo.InvariantCulture) + ")."));
+        }
+    }
+
+    private static void AddCleanupWarnings(
+        List<SolidWorksDiagnostic> diagnostics,
+        IReadOnlyList<string> warnings)
+    {
+        foreach (var warning in warnings)
+        {
+            diagnostics.Add(new SolidWorksDiagnostic(
+                "SW-ASM-CLEANUP",
+                SolidWorksDiagnosticSeverity.Warning,
+                "documents",
+                warning));
         }
     }
 }

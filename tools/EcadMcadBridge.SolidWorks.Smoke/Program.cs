@@ -81,6 +81,7 @@ internal static class SmokeRunner
             read,
             options.PackageDirectory,
             Path.Combine(options.OutputDirectory, "native"));
+        var baselineDocuments = ReadOpenDocuments(solidWorks);
         SolidWorksImportPlan selectedPlan = plan;
         if (options.OnlyAsset is not null)
         {
@@ -104,7 +105,8 @@ internal static class SmokeRunner
             : new SolidWorksImportResult(
                 Array.Empty<ImportedBodyPart>(),
                 Array.Empty<SolidWorksImportedAsset>(),
-                selectedPlan.Errors);
+                selectedPlan.Errors,
+                new SolidWorksDocumentLifecycle(0, 0, 0, 0, Array.Empty<string>()));
         importTimer.Stop();
 
         SolidWorksAssemblyResult? assembly = null;
@@ -129,6 +131,13 @@ internal static class SmokeRunner
         }
 
         total.Stop();
+        var remainingDocuments = ReadOpenDocuments(solidWorks);
+        var baselineSet = new HashSet<string>(baselineDocuments, StringComparer.OrdinalIgnoreCase);
+        var createdDocumentsRemaining = remainingDocuments
+            .Where(item => !baselineSet.Contains(item))
+            .ToArray();
+        var baselinePreserved = baselineDocuments.All(item =>
+            remainingDocuments.Contains(item, StringComparer.OrdinalIgnoreCase));
         var diagnostics = plan.Diagnostics
             .Concat(importResult.Diagnostics)
             .Concat(assembly?.Diagnostics ?? Array.Empty<SolidWorksDiagnostic>())
@@ -146,6 +155,8 @@ internal static class SmokeRunner
             && importedAll
             && mappedAll
             && assemblyOk
+            && baselinePreserved
+            && createdDocumentsRemaining.Length == 0
             && diagnostics.All(item => item.Severity != SolidWorksDiagnosticSeverity.Error);
 
         var report = new
@@ -168,6 +179,15 @@ internal static class SmokeRunner
             assets = importResult.Assets,
             bodyParts = importResult.BodyParts,
             assembly,
+            baselineDocuments,
+            remainingDocuments,
+            createdDocumentsRemaining,
+            baselinePreserved,
+            documentLifecycle = new
+            {
+                import = importResult.Lifecycle,
+                assembly = assembly?.Lifecycle,
+            },
             diagnostics,
         };
 
@@ -183,7 +203,37 @@ internal static class SmokeRunner
         if (assembly is not null)
             Console.WriteLine("assemblyComponents=" + assembly.ComponentCount + " reopened=" + assembly.ReopenedComponentCount);
         Console.WriteLine("success=" + success);
+        Console.WriteLine("baselineDocuments=" + baselineDocuments.Count + " remainingDocuments=" + remainingDocuments.Count + " createdDocumentsRemaining=" + createdDocumentsRemaining.Length + " baselinePreserved=" + baselinePreserved);
         return success ? 0 : 1;
+    }
+
+    private static IReadOnlyList<string> ReadOpenDocuments(ISldWorks solidWorks)
+    {
+        try
+        {
+            var raw = solidWorks.GetDocuments();
+            var documents = raw switch
+            {
+                object[] array => array.OfType<ModelDoc2>().ToArray(),
+                ModelDoc2 single => new[] { single },
+                _ => Array.Empty<ModelDoc2>(),
+            };
+            return documents
+                .Select(document =>
+                {
+                    var path = document.GetPathName();
+                    return string.IsNullOrWhiteSpace(path)
+                        ? "title:" + document.GetTitle()
+                        : SolidWorksPath.Normalize(path) ?? path;
+                })
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
     }
 
     private static IReadOnlyList<string> SelectSampleAssets(SolidWorksImportPlan plan)

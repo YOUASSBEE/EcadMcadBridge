@@ -79,9 +79,17 @@ tests/
 - Backend (`EcadMcadBridge.SolidWorks`) не ссылается на Altium SDK.
 - Диагностическое приложение подключается к уже запущенному SOLIDWORKS через ROT.
   COM-вызовы — в STA, последовательно, без `Task.Run`/`Parallel`.
-- Не запускать и не завершать пользовательский процесс SOLIDWORKS; не менять его
-  настройки и не закрывать документы, созданные не приложением.
-- Smoke-документы сохраняются только в `%TEMP%`; CAD-бинарники в Git не добавляются.
+- Не запускать и не завершать пользовательский процесс SOLIDWORKS. До работы снять
+  baseline через `ISldWorks.GetDocuments()` и закрывать только документы, появившиеся
+  после baseline; документы с `swFileLoadWarning_AlreadyOpen` защищать от закрытия.
+- Временные настройки SOLIDWORKS (например, `swSaveAssemblyAsPartOptions`) менять
+  только на время операции и безусловно восстанавливать в `finally`; неудача
+  восстановления — Error.
+- Existing/open target `.SLDPRT`/`.SLDASM` не перезаписывать и не удалять;
+  `SaveAs3` считать успешным только при `true`, `Errors=0`, существующем файле
+  ненулевого размера. Warning-биты декодировать по именам; known bit `128` не ошибка.
+- Smoke-документы и временные копии сохраняются только в `%TEMP%`; CAD-бинарники
+  в Git не добавляются.
 - Add-in registration, Registry, установщик и UI — вне scope D-020.
 - `AddComponent5(0,0,0)` — только API smoke, не ECAD placement. `T_B_S`, Bottom,
   Euler composition не вычисляются до подтверждённой системы координат.
@@ -209,7 +217,7 @@ chore(repo): pin .NET SDK
 | .NET SDK | 10.0.404 (также установлен 11.0.100; для проекта использовать 10.0.x) |
 | Altium SDK | 4.0.1, найден в `Altium Developer\SDK4.0` |
 | Altium Designer | 26 (точный build — Q-002); совместимость с .NET 10/`net10.0-windows` подтверждена оператором |
-| SOLIDWORKS | 2026 (не используется на текущем этапе; TFM — O-009) |
+| SOLIDWORKS | 2026 SP3.2 / 34.3.2.0003; backend — `net10.0-windows`, x64 (D-020); Add-in host отдельно |
 | Референсный Add-in | `InteractiveBom.zip`: исходный проект `InteractiveBom.sln` (shim/Impl/Panels/Tests), Release `net10.0-windows`; отдельная DLL `InteractiveBomPlug.dll` `net8.0-windows` — другой источник |
 
 Пути установки в документации приведены как ориентир; в коде и скриптах использовать

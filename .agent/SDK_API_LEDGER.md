@@ -268,7 +268,7 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-11 | Автоматизация установки расширения и правки `ExtensionsRegistry.xml` | Известен только ручной путь | Отдельная задача; учесть права администратора и блокировку файла |
 | V-12 | Лицензирование и допустимость поставки SDK-сборок Altium вместе с Add-in | Требуется проверка лицензии; в репозиторий DLL не коммитятся | Юридическая/техническая проверка, решение в `DECISIONS.md` |
 | V-13 | Точный build AD26 и runtime на целевом стенде | Частично закрыт в `BRIDGE-000001`: `X2.EXE` 26.12.2.9, `X2.runtimeconfig.json` → `tfm=net10.0`, `Microsoft.NETCore.App`/`Microsoft.WindowsDesktop.App` 10.0.10, CLR в логе Add-in — 10.0.10. Конкретный вариант `Altium.SDK.dll` внутри хоста по-прежнему не изолирован | Зафиксированы версия файла, runtimeconfig и лог загрузки; изоляция сборки — отдельная задача |
-| V-14 | API SOLIDWORKS 2026 (interop, версия, загрузка Add-in) | Backend API подтверждён в `BRIDGE-000015` (S-001…S-010), interop 34.3.2.3; загрузка `ISwAddin`/COM Add-in в хосте не проверялась | Backend smoke выполнен; Add-in registration — отдельная задача |
+| V-14 | API SOLIDWORKS 2026 (interop, версия, загрузка Add-in) | Backend API подтверждён в `BRIDGE-000015` (S-001…S-015), interop 34.3.2.3; загрузка `ISwAddin`/COM Add-in в хосте не проверялась | Backend smoke и lifecycle-probe выполнены; Add-in registration — отдельная задача |
 | V-15 | Поддержка WPF/WinForms внутри AD26 и тема оформления | Частично закрыт в `BRIDGE-000001`: хост-диалог `DXP.Utils.ShowInfo` (C-69) и минимальная WinForms-панель (C-72) работают в AD26; полноценные панели не создавались | Отдельный smoke-тест полноценной панели; для текущей команды кастомный UI не нужен |
 | V-16 | Требования к потоку и COM-апартаменту для вызовов PCB API | Не проверено; возможны UI-thread-only ограничения | Smoke-тест с фоновым потоком и без него |
 | V-17 | Поведение `TIterationMethod.eProcessAll` на всех типах объектов | Значение известно, полный набор объектов не проверен | Сравнить счётчики с UI/отчётом Altium |
@@ -291,13 +291,15 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | Постоянное использование reflection | Допустимо только как временный обход с записью в V-раздел и планом замены |
 | Вызовы недокументированных DispId | Запрещены |
 | Запись в плату на этапе `BRIDGE-000001` | Запрещена |
-| API SOLIDWORKS в категории «подтверждено» | Пока нет ни одной проверенной сигнатуры |
+| API SOLIDWORKS без доказательства | Сигнатуры без исходника/метаданных/успешного вызова в хосте в «Подтверждено» не переносятся |
 
 ## 5. SOLIDWORKS 2026
 
 Подтверждено в `BRIDGE-000015` на SOLIDWORKS 2026 SP3.2 (34.3.2.0003),
 интероп-сборки 34.3.2.3. Smoke: multi package `3c363021…` (3 STEP assets,
 assembly 2 components) и MiniPC package (155 unique STEP assets; см. report).
+R1 дополнительно подтвердил enumerate/close-only-created lifecycle, прямое
+сохранение assembly→part через временную настройку и декодирование warning-флагов.
 `Extra`/неподтверждённые Add-in интерфейсы не смешиваются с backend API.
 
 | ID | Сигнатура | Доказательство / ограничение |
@@ -312,6 +314,17 @@ assembly 2 components) и MiniPC package (155 unique STEP assets; см. report).
 | S-008 | `ModelDoc2 ISldWorks.ActivateDoc3(string Name, bool UseUserPreferences, int Option, ref int Errors)`; `void ISldWorks.CloseDoc(string Name)` | Активация/закрытие только созданных документов; пользовательский процесс не завершается |
 | S-009 | `Feature IPartDoc.InsertPart3(string FileName, int Options, string ConfigurationName)`; `swInsertPartOptions_e.swInsertPartImportSolids` / `swInsertPartBreakLink` | Исследован для merge компонентов; финальный backend использует `SaveAs3` assembly→part; `InsertPart3` не входит в production path |
 | S-010 | `string ISldWorks.RevisionNumber()`; `void ISldWorks.GetBuildNumbers2(out string BaseVersion, out string CurrentVersion, out string HotFixes)` | Smoke output: revision `34.3.2`, build `sw2026_SP03/d260702.008/` |
+| S-011 | `object ISldWorks.GetDocuments()` | R1 smoke: baseline до операции и diff после операции; предварительно открытые `.SLDPRT`/STEP остались открытыми, Bridge-документов не осталось |
+| S-012 | `string IModelDoc2.GetTitle()`; `string IModelDoc2.GetPathName()`; `int IModelDoc2.GetType()` | R1 smoke: идентификация/защита baseline и повторное чтение текущего имени документа после `SaveAs3`; `GetType()` различает `swDocPART`/`swDocASSEMBLY` |
+| S-013 | `int ISldWorks.GetUserPreferenceIntegerValue(int UserPreferenceIntegerValue)`; `bool ISldWorks.SetUserPreferenceIntegerValue(int UserPreferenceIntegerValue, int Value)`; `swUserPreferenceIntegerValue_e.swSaveAssemblyAsPartOptions`; `swSaveAsmAsPartOptions_e.swSaveAsmAsPart_AllComponents` | R1 smoke assembly→part: настройка выставляется на `AllComponents` и восстанавливается в `finally`; диагностика `SW-IMP-019` подтвердила возврат к исходному значению `1` |
+| S-014 | `ModelDoc2 ISldWorks.GetOpenDocument(string Name)` | R1 guard `TryValidateNewTarget`: для отсутствующих target вызов вернул `null`; занятый target отклоняется без записи. Поведение на уже открытом документе отдельно не проверялось |
+| S-015 | `swFileSaveWarning_e.swFileSaveWarning_AnimatorCameraViews` (128); `swFileLoadWarning_e.swFileLoadWarning_AlreadyOpen` (128) | Signatures/values from interop metadata; unit tests `DecodesAnimatorCameraViewsWarning128`, `DecodesAlreadyOpenLoadWarning`; R1 smoke не трактует 128 как ошибку |
+
+`IModelDoc2.Close`/`IModelDoc2.Quit` дали `NotImplementedException 0x80004001`
+в прямом probe; в production cleanup используется подтверждённая пара
+`ActivateDoc3`/`CloseDoc` с fallback `QuitDoc`, а успех проверяется повторным
+`GetDocuments()`, а не возвращаемым значением вызова. Отдельный успех `QuitDoc`
+не изолирован, поэтому в ledger он не записывается как подтверждённый API.
 
 `ISwAddin`, `ConnectToSW`, `DisconnectFromSW`, регистрация Add-in и
 `CommandManager` в хосте не проверялись. Они остаются в разделе ожидающих
@@ -338,3 +351,4 @@ assembly 2 components) и MiniPC package (155 unique STEP assets; см. report).
 | 2026-11-24 | BRIDGE-000007: C-89 document path/modified API; V-05 закрыт, Altium Package Export | local-agent |
 | 2026-11-24 | BRIDGE-000009: C-90…C-93 tracks/vias/regions/texts; Q-010 частично открыт (region arc fallback) | local-agent |
 | 2026-11-25 | BRIDGE-000015: добавлены S-001…S-010 (SOLIDWORKS STEP import/native SLDPRT/assembly smoke); V-14 backend частично закрыт | local-agent |
+| 2026-11-25 | BRIDGE-000015-R1: добавлены S-011…S-015 (GetDocuments, ModelDoc2 identity, preference set/restore, GetOpenDocument, warning decode); уточнено ограничение Close/Quit | local-agent |

@@ -6,7 +6,7 @@
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
 | Текущая ветка | `agent/BRIDGE-000015-solidworks-step-import` |
-| Статус | `BRIDGE-000015` добавляет SOLIDWORKS STEP import backend и native SLDPRT smoke |
+| Статус | `BRIDGE-000015-R1`: SOLIDWORKS STEP import backend и native SLDPRT smoke с защитой жизненного цикла документов |
 | Дата фиксации | 2026-11-25 |
 | Владелец продукта | Оператор проекта (человек) |
 
@@ -222,11 +222,13 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   content-addressed `assets/3d/<sha256>.step|.x_t`; capability
   `component-3d-models`; raw IU/mm metadata, потоковое копирование/хеширование
   assets и полное покрытие manifest/checksums (D-018).
-- `BRIDGE-000015`: добавлен отдельный `EcadMcadBridge.SolidWorks`
+- `BRIDGE-000015-R1`: добавлен отдельный `EcadMcadBridge.SolidWorks`
   (`net10.0-windows`, x64): Core Reader → unique STEP plan → typed SOLIDWORKS
   import → native `.SLDPRT`; assembly API smoke с `AddComponent5`. Smoke harness
-  подключается через ROT, работает в STA и не регистрирует Add-in. Реальное
-  размещение ECAD-компонентов не реализовано (D-020).
+  подключается через ROT, работает в STA и не регистрирует Add-in. R1 добавил
+  baseline `GetDocuments()`, защиту пользовательских/open документов, no-overwrite
+  guard, временное сохранение assembly→part с восстановлением настройки и decode
+  warning-флагов. Реальное размещение ECAD-компонентов не реализовано (D-020).
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.
   `BRIDGE-000002` новых Altium API не добавляет.
 - Git-протокол и runtime-обмен разделены: Git не используется для пользовательских PCB, STEP
@@ -240,7 +242,7 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 | Q-001 | Загружает ли AD26 in-process сборку `net10.0-windows`? | **Закрыт:** подтверждено оператором (C-65) | TFM InteractiveBom выбирается по версии Altium; TFM Bridge зафиксирован как `net10.0-windows` |
 | Q-002 | Какая точная сборка Altium Designer 26 используется на стенде? | **Уточнён:** `X2.EXE` 26.12.2.9, runtime `net10.0` / 10.0.10 | Изоляция конкретного варианта `Altium.SDK.dll` внутри хоста остаётся открытой (V-13) |
 | Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | Открыт; контракт хранения готов (`BRIDGE-000013`) | Нужно для будущей передачи в SOLIDWORKS, API не проверен; извлечение вынесено в `BRIDGE-000014` |
-| Q-004 | Какой interop-пакет и API использовать для SOLIDWORKS 2026? | **Закрыт для prototype:** local `SolidWorks.Interop.*` 34.3.2.3, ROT, STA; Add-in registration отдельно | STEP/native/assembly API подтверждены smoke `BRIDGE-000015`; D-020 |
+| Q-004 | Какой interop-пакет и API использовать для SOLIDWORKS 2026? | **Закрыт для prototype:** local `SolidWorks.Interop.*` 34.3.2.3, ROT, STA; Add-in registration отдельно | STEP/native/assembly/lifecycle API подтверждены smoke `BRIDGE-000015-R1` (S-001…S-015); D-020 |
 | Q-005 | Какой UI-стек использовать в Add-in (WPF/WinForms)? | Частично закрыт | Для smoke-команды — хост-диалог, для запуска сервера — минимальная WinForms-панель; полноценные панели ещё не проектировались |
 | Q-006 | Как автоматизировать установку/регистрацию расширения? | Открыт | Известен ручной путь через `ExtensionsRegistry.xml`; автоматизация требует отдельного решения |
 | Q-007 | Можно ли распространять SDK-сборки Altium в составе репозитория? | Открыт | Лицензионные ограничения; вероятно, ссылаться на локальную установку |
