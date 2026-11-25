@@ -8,7 +8,7 @@ created: 2026-11-25T16:30:00+03:00
 updated: 2026-11-25T20:20:40+03:00
 base: source
 branch: agent/BRIDGE-000015-solidworks-step-import
-commit: 4098147
+commit: ac283b9
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/14
 related:
   - BRIDGE-000004
@@ -390,8 +390,8 @@ no-overwrite guard, save-result guard, cleanup statuses (`Verified`/`Unavailable
 
 ## 12. Commit и PR
 
-- Code commit: `4098147` (`fix(solidworks): stop cleanup on incomplete snapshots`).
-- Предшествующий R1-FIX-001 commit: `5bb4461`; R1 commit: `9055bba`.
+- Code commit: `ac283b9` (`fix(solidworks): verify state after close exceptions`).
+- Предшествующие: R1-FIX-002 `4098147`, R1-FIX-001 `5bb4461`, R1 `9055bba`.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/14, ветка
   `agent/BRIDGE-000015-solidworks-step-import`, base `source`, merge запрещён.
 - PR description обновлён под R1/R1-FIX-001/R1-FIX-002/R1-FIX-003: 258 тестов,
