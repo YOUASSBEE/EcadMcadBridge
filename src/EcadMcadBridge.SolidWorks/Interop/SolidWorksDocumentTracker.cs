@@ -155,19 +155,8 @@ public sealed class SolidWorksDocumentTracker
         }
 
         var current = ReadCurrentDocuments();
-        if (current.Status == SolidWorksDocumentSnapshotStatus.Unavailable)
-        {
-            warnings.Add(
-                "Open documents could not be enumerated; no Bridge documents were closed" +
-                (string.IsNullOrWhiteSpace(current.Message) ? "." : ": " + current.Message));
-            _comUnavailable = true;
-            _cleanupStatus = SolidWorksCleanupStatus.Unavailable;
-            _finalStatus = current.Status;
-            _finalCount = current.Documents.Count;
-            _snapshotMessage = current.Message;
-            _warnings.AddRange(warnings);
-            return warnings;
-        }
+        if (!SolidWorksCleanupPolicy.CanStartCleanup(current.Status))
+            return StopCleanup(current, warnings);
 
         var unknownDocuments = current.Documents
             .Where(document =>
@@ -178,6 +167,8 @@ public sealed class SolidWorksDocumentTracker
         foreach (var unknownDocument in unknownDocuments)
             ReportUnknown(unknownDocument, warnings);
 
+        CapturedDocumentSet? terminalSnapshot = null;
+        SolidWorksCleanupStatus? terminalStatus = null;
         if (unknownDocuments.Length > 0)
         {
             // Closing an assembly can unload/close its component documents. Fail closed:
@@ -224,27 +215,29 @@ public sealed class SolidWorksDocumentTracker
                     continue;
                 }
 
-                var outcome = TryCloseIdentity(document, warnings);
-                if (outcome == CloseOutcome.Unavailable)
-                {
-                    _comUnavailable = true;
-                    break;
-                }
-
-                if (outcome == CloseOutcome.Closed)
+                var outcome = TryCloseIdentity(document, warnings, out var verification);
+                if (outcome == SolidWorksDocumentCheckResult.Closed)
                 {
                     _closedCount++;
                     _owned.Remove(owned.Identity);
+                    continue;
+                }
+
+                if (!SolidWorksCleanupPolicy.CanContinueWithNextDocument(outcome))
+                {
+                    terminalSnapshot = verification;
+                    terminalStatus = outcome == SolidWorksDocumentCheckResult.Incomplete
+                        ? SolidWorksCleanupStatus.Incomplete
+                        : SolidWorksCleanupStatus.Unavailable;
+                    if (outcome == SolidWorksDocumentCheckResult.Unavailable)
+                        _comUnavailable = true;
+                    break;
                 }
             }
         }
 
-        var final = _comUnavailable
-            ? new CapturedDocumentSet(
-                SolidWorksDocumentSnapshotStatus.Unavailable,
-                Array.Empty<DocumentIdentity>(),
-                "SOLIDWORKS COM/RPC is unavailable.")
-            : ReadCurrentDocuments();
+        var final = terminalSnapshot
+            ?? (_comUnavailable ? UnavailableSnapshot() : ReadCurrentDocuments());
 
         if (final.Status == SolidWorksDocumentSnapshotStatus.Unavailable)
             _comUnavailable = true;
@@ -258,20 +251,23 @@ public sealed class SolidWorksDocumentTracker
             }
         }
 
-        var missingBaseline = final.Status == SolidWorksDocumentSnapshotStatus.Unavailable
-            ? 0
-            : _baseline.Count(item => !final.Documents.Any(document => SameDocument(item, document)));
-        var ownedOpen = _owned.Values.Count(item =>
-            final.Documents.Any(document => SameDocument(item, document)));
-        var unknown = final.Documents.Count(document =>
-            !IsBaseline(document)
-            && !IsProtected(document)
-            && FindOwned(document) is null);
+        var missingBaseline = final.Status == SolidWorksDocumentSnapshotStatus.Available
+            ? _baseline.Count(item => !final.Documents.Any(document => SameDocument(item, document)))
+            : 0;
+        var ownedOpen = final.Status == SolidWorksDocumentSnapshotStatus.Available
+            ? _owned.Values.Count(item => final.Documents.Any(document => SameDocument(item, document)))
+            : _owned.Count;
+        var unknown = final.Status == SolidWorksDocumentSnapshotStatus.Available
+            ? final.Documents.Count(document =>
+                !IsBaseline(document)
+                && !IsProtected(document)
+                && FindOwned(document) is null)
+            : 0;
 
         _finalStatus = final.Status;
         _finalCount = final.Documents.Count;
         _snapshotMessage = final.Message ?? _baselineMessage;
-        _cleanupStatus = SolidWorksCleanupEvaluator.Evaluate(
+        _cleanupStatus = terminalStatus ?? SolidWorksCleanupEvaluator.Evaluate(
             new SolidWorksCleanupEvidence(
                 BaselineStatus,
                 final.Status,
@@ -284,12 +280,36 @@ public sealed class SolidWorksDocumentTracker
         {
             warnings.Add(
                 "Document cleanup is " + _cleanupStatus +
-                (ownedOpen > 0 ? "; " + ownedOpen.ToString(CultureInfo.InvariantCulture) + " Bridge-owned document(s) remain open" : string.Empty) +
+                (ownedOpen > 0 ? "; " + ownedOpen.ToString(CultureInfo.InvariantCulture) + " Bridge-owned document(s) remain tracked/unconfirmed" : string.Empty) +
                 (unknown > 0 ? "; " + unknown.ToString(CultureInfo.InvariantCulture) + " unidentified post-baseline document(s) remain open" : string.Empty) +
                 (missingBaseline > 0 ? "; " + missingBaseline.ToString(CultureInfo.InvariantCulture) + " baseline document(s) are missing" : string.Empty) +
                 (string.IsNullOrWhiteSpace(_snapshotMessage) ? "." : ": " + _snapshotMessage));
         }
 
+        _warnings.AddRange(warnings);
+        return warnings;
+    }
+
+    private IReadOnlyList<string> StopCleanup(
+        CapturedDocumentSet snapshot,
+        List<string> warnings)
+    {
+        if (snapshot.Status == SolidWorksDocumentSnapshotStatus.Unavailable)
+            _comUnavailable = true;
+
+        _finalStatus = snapshot.Status;
+        _finalCount = snapshot.Documents.Count;
+        _snapshotMessage = snapshot.Message ?? _baselineMessage;
+        _cleanupStatus = snapshot.Status == SolidWorksDocumentSnapshotStatus.Unavailable
+            ? SolidWorksCleanupStatus.Unavailable
+            : SolidWorksCleanupStatus.Incomplete;
+        warnings.Add(
+            "Document cleanup is " + _cleanupStatus +
+            "; no Bridge documents were closed because the initial snapshot is " +
+            snapshot.Status +
+            (string.IsNullOrWhiteSpace(snapshot.Message) ? string.Empty : ": " + snapshot.Message) +
+            "; " + _owned.Count.ToString(CultureInfo.InvariantCulture) +
+            " known Bridge-owned document(s) remain tracked/unconfirmed.");
         _warnings.AddRange(warnings);
         return warnings;
     }
@@ -323,26 +343,31 @@ public sealed class SolidWorksDocumentTracker
             ") was not identified as Bridge-owned; it was left open.");
     }
 
-    private CloseOutcome TryCloseIdentity(DocumentIdentity current, List<string> warnings)
+    private SolidWorksDocumentCheckResult TryCloseIdentity(
+        DocumentIdentity current,
+        List<string> warnings,
+        out CapturedDocumentSet? verification)
     {
+        verification = null;
         if (string.IsNullOrWhiteSpace(current.Title))
         {
             warnings.Add("A Bridge document has no current title; it was not closed.");
-            return CloseOutcome.Failed;
+            return SolidWorksDocumentCheckResult.StillOpen;
         }
 
         var label = Path.GetFileName(current.Path ?? current.Title);
         var lastError = string.Empty;
         for (var attempt = 0; attempt < 5; attempt++)
         {
-            var outcome = TryCloseDocument(current, out lastError);
-            if (outcome == CloseOutcome.Closed)
-                return CloseOutcome.Closed;
-            if (outcome == CloseOutcome.Unavailable)
+            var outcome = TryCloseDocument(current, out lastError, out verification);
+            if (outcome == SolidWorksDocumentCheckResult.Closed)
+                return SolidWorksDocumentCheckResult.Closed;
+            if (!SolidWorksCleanupPolicy.CanContinueWithNextDocument(outcome))
             {
                 warnings.Add(
-                    "A Bridge document (" + label + ") could not be closed: " + lastError + ".");
-                return CloseOutcome.Unavailable;
+                    "A Bridge document (" + label + ") close could not be verified: " +
+                    outcome + "; " + lastError + ".");
+                return outcome;
             }
 
             if (attempt < 4)
@@ -350,7 +375,7 @@ public sealed class SolidWorksDocumentTracker
         }
 
         warnings.Add("A Bridge document (" + label + ") could not be closed: " + lastError + ".");
-        return CloseOutcome.Failed;
+        return SolidWorksDocumentCheckResult.StillOpen;
     }
 
     private DocumentIdentity? FindOwned(DocumentIdentity document) =>
@@ -387,9 +412,13 @@ public sealed class SolidWorksDocumentTracker
         return current;
     }
 
-    private CloseOutcome TryCloseDocument(DocumentIdentity identity, out string lastError)
+    private SolidWorksDocumentCheckResult TryCloseDocument(
+        DocumentIdentity identity,
+        out string lastError,
+        out CapturedDocumentSet? verification)
     {
         lastError = string.Empty;
+        verification = null;
         var candidates = new[] { identity.Path, identity.Title }
             .Where(item => !string.IsNullOrWhiteSpace(item))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -411,7 +440,7 @@ public sealed class SolidWorksDocumentTracker
                 if (SolidWorksComFailure.IsUnavailable(ex))
                 {
                     AppendError(ref lastError, DescribeCloseFailure("ActivateDoc3", candidate!, ex));
-                    return CloseOutcome.Unavailable;
+                    return SolidWorksDocumentCheckResult.Unavailable;
                 }
                 // Closing can still work without activation.
             }
@@ -422,23 +451,23 @@ public sealed class SolidWorksDocumentTracker
             try
             {
                 _solidWorks.CloseDoc(candidate!);
-                if (IsClosed(identity))
-                    return CloseOutcome.Closed;
-                if (_comUnavailable)
+                var result = CheckClosed(identity, out verification);
+                if (result == SolidWorksDocumentCheckResult.Closed)
+                    return SolidWorksDocumentCheckResult.Closed;
+                if (!SolidWorksCleanupPolicy.CanFallbackToQuit(result))
                 {
-                    AppendError(ref lastError, "CloseDoc verification could not read open documents.");
-                    return CloseOutcome.Unavailable;
+                    AppendError(
+                        ref lastError,
+                        "CloseDoc verification is " + result + "; QuitDoc fallback was not attempted.");
+                    return result;
                 }
                 AppendError(ref lastError, "CloseDoc returned but document is still open.");
             }
             catch (Exception ex)
             {
-                if (SolidWorksComFailure.IsUnavailable(ex))
-                {
-                    AppendError(ref lastError, DescribeCloseFailure("CloseDoc", candidate!, ex));
-                    return CloseOutcome.Unavailable;
-                }
                 AppendError(ref lastError, DescribeCloseFailure("CloseDoc", candidate!, ex));
+                if (SolidWorksComFailure.IsUnavailable(ex))
+                    return SolidWorksDocumentCheckResult.Unavailable;
             }
         }
 
@@ -447,39 +476,42 @@ public sealed class SolidWorksDocumentTracker
             try
             {
                 _solidWorks.QuitDoc(candidate!);
-                if (IsClosed(identity))
-                    return CloseOutcome.Closed;
-                if (_comUnavailable)
+                var result = CheckClosed(identity, out verification);
+                if (result == SolidWorksDocumentCheckResult.Closed)
+                    return SolidWorksDocumentCheckResult.Closed;
+                if (!SolidWorksCleanupPolicy.CanFallbackToQuit(result))
                 {
-                    AppendError(ref lastError, "QuitDoc verification could not read open documents.");
-                    return CloseOutcome.Unavailable;
+                    AppendError(
+                        ref lastError,
+                        "QuitDoc verification is " + result + ".");
+                    return result;
                 }
                 AppendError(ref lastError, "QuitDoc returned but document is still open.");
             }
             catch (Exception ex)
             {
-                if (SolidWorksComFailure.IsUnavailable(ex))
-                {
-                    AppendError(ref lastError, DescribeCloseFailure("QuitDoc", candidate!, ex));
-                    return CloseOutcome.Unavailable;
-                }
                 AppendError(ref lastError, DescribeCloseFailure("QuitDoc", candidate!, ex));
+                if (SolidWorksComFailure.IsUnavailable(ex))
+                    return SolidWorksDocumentCheckResult.Unavailable;
             }
         }
 
-        return CloseOutcome.Failed;
+        return SolidWorksDocumentCheckResult.StillOpen;
     }
 
-    private bool IsClosed(DocumentIdentity identity)
+    private SolidWorksDocumentCheckResult CheckClosed(
+        DocumentIdentity identity,
+        out CapturedDocumentSet snapshot)
     {
-        if (_comUnavailable)
-            return false;
+        snapshot = ReadCurrentDocuments();
+        if (snapshot.Status == SolidWorksDocumentSnapshotStatus.Unavailable)
+            return SolidWorksDocumentCheckResult.Unavailable;
+        if (snapshot.Status == SolidWorksDocumentSnapshotStatus.Incomplete)
+            return SolidWorksDocumentCheckResult.Incomplete;
 
-        var current = ReadCurrentDocuments();
-        if (current.Status != SolidWorksDocumentSnapshotStatus.Available)
-            return false;
-
-        return !current.Documents.Any(item => SameDocument(item, identity));
+        return snapshot.Documents.Any(item => SameDocument(item, identity))
+            ? SolidWorksDocumentCheckResult.StillOpen
+            : SolidWorksDocumentCheckResult.Closed;
     }
 
     private static CapturedDocumentSet ReadDocuments(ISldWorks solidWorks)
@@ -595,12 +627,11 @@ public sealed class SolidWorksDocumentTracker
     private static void AppendError(ref string lastError, string message) =>
         lastError = string.IsNullOrWhiteSpace(lastError) ? message : lastError + "; " + message;
 
-    private enum CloseOutcome
-    {
-        Closed,
-        Failed,
-        Unavailable,
-    }
+    private static CapturedDocumentSet UnavailableSnapshot() =>
+        new(
+            SolidWorksDocumentSnapshotStatus.Unavailable,
+            Array.Empty<DocumentIdentity>(),
+            "SOLIDWORKS COM/RPC is unavailable.");
 
     private sealed record CapturedDocumentSet(
         SolidWorksDocumentSnapshotStatus Status,

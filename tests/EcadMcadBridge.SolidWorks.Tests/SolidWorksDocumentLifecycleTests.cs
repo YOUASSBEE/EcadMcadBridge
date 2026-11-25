@@ -102,4 +102,68 @@ public sealed class SolidWorksDocumentLifecycleTests
             isProtected: true,
             isBridgeOwned: true));
     }
+
+    [Fact]
+    public void AvailableInitialSnapshotAllowsCleanup()
+    {
+        Assert.True(SolidWorksCleanupPolicy.CanStartCleanup(
+            SolidWorksDocumentSnapshotStatus.Available));
+    }
+
+    [Fact]
+    public void IncompleteInitialSnapshotForbidsCleanup()
+    {
+        Assert.False(SolidWorksCleanupPolicy.CanStartCleanup(
+            SolidWorksDocumentSnapshotStatus.Incomplete));
+    }
+
+    [Fact]
+    public void UnavailableInitialSnapshotForbidsCleanup()
+    {
+        Assert.False(SolidWorksCleanupPolicy.CanStartCleanup(
+            SolidWorksDocumentSnapshotStatus.Unavailable));
+    }
+
+    [Fact]
+    public void IncompleteCloseDocVerificationForbidsQuitFallback()
+    {
+        Assert.False(SolidWorksCleanupPolicy.CanFallbackToQuit(
+            SolidWorksDocumentCheckResult.Incomplete));
+        Assert.False(SolidWorksCleanupPolicy.CanContinueWithNextDocument(
+            SolidWorksDocumentCheckResult.Incomplete));
+    }
+
+    [Fact]
+    public void UnavailableCloseDocVerificationForbidsQuitFallback()
+    {
+        Assert.False(SolidWorksCleanupPolicy.CanFallbackToQuit(
+            SolidWorksDocumentCheckResult.Unavailable));
+        Assert.False(SolidWorksCleanupPolicy.CanContinueWithNextDocument(
+            SolidWorksDocumentCheckResult.Unavailable));
+    }
+
+    [Fact]
+    public void UnknownCloseResultStopsRemainingDocumentCleanup()
+    {
+        Assert.False(SolidWorksCleanupPolicy.CanContinueWithNextDocument(
+            SolidWorksDocumentCheckResult.Incomplete));
+        Assert.False(SolidWorksCleanupPolicy.CanContinueWithNextDocument(
+            SolidWorksDocumentCheckResult.Unavailable));
+        Assert.True(SolidWorksCleanupPolicy.CanContinueWithNextDocument(
+            SolidWorksDocumentCheckResult.Closed));
+    }
+
+    [Fact]
+    public void UnknownSnapshotCannotBecomeVerifiedWithKnownOwnedDocuments()
+    {
+        var status = SolidWorksCleanupEvaluator.Evaluate(new SolidWorksCleanupEvidence(
+            SolidWorksDocumentSnapshotStatus.Available,
+            SolidWorksDocumentSnapshotStatus.Incomplete,
+            MissingBaselineCount: 0,
+            BridgeOwnedOpenCount: 2,
+            UnknownPostBaselineCount: 1));
+
+        Assert.Equal(SolidWorksCleanupStatus.Incomplete, status);
+        Assert.NotEqual(SolidWorksCleanupStatus.Verified, status);
+    }
 }

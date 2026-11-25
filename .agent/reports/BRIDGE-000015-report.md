@@ -5,7 +5,7 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-25T16:30:00+03:00
-updated: 2026-11-25T20:04:00+03:00
+updated: 2026-11-25T20:14:00+03:00
 base: source
 branch: agent/BRIDGE-000015-solidworks-step-import
 commit: 5bb4461
@@ -63,6 +63,19 @@ R1-FIX-001 делает lifecycle fail-closed:
   только `Verified` допускает `success=true`;
 - при COM/RPC отказе tracker прекращает повторные вызовы и фиксирует
   `Unavailable`, а не нулевой остаток документов.
+
+R1-FIX-002 закрывает последний safety gap:
+
+- initial snapshot `Incomplete` и `Unavailable` теперь запрещают начинать
+  cleanup; ни один документ не закрывается;
+- результат проверки после `CloseDoc`/`QuitDoc` явный:
+  `Closed`/`StillOpen`/`Incomplete`/`Unavailable`;
+- при `Incomplete`/`Unavailable` после `CloseDoc` fallback `QuitDoc` не
+  вызывается, остальные документы не закрываются, `_owned` не очищается;
+- `FinalSnapshotStatus`, `FinalDocuments`, `SnapshotMessage` и число известных
+  Bridge-owned документов сохраняются при раннем выходе;
+- `Verified` возможен только при полном final snapshot и доказанном закрытии
+  всех Bridge-owned документов.
 
 Это backend/прототип, не SOLIDWORKS Add-in. Add-in registration, Registry,
 installer, UI, ECAD placement и `T_B_S` не реализованы.
@@ -146,8 +159,12 @@ Bottom и Euler не изменены.
   фиксируются в lifecycle.
 - Закрываются только документы, положительно зарегистрированные текущей
   операцией Bridge; unknown post-baseline документ остаётся открытым с warning.
-  Если unknown найден, cleanup ничего не закрывает, чтобы не закрыть assembly
-  component косвенно.
+  Если unknown найден или initial snapshot не `Available`, cleanup ничего не
+  закрывает, чтобы не закрыть assembly component косвенно.
+- После `CloseDoc`/`QuitDoc` выполняется полный snapshot. При `Incomplete` или
+  `Unavailable` немедленно прекращаются destructive COM-вызовы: fallback
+  `QuitDoc` не выполняется, следующие документы не закрываются, `_owned`
+  сохраняет известные незакрытые документы.
 - `CleanupStatus` — `Verified`/`Incomplete`/`Failed`/`Unavailable`; только
   `Verified` считается успехом. При COM/RPC отказе дальнейшие вызовы
   прекращаются, `RemainingCreatedCount` не обнуляется искусственно.
@@ -192,7 +209,7 @@ R1 historical revalidation (`smoke-r27-baseline`):
   preference;
 - входной package и исходные STEP assets не изменялись.
 
-R1-FIX-001 representative smoke (`smoke-r33-fix`, текущий код):
+R1-FIX-001 representative smoke (`smoke-r33-fix`, исторический для R1-FIX-001):
 
 - пользовательский `.SLDPRT` открыт до запуска и остался открытым;
 - imported 3/3 assets, mapped 3/3 body refs, assembly 2/2 components;
@@ -202,7 +219,21 @@ R1-FIX-001 representative smoke (`smoke-r33-fix`, текущий код):
 - lifecycle import: baseline 1, created 16, closed 16, remaining 0;
 - lifecycle assembly: baseline 1, created 6, closed 6, remaining 0;
 - 0 cleanup warnings/errors; все SW-IMP-019 — Info о restore preference;
-- входной package и исходные STEP assets не изменялись.
+- входной package и исходные STEP assets не изменялись;
+- этот run подтверждает только representative lifecycle R1-FIX-001, не MiniPC.
+
+R1-FIX-002 representative smoke (`smoke-r34-fix2`, текущий код):
+
+- пользовательский `.SLDPRT` открыт до запуска и остался открытым;
+- imported 3/3 assets, mapped 3/3 body refs, assembly 2/2 components;
+- `success=True`, `cleanupStatus.import=Verified`, `cleanupStatus.assembly=Verified`;
+- baseline snapshot `Available/1`, final snapshot `Available/1`;
+- `createdDocumentsRemaining=[]`, `baselinePreserved=True`;
+- lifecycle import: baseline 1, created 16, closed 16, remaining 0;
+- lifecycle assembly: baseline 1, created 6, closed 6, remaining 0;
+- 0 cleanup warnings/errors; все SW-IMP-019 — Info о restore preference;
+- `Incomplete`/`Unavailable` close-verification проверены unit-тестами, не
+  искусственным отключением реального SOLIDWORKS.
 
 Негативный unit-сценарий `FinalSnapshotUnavailableIsNotAnEmptyList`:
 `Unavailable` snapshot сохраняет diagnostic message и даёт cleanup
@@ -218,8 +249,8 @@ sentinel; smoke завершился `SW-IMP-020 Target file already exists`, ф
 Package: `b9a6f099-7866-417c-b4f4-17f8265af3ef` (MiniPC, 1 046 components,
 1 055 body refs, 155 unique STEP assets).
 
-Primary R1 result (`smoke-r26-minipc`, один SOLIDWORKS run, сборка с тем же
-импортом/cleanup, что и финальный commit; отличался только счётчик lifecycle):
+Primary R1 pipeline evidence (`smoke-r26-minipc`, один SOLIDWORKS run, выполнен
+до R1-FIX-001):
 
 - `success=True`;
 - 155/155 unique assets imported; 155/155 native parts reopened;
@@ -234,8 +265,10 @@ Primary R1 result (`smoke-r26-minipc`, один SOLIDWORKS run, сборка с 
 - import 1 870 407 ms, полный smoke 1 883 118 ms;
 - входной package не изменялся; source assets не редактировались.
 
-Предыдущий baseline отчёт фиксировал split-run (154/155 + isolated retry); R1
-устранил причину и полный MiniPC импорт подтверждён в одном run без substitute.
+Этот run подтверждает полный STEP import/save/mapping pipeline, но не является
+доказательством нового cleanup-кода R1-FIX-001/R1-FIX-002. Предыдущий baseline
+отчёт фиксировал split-run (154/155 + isolated retry); r26 устранил эту
+конкретную проблему в одном run без substitute.
 
 Revalidation на точном финальном commit не подтвердила one-run результат:
 
@@ -255,16 +288,19 @@ Revalidation на точном финальном commit не подтверди
   недоступен`. Последующие 20 assets получили `SW-IMP-020 Target open state
   could not be verified: COMException`. Diagnostics: 132 Info, 226 Warning,
   21 Error. Lifecycle import: baseline 0, created 1 594, closed 1 517,
-  remaining 77; финальная проверка `GetDocuments()` недоступна из-за RPC,
-  `baselinePreserved=True`.
+  remaining 77 известных Bridge-owned документов, закрытие которых не удалось
+  подтвердить; финальная проверка `GetDocuments()` недоступна из-за RPC.
+  `baselinePreserved=True` не является проверенным фактом для r30, как и
+  `createdDocumentsRemaining` из старых прогонов.
 
 Попытка `smoke-r28-minipc` была остановлена внешним timeout на 1 800 s при
 149/155 созданных native parts; result-файл не был записан. Ни r28, ни r29, ни
 r30 не используются как substitute: в отчёте сохранён полный успешный one-run
 `smoke-r26-minipc` и отдельно зафиксированы сбои ревалидации. Причина сбоев —
 COM/RPC-отключение SOLIDWORKS в длинной сессии, не расхождение package и не
-ошибка mapping. R1-FIX-001 не повторяет MiniPC: принятый r26 и неуспешные
-r29/r30 сохраняются раздельно и не объединяются с `smoke-r33-fix`.
+ошибка mapping. R1-FIX-001/R1-FIX-002 не повторяют MiniPC: принятый r26 и
+неуспешные r29/r30 сохраняются раздельно и не объединяются с representative
+`smoke-r33-fix`/`smoke-r34-fix2`.
 
 ## 9. API ledger
 
@@ -287,8 +323,8 @@ r29/r30 сохраняются раздельно и не объединяютс
 - `dotnet test -c Release --no-build`:
   - Core 140/140;
   - Altium 82/82;
-  - SolidWorks 23/23;
-  - всего 245/245.
+  - SolidWorks 30/30;
+  - всего 252/252.
 - `git diff --check` — 0 ошибок (только informational LF→CRLF warnings).
 - GitHub CI не запускался.
 
@@ -296,8 +332,10 @@ SolidWorks unit tests не требуют запущенного SOLIDWORKS: pac
 models, unique assets, dedup, NotAcquired, unsupported format, safe names,
 missing/empty assets, `SelectAssets`, warning decode, path normalization,
 no-overwrite guard, save-result guard, cleanup statuses (`Verified`/`Unavailable`/
-`Incomplete`/`Failed`) и ownership policy для baseline/AlreadyOpen/unknown
-документов.
+`Incomplete`/`Failed`), ownership policy для baseline/AlreadyOpen/unknown
+документов, запрет cleanup при initial `Incomplete`/`Unavailable`, запрет
+`QuitDoc` fallback после неизвестной проверки и остановка следующих close
+операций.
 
 ## 11. Ограничения и риски
 
@@ -310,9 +348,11 @@ no-overwrite guard, save-result guard, cleanup statuses (`Verified`/`Unavailable
   из-за недоступности RPC-сервера. Полный one-run успех зафиксирован на
   `smoke-r26-minipc` и принят оператором как proof для PR #14; риск COM/RPC
   сохраняется. Объединение прогонов запрещено.
-- R1-FIX-001 не повторяет MiniPC. Representative `smoke-r33-fix` прошёл с
-  `Verified` cleanup; при `Unavailable`/`Incomplete`/`Failed` smoke теперь
-  обязан завершиться `success=false`, а не показывать пустой список.
+- R1-FIX-001/R1-FIX-002 не повторяют MiniPC. Representative `smoke-r34-fix2`
+  прошёл с `Verified` cleanup; при initial/final `Unavailable`/`Incomplete` или
+  `Failed` smoke обязан завершиться `success=false`, а не показывать пустой
+  список. Сценарий `Incomplete` проверен unit-тестами, а не отключением
+  реального SOLIDWORKS.
 - Реальное размещение ECAD-компонентов, `T_B_S`, Bottom, Euler, Add-in
   registration, Registry, installer, UI и двусторонняя синхронизация не
   реализованы.
@@ -326,8 +366,8 @@ no-overwrite guard, save-result guard, cleanup statuses (`Verified`/`Unavailable
 - Предшествующий R1 commit: `9055bba`.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/14, ветка
   `agent/BRIDGE-000015-solidworks-step-import`, base `source`, merge запрещён.
-- PR description обновлён под R1/R1-FIX-001: 245 тестов, representative
-  `smoke-r33-fix`, раздельные r26/r29/r30.
+- PR description обновлён под R1/R1-FIX-001/R1-FIX-002: 252 теста,
+  representative `smoke-r34-fix2`, раздельные r26/r29/r30/r33.
 - PR #13/#9/#10/#11 не изменялись.
 
 ## 13. История изменений
@@ -347,13 +387,19 @@ no-overwrite guard, save-result guard, cleanup statuses (`Verified`/`Unavailable
   только Bridge-owned документы, unknown оставляется открытым, cleanup имеет
   `Verified`/`Incomplete`/`Failed`/`Unavailable`; добавлены 7 unit tests и
   representative smoke `smoke-r33-fix` с `Verified` cleanup.
+- 2026-11-25 (R1-FIX-002): initial `Incomplete`/`Unavailable` запрещают cleanup;
+  проверка после `CloseDoc`/`QuitDoc` возвращает явный
+  `Closed`/`StillOpen`/`Incomplete`/`Unavailable`; при неизвестном результате
+  fallback и последующие close-операции запрещены, `_owned` сохраняется;
+  добавлены 7 unit tests и representative smoke `smoke-r34-fix2`.
 
 ## 14. Решение оператора
 
-2026-11-25 выбран вариант 1: `smoke-r26-minipc` принят как proof для PR #14.
-Основание: от `smoke-r26-minipc` до финального code commit `9055bba` менялся
-только счётчик lifecycle; import/save/cleanup не менялись. Риск COM/RPC
-нестабильности сохранён в разделе 11. Перед production-gate рекомендуется один
-полный one-run на стабильном стенде. Объединять r26/r28/r29/r30 или подменять
-неудачные прогоны частичными результатами запрещено. PR #14 остаётся открытым
-и не слит.
+2026-11-25 выбран вариант 1: `smoke-r26-minipc` принят как evidence полного
+STEP import/save/mapping pipeline для PR #14, но не как доказательство cleanup
+кода R1-FIX-001/R1-FIX-002. R26 выполнен до R1-FIX-001; от него до `9055bba`
+менялся только счётчик lifecycle. Cleanup доказан representative
+`smoke-r34-fix2` и unit-тестами. Риск COM/RPC нестабильности сохранён в разделе
+11. Перед production-gate рекомендуется один полный one-run на стабильном стенде.
+Объединять r26/r28/r29/r30 или подменять неудачные прогоны частичными
+результатами запрещено. PR #14 остаётся открытым и не слит.

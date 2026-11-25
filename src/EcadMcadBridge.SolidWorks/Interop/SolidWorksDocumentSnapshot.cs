@@ -78,6 +78,14 @@ public static class SolidWorksCleanupEvaluator
     }
 }
 
+public enum SolidWorksDocumentCheckResult
+{
+    Closed,
+    StillOpen,
+    Incomplete,
+    Unavailable,
+}
+
 public static class SolidWorksDocumentOwnershipPolicy
 {
     /// <summary>
@@ -86,6 +94,19 @@ public static class SolidWorksDocumentOwnershipPolicy
     /// </summary>
     public static bool CanClose(bool isBaseline, bool isProtected, bool isBridgeOwned) =>
         !isBaseline && !isProtected && isBridgeOwned;
+}
+
+public static class SolidWorksCleanupPolicy
+{
+    public static bool CanStartCleanup(SolidWorksDocumentSnapshotStatus snapshotStatus) =>
+        snapshotStatus == SolidWorksDocumentSnapshotStatus.Available;
+
+    public static bool CanFallbackToQuit(SolidWorksDocumentCheckResult closeResult) =>
+        closeResult == SolidWorksDocumentCheckResult.StillOpen;
+
+    public static bool CanContinueWithNextDocument(SolidWorksDocumentCheckResult closeResult) =>
+        closeResult is SolidWorksDocumentCheckResult.Closed
+            or SolidWorksDocumentCheckResult.StillOpen;
 }
 
 public static class SolidWorksComFailure

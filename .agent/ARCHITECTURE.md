@@ -610,9 +610,13 @@ Core рассматривает ID как непрозрачную непуст�
   закрытия; unknown оставляет warning и не даёт cleanup статус `Verified`.
 - Snapshot имеет явный статус `Available`/`Unavailable`/`Incomplete`; COM/RPC
   exception не превращается в пустой список, неполное чтение identity не считается
-  успешным перечислением. `CleanupStatus` — `Verified`/`Incomplete`/`Failed`/
-  `Unavailable`; только `Verified` считается успехом. Успех подтверждается final
-  snapshot, а не возвратом `CloseDoc`/`QuitDoc`.
+  успешным перечислением. При initial `Incomplete`/`Unavailable` cleanup не
+  начинается. После `CloseDoc`/`QuitDoc` проверка возвращает
+  `Closed`/`StillOpen`/`Incomplete`/`Unavailable`; при неизвестном результате
+  fallback `QuitDoc` и следующие close-операции запрещены, `_owned` сохраняется.
+  `CleanupStatus` — `Verified`/`Incomplete`/`Failed`/`Unavailable`; только
+  `Verified` считается успехом. Успех подтверждается final snapshot, а не
+  возвратом `CloseDoc`/`QuitDoc`.
 - Smoke harness подключается к уже запущенному SOLIDWORKS через ROT, работает в
   STA, вызывает API последовательно, не запускает/не завершает пользовательский
   процесс. Входные STEP assets не изменяются; smoke фиксирует baseline, remaining
