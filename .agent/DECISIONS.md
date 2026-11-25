@@ -28,6 +28,7 @@
 | D-017 | COM-контракт Bridge по образцу InteractiveBom (assembly-level `ComVisible`, `AutoDispatch`, `IPluginFactory`) | Accepted | 2026-11-24 |
 | D-018 | Необязательный каталог 3D-моделей и content-addressed assets в Exchange Package | Accepted | 2026-11-25 |
 | D-019 | Altium 3D body export: per-body STEP AP214, SdkExport, без объединения тел и без неподтверждённой матрицы | Accepted | 2026-11-25 |
+| D-020 | SOLIDWORKS backend: local interop, per-asset STEP import в native SLDPRT, без Add-in registration и placement | Accepted | 2026-11-25 |
 
 ---
 
@@ -458,6 +459,64 @@ inventory; `GetDataHash("SHA256")` непригоден; STEP header меняе�
 - Частичный 3D inventory даёт Warning в UI, а не безусловный Success.
 - SOLIDWORKS Add-in, размещение и обратный импорт остаются вне scope.
 - V-27/V-30 и полная матрица остаются открытыми.
+
+## D-020 — SOLIDWORKS backend и независимый STEP import pipeline
+
+**Статус:** Accepted (`BRIDGE-000015`).
+
+**Контекст.** Core Exchange Package уже содержит `models/models.json` и
+content-addressed STEP AP214 assets (`BRIDGE-000013`). Для MCAD-стороны нужен
+отдельный backend, который читает пакет, импортирует каждый уникальный asset
+средствами SOLIDWORKS API и сохраняет нативные `.SLDPRT`, не смешивая Core с
+SOLIDWORKS interop. D-019 описывает Altium-side export (`BRIDGE-000014`);
+D-020 — независимый SOLIDWORKS backend.
+
+**Решение.**
+
+- Создаётся отдельный проект `EcadMcadBridge.SolidWorks` (`net10.0-windows`,
+  x64), зависящий от Core, но не от Altium.
+- SOLIDWORKS interop (`SolidWorks.Interop.sldworks.dll`,
+  `SolidWorks.Interop.swconst.dll`) подключается локально через
+  `SolidWorksApiDir`; DLL не коммитятся и не добавляются NuGet-пакетом.
+- Новая отдельная smoke-консоль `EcadMcadBridge.SolidWorks.Smoke` подключается
+  к уже запущенному SOLIDWORKS через ROT, работает в STA и выполняет вызовы
+  последовательно. Она не запускает/не завершает пользовательский процесс.
+- Входной формат — STEP AP214; выходной — native `.SLDPRT` на каждый уникальный
+  `AssetPath`. Content-addressed dedup сохраняется: несколько body references
+  одного asset используют одну деталь.
+- Per-asset import: `GetImportFileData`/`MapConfigurationData`,
+  `LoadFile4`, проверка solid B-Rep bodies, `SaveAs3`, повторное открытие и
+  сравнение body count. STEP, импортированный как assembly, сохраняется как
+  native part через `SaveAs3(.SLDPRT)`; body count assembly components
+  сравнивается с reopened part.
+- Assembly smoke только проверяет API `NewDocument`/`AddComponent5`/
+  `GetComponents` и сохранение/повторное открытие `.SLDASM`; компоненты
+  вставляются в `0,0,0`. Это не ECAD placement.
+- R1 уточняет жизненный цикл без изменения архитектуры: baseline открытых
+  документов снимается через `ISldWorks.GetDocuments()`; закрываются только
+  документы, появившиеся после baseline. Текущие `GetTitle()`/`GetPathName()`
+  перечитываются после `SaveAs3`; документы baseline и `AlreadyOpen` защищены.
+  Успех cleanup подтверждается повторным `GetDocuments()`, а не возвратом
+  `CloseDoc`/`QuitDoc`.
+- R1 запрещает перезапись существующего/open target: `.SLDPRT`/`.SLDASM`
+  проверяется до импорта. `SaveAs3` считается успешным только при `true`,
+  `Errors=0`, существующем файле ненулевого размера. Временный output и
+  уникальные копии для повторного открытия изолируют пользовательские документы
+  от ошибки SOLIDWORKS при совпадающих basename.
+- Для assembly→part `swSaveAssemblyAsPartOptions` временно выставляется в
+  `swSaveAsmAsPart_AllComponents` и восстанавливается в `finally`; отказ
+  восстановления — Error. Warning-биты `swFileSaveWarning_e`/
+  `swFileLoadWarning_e` декодируются по именам; known bit `128` не ошибка.
+- В текущей задаче нет регистрации `ISwAddin`, изменения Registry, установщика
+  и UI. `T_B_S`, Bottom reflection, Euler composition и реальное размещение
+  платы не реализуются.
+
+**Последствия.**
+
+- SOLIDWORKS backend можно развивать независимо от Altium adapter.
+- Успешный STEP import не доказывает корректность placement.
+- Proprietary interop и CAD-бинарники остаются вне Git.
+- Q-004 закрыт для прототипа; полноценный Add-in остаётся отдельной задачей.
 
 ---
 

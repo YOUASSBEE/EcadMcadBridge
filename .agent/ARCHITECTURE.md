@@ -614,6 +614,65 @@ active PCB / IPCB_Board
   пакет — публикация отменяется. Частичный 3D inventory показывается как Warning.
 - Add-in/Tool version — `0.4.0`; SOLIDWORKS importer/placement — следующий этап.
 
+### 6.5 SOLIDWORKS STEP import backend (BRIDGE-000015)
+
+- Проект `EcadMcadBridge.SolidWorks` — `net10.0-windows`, x64, зависит от Core,
+  не зависит от Altium. SOLIDWORKS interop подключается локально из
+  `SolidWorksApiDir` с `Private=false`; proprietary DLL не коммитятся.
+- `SolidWorksImportPlanBuilder` читает `PackageReadResult`, проверяет
+  snapshot/models, собирает уникальные `assetPath` и связи
+  `componentId/bodyOrdinal → asset`. NotAcquired bodies пропускаются с warning;
+  не-STEP формат — ошибка; отсутствующий/пустой asset — ошибка.
+- Выходное имя — content-addressed SHA basename + `.SLDPRT`; dedup по
+  `AssetPath`; один asset импортируется один раз, несколько bodies ссылаются на
+  одну деталь.
+- `SolidWorksImportService`: `GetImportFileData`/`MapConfigurationData=false`,
+  `LoadFile4`, проверка `swDocPART`/`swDocASSEMBLY`,
+  `PartDoc.GetBodies2(swSolidBody)`, `ModelDocExtension.SaveAs3(
+  swSaveAsCurrentVersion, swSaveAsOptions_Silent)`. Target `.SLDPRT` проверяется
+  до импорта: существующий или уже открытый файл отклоняется без перезаписи.
+- `SaveAs3` считается успешным только при `returned=true`, `Errors=0`, existing
+  file и size > 0. Результат сохраняется сначала во временный `.SLDPRT` внутри
+  выходного каталога; после закрытия imported-документов файл атомарно
+  перемещается в content-addressed native path. Для проверки повторного открытия
+  используется байтовая копия с уникальным именем: SOLIDWORKS отклоняет второй
+  документ с совпадающим basename, а пользовательские документы не должны
+  закрываться. Body count сравнивается с импортированным значением.
+- Если STEP импортируется как `swDocASSEMBLY`, backend считает solid bodies
+  всех component instances и сохраняет assembly как native part через
+  `SaveAs3(.SLDPRT)`. Перед сохранением настройка
+  `swSaveAssemblyAsPartOptions` выставляется в `swSaveAsmAsPart_AllComponents`
+  и безусловно восстанавливается в `finally`; неудача восстановления — Error.
+- `SolidWorksWarningDecoder` разбирает `swFileSaveWarning_e` и
+  `swFileLoadWarning_e` по именам; бит `128` — известный warning
+  (`AnimatorCameraViews` / `AlreadyOpen`), а не «unknown» и не ошибка.
+- `SolidWorksAssemblyService` — только API smoke: `NewDocument` по явному
+  assembly template, загрузка временных байтовых копий native parts в память,
+  `AddComponent5(0,0,0)`, `GetComponents`, `SaveAs3`, повторное открытие и
+  сравнение количества компонентов. Это не placement ECAD.
+- `SolidWorksDocumentTracker` снимает baseline через `GetDocuments()` до операции
+  и закрывает только положительно зарегистрированные Bridge-owned документы
+  (`LoadFile4`, component `GetModelDoc2()`, `OpenDoc6`, `NewDocument`). Документы
+  baseline, `swFileLoadWarning_AlreadyOpen` и unknown post-baseline защищены от
+  закрытия; unknown оставляет warning и не даёт cleanup статус `Verified`.
+- Snapshot имеет явный статус `Available`/`Unavailable`/`Incomplete`; COM/RPC
+  exception не превращается в пустой список, неполное чтение identity не считается
+  успешным перечислением. При initial `Incomplete`/`Unavailable` cleanup не
+  начинается. После `CloseDoc`/`QuitDoc` проверка возвращает
+  `Closed`/`StillOpen`/`Incomplete`/`Unavailable`; при неизвестном результате
+  fallback `QuitDoc` и следующие close-операции запрещены, `_owned` сохраняется.
+  После обычного COM exception `CloseDoc`/`QuitDoc` выполняется один
+  `CheckClosed`; RPC/Unavailable exception не вызывает дополнительный
+  COM-вызов. `CleanupStatus` — `Verified`/`Incomplete`/`Failed`/`Unavailable`;
+  только `Verified` считается успехом. Успех подтверждается final snapshot, а не
+  возвратом `CloseDoc`/`QuitDoc`.
+- Smoke harness подключается к уже запущенному SOLIDWORKS через ROT, работает в
+  STA, вызывает API последовательно, не запускает/не завершает пользовательский
+  процесс. Входные STEP assets не изменяются; smoke фиксирует baseline, remaining
+  и `baselinePreserved`.
+- `T_B_S`, Z/Bottom, Euler composition, ECAD placement, Add-in registration,
+  Registry и установщик остаются вне scope.
+
 ## 7. Обработка ошибок и логирование
 
 - Все ошибки Core имеют стабильный код `EMB-<AREA>-<NNN>` и сообщение без привязки к UI.

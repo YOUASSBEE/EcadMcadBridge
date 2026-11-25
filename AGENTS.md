@@ -20,7 +20,7 @@
 - Не использовать DelphiScript.
 - Не использовать Legacy API Altium.
 - Не менять архитектуру без решения в `DECISIONS.md`.
-- Не реализовывать обмен с SOLIDWORKS до отдельного согласования.
+- SOLIDWORKS backend реализуется в рамках D-020; полноценный Add-in, Registry, установщик и placement требуют отдельного решения.
 - Не добавлять API в категорию «подтверждено» без доказательства.
 - Не изменять ветку `source` напрямую.
 - Не коммитить проприетарные DLL, лицензии, секреты и данные заказчиков.
@@ -37,9 +37,9 @@
 - Altium SDK 4.0.1
 - .NET SDK 10
 - Target Framework: Altium — `net10.0-windows`; Core/Core.Tests — `net10.0`;
-  SOLIDWORKS — отдельным решением (D-014)
+  SOLIDWORKS backend/tests/smoke — `net10.0-windows`, x64 (D-020)
 - C#
-- SOLIDWORKS 2026 (только как будущая платформа, без кода на текущем этапе)
+- SOLIDWORKS 2026 SP3.2 / interop 34.3.2.3 — backend/STEP import (D-020); Add-in host отдельно
 
 Совместимость AD26 + SDK 4.0.1 + .NET 10 с `net10.0-windows` подтверждена оператором (C-65).
 Исходный InteractiveBom из `InteractiveBom.zip` выбирает TFM по версии Altium
@@ -50,8 +50,9 @@ TFM Bridge зафиксирован. TFM нельзя менять молча: �
 
 - `EcadMcadBridge.Core` — домен, валидация, формат пакета. Без CAD SDK.
 - `EcadMcadBridge.Altium` — Altium Add-in: bootstrap, adapter, application, UI.
-- `EcadMcadBridge.SolidWorks` — не создаётся до отдельного ТЗ.
-- Add-in не ссылаются друг на друга.
+- `EcadMcadBridge.SolidWorks` — SOLIDWORKS backend: STEP import/native SLDPRT; без Altium SDK.
+- `EcadMcadBridge.SolidWorks.Smoke` — отдельный STA/ROT диагностический harness, не Add-in.
+- Add-in/backend не ссылаются на SDK друг друга.
 - Обмен — только через версионируемый пакет Core вне Git (D-016).
 - Точка входа Altium Add-in — `CSharpPlugin.PluginFactory.InvokePluginFactory(DXP.IClient)`.
 
@@ -160,6 +161,17 @@ related: [BRIDGE-NNNNNN]
 ```text
 AGENTS.md                      этот файл
 README.md                      входная точка
+EcadMcadBridge.sln
+src/
+  EcadMcadBridge.Core/
+  EcadMcadBridge.Altium/
+  EcadMcadBridge.SolidWorks/
+tools/
+  EcadMcadBridge.SolidWorks.Smoke/
+tests/
+  EcadMcadBridge.Core.Tests/
+  EcadMcadBridge.Altium.Tests/
+  EcadMcadBridge.SolidWorks.Tests/
 .agent/
   PROJECT_CONTEXT.md           границы, стек, статус
   ARCHITECTURE.md              компоненты, формат, Git-протокол, runtime-обмен
@@ -173,7 +185,9 @@ README.md                      входная точка
 
 ## 13. Текущий этап
 
-`BRIDGE-000004` — Core Exchange Package: deterministic manifest 1.0.0, snapshot,
-checksums, atomic writer/reader и проверка безопасных относительных путей.
-Altium adapter этапа `BRIDGE-000003` слит в `source`; полный обмен с SOLIDWORKS
-не реализуется до отдельного решения.
+`BRIDGE-000015-R1` — SOLIDWORKS STEP import backend: Core Exchange Package →
+unique STEP assets → native `.SLDPRT`, плюс assembly API smoke. D-020.
+R1 добавляет baseline-отслеживание документов, защиту пользовательских документов,
+assembly→part через временную настройку, no-overwrite guard и декодирование warnings.
+Altium 3D export (`BRIDGE-000014`) остаётся в открытом PR #13; полный placement
+в SOLIDWORKS не реализуется до подтверждения системы координат.

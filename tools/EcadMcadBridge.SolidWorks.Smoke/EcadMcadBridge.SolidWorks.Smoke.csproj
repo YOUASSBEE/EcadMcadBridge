@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>EcadMcadBridge.SolidWorks.Smoke</RootNamespace>
+    <AssemblyName>EcadMcadBridge.SolidWorks.Smoke</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\EcadMcadBridge.SolidWorks\EcadMcadBridge.SolidWorks.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.sldworks.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.swconst.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Local smoke output only; proprietary interop DLLs are never committed. -->
+  <Target Name="CopySolidWorksInteropForSmoke" AfterTargets="Build" Condition="'$(SolidWorksApiDir)' != ''">
+    <ItemGroup>
+      <SmokeInterop Include="$(SolidWorksApiDir)\SolidWorks.Interop.sldworks.dll" />
+      <SmokeInterop Include="$(SolidWorksApiDir)\SolidWorks.Interop.swconst.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(SmokeInterop)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

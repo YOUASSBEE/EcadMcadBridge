@@ -7,7 +7,7 @@
 1. Не использовать DelphiScript.
 2. Не использовать Legacy API Altium.
 3. Не менять архитектуру без решения в `DECISIONS.md`.
-4. Не реализовывать обмен с SOLIDWORKS до отдельного согласования.
+4. SOLIDWORKS backend реализуется только в рамках D-020; полноценный Add-in, установщик и placement требуют отдельного решения.
 5. Не добавлять API в категорию «подтверждено» без доказательства.
 6. Не изменять ветку `source` напрямую; только через Pull Request.
 7. Не коммитить проприетарные сборки Altium/SOLIDWORKS, лицензии и данные заказчиков.
@@ -20,11 +20,12 @@
   - `EcadMcadBridge.Altium` — `net10.0-windows` (совместимость подтверждена оператором, C-65);
   - `EcadMcadBridge.Core` — `net10.0`;
   - `EcadMcadBridge.Core.Tests` — `net10.0`;
-  - `EcadMcadBridge.SolidWorks` — отдельным решением (O-009).
+  - `EcadMcadBridge.SolidWorks` — `net10.0-windows`, x64 (D-020);
+  - `EcadMcadBridge.SolidWorks.Tests` — `net10.0-windows`, x64.
 - Язык: C#, nullable reference types включены.
 - `TreatWarningsAsErrors=true`, `AnalysisLevel` — последний доступный для SDK 10.
 - Детерминированная сборка: `Deterministic=true`, `ContinuousIntegrationBuild=true` в CI.
-- Платформа: `AnyCPU`; архитектура процесса определяется CAD-хостом.
+- Платформа: `AnyCPU` для Core/Altium; `x64` для SOLIDWORKS backend и smoke.
 - C# стиль: file-scoped namespaces, `var` только при очевидном типе, явные модификаторы доступа.
 
 Совместимость AD26 + SDK 4.0.1 + .NET SDK 10 с `net10.0-windows` подтверждена оператором (C-65).
@@ -40,9 +41,13 @@ EcadMcadBridge.sln
 src/
   EcadMcadBridge.Core/
   EcadMcadBridge.Altium/
-  EcadMcadBridge.SolidWorks/      # не создаётся до отдельного решения
+  EcadMcadBridge.SolidWorks/      # STEP import backend, D-020
+tools/
+  EcadMcadBridge.SolidWorks.Smoke/
 tests/
   EcadMcadBridge.Core.Tests/
+  EcadMcadBridge.Altium.Tests/
+  EcadMcadBridge.SolidWorks.Tests/
 ```
 
 - `Directory.Build.props` — общие свойства сборки.
@@ -65,6 +70,29 @@ tests/
 - COM-контракт Add-in — по исходному InteractiveBom: `[assembly: ComVisible(true)]`,
   `PluginFactory : IPluginFactory` и `PluginServerModule` с `ClassInterfaceType.AutoDispatch` (D-017).
   `ClassInterfaceType.None` не является вариантом исходного проекта.
+
+### 4.1 SOLIDWORKS interop
+
+- Reference assemblies — локальные `SolidWorks.Interop.sldworks.dll` и
+  `SolidWorks.Interop.swconst.dll` из `SolidWorksApiDir` (MSBuild property).
+  Абсолютный путь не коммитится; DLL не коммитятся и не заменяются NuGet-пакетом.
+- Backend (`EcadMcadBridge.SolidWorks`) не ссылается на Altium SDK.
+- Диагностическое приложение подключается к уже запущенному SOLIDWORKS через ROT.
+  COM-вызовы — в STA, последовательно, без `Task.Run`/`Parallel`.
+- Не запускать и не завершать пользовательский процесс SOLIDWORKS. До работы снять
+  baseline через `ISldWorks.GetDocuments()` и закрывать только документы, появившиеся
+  после baseline; документы с `swFileLoadWarning_AlreadyOpen` защищать от закрытия.
+- Временные настройки SOLIDWORKS (например, `swSaveAssemblyAsPartOptions`) менять
+  только на время операции и безусловно восстанавливать в `finally`; неудача
+  восстановления — Error.
+- Existing/open target `.SLDPRT`/`.SLDASM` не перезаписывать и не удалять;
+  `SaveAs3` считать успешным только при `true`, `Errors=0`, существующем файле
+  ненулевого размера. Warning-биты декодировать по именам; known bit `128` не ошибка.
+- Smoke-документы и временные копии сохраняются только в `%TEMP%`; CAD-бинарники
+  в Git не добавляются.
+- Add-in registration, Registry, установщик и UI — вне scope D-020.
+- `AddComponent5(0,0,0)` — только API smoke, не ECAD placement. `T_B_S`, Bottom,
+  Euler composition не вычисляются до подтверждённой системы координат.
 
 ## 5. Работа с API и данными
 
@@ -189,7 +217,7 @@ chore(repo): pin .NET SDK
 | .NET SDK | 10.0.404 (также установлен 11.0.100; для проекта использовать 10.0.x) |
 | Altium SDK | 4.0.1, найден в `Altium Developer\SDK4.0` |
 | Altium Designer | 26 (точный build — Q-002); совместимость с .NET 10/`net10.0-windows` подтверждена оператором |
-| SOLIDWORKS | 2026 (не используется на текущем этапе; TFM — O-009) |
+| SOLIDWORKS | 2026 SP3.2 / 34.3.2.0003; backend — `net10.0-windows`, x64 (D-020); Add-in host отдельно |
 | Референсный Add-in | `InteractiveBom.zip`: исходный проект `InteractiveBom.sln` (shim/Impl/Panels/Tests), Release `net10.0-windows`; отдельная DLL `InteractiveBomPlug.dll` `net8.0-windows` — другой источник |
 
 Пути установки в документации приведены как ориентир; в коде и скриптах использовать
