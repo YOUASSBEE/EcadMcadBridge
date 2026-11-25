@@ -1,7 +1,7 @@
 ---
 id: BRIDGE-000016
 type: report
-status: ready_for_review
+status: blocked
 from: local-agent
 to: operator
 created: 2026-11-25T20:30:00+03:00
@@ -39,7 +39,7 @@ R0/R1 подтвердили математическую модель для `S
 Не подтверждено и помечено `Unknown`:
 
 - 3D feature-level residual для component rotation: знак `RotationDeg` подтверждён по pad landmarks (positive=CCW), но полный XYZ body landmark без board STEP не проверен;
-- конкретная proper rotation для Bottom (`Rx(180)` vs `Ry(180)`) и необходимость отражения; STEP/body projection не содержат mirror;
+- Bottom с ненулевым component rotation: full board STEP не содержит component rotation; `Rx(180°)` подтверждён только для rot0, отражение не требуется;
 - независимый случай `BodyProjection != Component.Side` (в фикстуре все тела совпали со стороной компонента);
 - `IPCB_Model.Rotation` как отдельное свойство: на фикстуре он был 0 и не совпал с `GetState` rotZ;
 - Z-составляющая `GetOrigin`; board origin подтверждён как Altium absolute origin, но отдельного поля в Core snapshot нет;
@@ -50,13 +50,15 @@ R1 исправил математическую композицию:
 
 - board-space `delta_B = GetOrigin.XY - Component.Position.XY` переводится в локальный frame как `delta_D = R_BD^T * delta_B`, где `R_BD = R_BC * R_CD`; использовать `delta_B` как локальную трансляцию нельзя;
 - `dz` применяется после `R_state`: `T_DM = T(delta_D) * Tz(dz) * R_state`, а не `R_state * Tz(dz)`;
-- `Rz·Ry·Rx` подтверждён на уровне bounding-box/outline: observed rectangle 12.797273 × 7.562180 mm, long side 60.000°, predicted `Rz·Ry·Rx` gives 12.797272 × 7.562178 mm and the same orientation; feature-level full XYZ residual остаётся blocker без full board STEP;
+- `Rz·Ry·Rx` подтверждён на уровне bounding-box/outline: observed rectangle 12.797273 × 7.562180 mm, long side 60.000°, predicted `Rz·Ry·Rx` gives 12.797272 × 7.562178 mm and the same orientation; full board STEP подтвердил state matrix для C524/C516;
 - component `RotationDeg` sign подтверждён по pad landmark points: positive = CCW на board;
 - model-origin offset проверен на C62 при component rotation 90°: absolute `GetOrigin` совпал с `T_BC·T_CD·T_DM` только через `delta_D`, ошибка альтернативы 9.497 mm;
-- board origin определён как Altium absolute coordinate origin: outline 212.6…387.6 × 167.2…322.2 mm и component positions лежат в той же системе;
+- board origin: Altium absolute coords в Core; полный STEP использует board-local frame `T_BS = T(-212.6,-167.2,-T/2)`; C366 совпал с ошибкой ~0.000006 mm;
 - SOLIDWORKS `MathTransform` повторно проверен на полной матрице (rotation + translation + basis), включая non-zero component rotation.
 
-R1 не реализует production placement, не меняет Core schema и не меняет PR #13/#14. Bottom и full board STEP reference остаются blockers.
+R2 получил полный board STEP и подтвердил board frame, `GetOrigin`, `R_state`, `dz`, Bottom `Rx(180°)` для rot0 и C366 feature-level placement. Однако Altium full board STEP **не содержит component RotationDeg** для test bodies: C62/C63/C59/C61/C524/C516/C573/C567/C571 имеют identity/state-only transforms. Поэтому component-rotation 3D placement остаётся **blocked**; R2 не закрывает full Top placement sign-off.
+
+R2 не реализует production placement, не меняет Core schema и не меняет PR #13/#14. Bottom с rotation и full feature-level sign-off остаются blockers.
 
 ## 2. Окружение и версии
 
@@ -188,9 +190,9 @@ Independent XY outline check for C524 (BodyProjection polygon, relative to origi
 
 The outline rectangle is formed from `Rx/Ry` extents and then rotated by `Rz`; the Z bounds are formed from the full `Rz·Ry·Rx`. Together these independently confirm the full Euler order for the non-zero combined case. Candidate orders with different placement of `Rz` or swapped `Rx/Ry` produce side-length errors >2 mm; they are rejected.
 
-Full 3D feature-level residuals for all six candidate orders require the full board STEP reference. That export was not obtained in R1, so the candidate table is not claimed; the XY outline plus Z-bounds evidence rejects the alternatives at bounding-box level but is not a substitute for feature-level XYZ. This remains a blocker for claiming complete 3D calibration.
+Full 3D feature-level residuals for all six candidate orders require a rotation-bearing full board STEP reference. R2 obtained the full board STEP, but it does not encode component `RotationDeg` for the fixture bodies; therefore the candidate table is still not claimed for component-rotation cases. Model `R_state` itself matches the full board transform for C524/C516.
 
-Component `Rz` sign is confirmed separately by pad landmarks (section 7.1). Bottom axis is still **Unknown**.
+Component `Rz` sign is confirmed separately by pad landmarks (section 7.1). Full board STEP confirms Bottom `Rx(180°)` for rot0 (C572); rotation-bearing Bottom remains blocked.
 
 ### 7.1. Component RotationDeg sign
 
@@ -312,7 +314,7 @@ p_B = T_BC · T_CD · T_DM · T_MA · p_A
 All matrices are 4×4, column vectors, mm in the mathematical model.
 
 - `T_BC = T(x_c, y_c, 0) · Rz(θ_c)` — component position and rotation. Positive `RotationDeg` = CCW is confirmed by pad landmark points; 3D body feature-level residual is limited by the missing full board STEP.
-- `T_CD = T_z(+T/2)` for Top (`BodyProjection=0`, `R_CD=I`); candidate `T_z(-T/2) · R_side` for Bottom (`BodyProjection=1`), where `R_side` is `Rx(π)` or `Ry(π)` (proper rotation, det=+1). Bottom axis/reflection is **Unknown**; `Ry(π)` remains an alternative.
+- `T_CD = T_z(+T/2)` for Top (`BodyProjection=0`, `R_CD=I`); for Bottom (`BodyProjection=1`) full board STEP C572 (rot0) confirms `T_z(-T/2) · Rx(π)` with det=+1. Bottom with non-zero component rotation remains **Blocked** because the reference omits component rotation.
 - `T_DM = T(delta_D) · T_z(dz) · R_state`, where `R_state = Rz(rz)·Ry(ry)·Rx(rx)` (confirmed by Z bounds), `dz` in mm, and `delta_D = R_BD^T · (x_m - x_c, y_m - y_c, 0)` with `R_BD = R_BC · R_CD` and `(x_m,y_m)` the absolute `GetOrigin` in board coordinates. Do not use `(x_m - x_c, y_m - y_c)` directly as a D-frame translation. `GetOrigin` Z is **Unknown** and set to 0 only as a schema placeholder, not as a placement fact.
 - For Top (`R_CD = I`), `delta_D = Rz(θ_c)^T · delta_B`. For Bottom, `R_CD` must be the confirmed side transform; until Bottom is confirmed, `delta_D` is **Unknown**.
 - `T_MA = I` for the exported STEP asset; STEP is local geometry and no second transform is applied.
@@ -379,7 +381,7 @@ or construct with `ComposeTransform(XAxis, YAxis, ZAxis, Translation, 1.0)`. Do 
 2. proper `Ry(π)` (det=+1), local +Z → board -Z, +X → -X;
 3. reflection in board plane (det=-1) — не подтверждён и не должен применяться к общему asset без доказательства.
 
-R0 **не выбирает** между 1 и 2. STEP asset не зеркалится. Полный Altium 3D export golden reference для Bottom не получен; визуальное совпадение не считается численным доказательством.
+R2 full board STEP C572 (Bottom, rot0) даёт transform block `diag(1,-1,-1)` = `Rx(180°)`; determinant +1, reflection не требуется. Translation `z=-T` в STEP frame соответствует `Tz(-T/2)` в R1 midplane frame. Поэтому для Bottom rot0 confirmed: `Rx(180°)`. Bottom с component rotation остаётся **Blocked**, потому что full board STEP не содержит component RotationDeg для fixture bodies. STEP asset не зеркалится.
 
 ## 12. Golden reference
 
@@ -388,12 +390,9 @@ R0 **не выбирает** между 1 и 2. STEP asset не зеркалит
 1. Altium `BodyProjection`, `StandoffHeight`, `OverallHeight`, `GetOrigin`, `GetState` для каждого control instance.
 2. Per-body STEP/X_T exports, импортированные в SOLIDWORKS 2026 с проверкой volume/bbox.
 3. Контрольные размеры fixture: 12×7×3 Generic, 12×7×3 Native L, protrusion 2×3×2, hole Ø1 at (2,2).
+4. R2 full board STEP: SHA `7FC3E1C871A657348555A02FCD81220EC6538E4D1971320CB01E81995F8B9894`; board frame, component transforms, board body/cutout volume.
 
-Полный Altium PCB STEP export (board + placed models) **не выполнялся** в R0. Поэтому:
-
-- numerical checks for geometry/orientation use body projection and SOLIDWORKS bbox/volume;
-- no board-level point-to-point comparison against Altium STEP;
-- visual screenshots (`sw-generic-top.bmp`) не использованы как численное доказательство.
+R2 full board reference использован для C366 feature-level проверки, board origin, `GetState`, `dz` и Bottom rot0. Он **не содержит component RotationDeg** для test bodies, поэтому component-rotation cases не считаются подтверждёнными. Visual screenshots не использованы как численное доказательство.
 
 ## 13. Ошибки и допуски
 
@@ -410,34 +409,118 @@ R0 **не выбирает** между 1 и 2. STEP asset не зеркалит
 | SW translation | 0.01 m | 0.01 m | 0 | 1e-9 | Yes |
 | SW x basis | (0,-1,0) for chosen array | (0,-1,0) | 0 | 1e-9 | Yes |
 
+## 13.1. R2 full board STEP golden reference
+
+### 13.1.1. Export
+
+Полный STEP получен из Altium Designer 26.12.2.9 через `File → Export → STEP 3D` для копии `test-matrix-r2.PcbDoc`:
+
+| Параметр | Значение |
+|---|---|
+| File | `%TEMP%\EcadMcadBridge\BRIDGE-000016\R2\test-matrix-r2.step` |
+| Size | `86 127 237` bytes |
+| SHA-256 | `7FC3E1C871A657348555A02FCD81220EC6538E4D1971320CB01E81995F8B9894` |
+| STEP schema | AP214 `AUTOMOTIVE_DESIGN` |
+| Units | `SI_UNIT(.MILLI.,.METRE.)` — mm |
+| 3D Bodies Export Options | `Prefer generic 3D models` |
+| Components With 3D Bodies | `Export All` |
+| Export As Single Part | OFF |
+| Export Folded Board | OFF |
+| Pad Holes | `Export All` |
+| Component Suffix | None |
+| Board included | Yes, one solid board body |
+| Cutouts | Not independently confirmed; board body has 576 vertices and non-rectangular outline |
+
+Export was made from a copy; `test-matrix.PcbDoc` не изменялся. STEP в Git не добавлен. Target Designators found in the STEP: `C366`, `C63`, `C59`, `C61`, `C62`, `C524`, `C516`, `C572`, `C573`, `C567`, `C571`. Full component count was not enumerated; these are the calibrated cases.
+
+### 13.1.2. Board frame
+
+Полный STEP использует **не Altium absolute XY**, а board-local frame:
+
+- board body bbox: `0…175 mm × 0…155 mm × 0…2.028 mm`;
+- Altium outline absolute: `212.6…387.6 × 167.2…322.2 mm`;
+- Altium board thickness: `2.00800208 mm`; STEP board thickness: `2.02800204 mm` (расхождение 0.02 mm; причину нужно уточнить; STEP board body includes export geometry/tolerance).
+
+`T_BS = T(-212.6, -167.2, -T/2)` переводит R1 board frame `B` (Altium absolute, midplane) в STEP board frame `S` (outline min, top surface `z=0`). Для C366: R1 B position `(225.0966,197.3255,+1.004001)` → S `(12.4966,30.1255,0)`, что совпало с полным STEP `(0.012496604,0.030125472,0) m` с ошибкой ~0.000006 mm.
+
+Board volume `5.39806014e-5 m³ = 53 980.60 mm³`. Gross rectangle `175 × 155 × 2.028 = 55 009.50 mm³` не является корректным cutout-доказательством: outline имеет вырез/ступень (Altium contour), поэтому deficit нельзя приписать только cutouts. Точные cutout landmark points не извлечены — `Unknown`.
+
+### 13.1.3. Component reference transforms
+
+В полном STEP компонентные occurrence transforms (SOLIDWORKS `GetTotalTransform`) для target components:
+
+| Ref | STEP transform translation, m | STEP rotation | R1 expectation | Result |
+|---|---|---|---|---|
+| C366 | `(0.012496604, 0.030125472, 0)` | identity | identity + same t | Pass |
+| C62 | `(0.124879981, 0.143430007, 0)` | identity | `Rz(+90°)` | Translation pass, rotation **Fail** |
+| C524 | `(0.049900001, 0.126300002, 0.000999997)` | `R_state` | `Rz(180°)·R_state` | Translation/state pass, component rotation **Fail** |
+| C516 | `(0.059100013, 0.126900008, -0.000999997)` | `R_state` | `Rz(180°)·R_state` | Translation/state pass, component rotation **Fail** |
+| C572 | `(0.093000007, 0.028925002, -0.002028001)` | `diag(1,-1,-1)` (`Rx(180°)`) | `Tz(-T/2)·Rx(180°)` | Pass for rot0 Bottom |
+
+Full board STEP also returned identity/state-only transforms for C63 (+90°), C59 (-180°), C61 (-90°), C573 (+90°), C567 (-180°), C571 (-90°). Therefore **Altium full board STEP in this fixture does not encode component RotationDeg for the test bodies**. It encodes `GetOrigin`, `GetState`, `dz`, `BodyProjection`, and Bottom `Rx(180°)`, but not `Rz(theta_c)`.
+
+Это не доказывает, что component rotation не нужна в production placement: pad landmarks подтверждают positive=CCW. Это означает, что full board STEP fixture не является валидным 3D-эталоном для component rotation; нужен fixture с library-relative 3D body или другой независимый 3D reference. R2 Top feature-level placement **не закрыт**.
+
+### 13.1.4. Feature-level residuals
+
+Reference points взяты из полного STEP body extremes (six axis directions), calculated points — из per-body STEP + R1 transform. Для C366 (rot0) точки совпали:
+
+| Component | Landmark | Reference X/Y/Z, mm | Calculated X/Y/Z, mm | Error, mm | Pass |
+|---|---|---|---:|---:|---|
+| C366 | +X extreme | (24.4966, 37.1255, 1.0000) | same | 0.000006 | Yes |
+| C366 | -X extreme | (12.4966, 37.1255, 1.0000) | same | 0.000006 | Yes |
+| C366 | -Z extreme | (24.4966, 37.1255, 0.0000) | same | 0.000006 | Yes |
+| C366 | +Z extreme | (22.4966, 37.1255, 3.0000) | same | 0.000006 | Yes |
+
+C524/C516 state translation and Z boundaries matched full board, but component rotation Rz(180°) is not present in the reference. Representative corner residual for the rotated case is about 27.8 mm; therefore rotation cases are not within tolerance and are **blocked**, not silently accepted. C572 rot0 Bottom matches `Rx(180°)` at translation/rotation level. Bottom with non-zero component rotation is also blocked because the reference omits component rotation.
+
+### 13.1.5. R2 capability result
+
+| Capability | R2 result |
+|---|---|
+| Board origin/outline/thickness | Board-local frame confirmed; thickness mismatch 0.02 mm unresolved |
+| Top rot0 Generic placement | Pass at feature level, ≤0.000006 mm |
+| Top model origin offset C62 | Translation pass; component rotation 3D **blocked** |
+| Top combined state C524/C516 | State/dz translation pass; component rotation 3D **blocked** |
+| Top component rotation sign | 2D pad landmarks confirm CCW; full STEP body does not encode it |
+| Bottom rot0 | `Rx(180°)` confirmed by full STEP; implementation still out of R2 |
+| Bottom with rotation | Blocked; reference omits component rotation |
+| BodyProjection mismatch | Not exercised; blocked |
+| Full board cutout landmarks | Not extracted; Unknown |
+
+**R2 status: blocked for full Top placement sign-off.** The independent golden reference is valid for board frame, model origin, state rotation, dz, and Bottom rot0, but not for component RotationDeg; production placement cannot start until a valid rotation-bearing fixture/reference is produced.
+
 ## 14. Неподтверждённые параметры
 
 | Параметр | Статус | Причина |
 |---|---|---|
-| Component `RotationDeg` sign on board | **Confirmed (2D pads); 3D feature residual Unknown** | pad landmarks C572/C573/C567/C571 подтвердили positive=CCW; полный XYZ body landmark без board STEP не проверен |
-| Bottom proper rotation axis / reflection | **Unknown** | STEP/body projection не зеркалированы; нет Bottom golden reference |
+| Component `RotationDeg` sign on board | **Confirmed (2D pads); 3D body rotation Blocked** | pad landmarks C572/C573/C567/C571 подтвердили positive=CCW; full board STEP не содержит component rotation для test bodies |
+| Bottom proper rotation axis / reflection | **Rx(180°) confirmed for rot0; rotation-bearing Bottom Blocked** | full board STEP C572 = `diag(1,-1,-1)`; C573/C567/C571 same state-only, component rotation missing |
 | `BodyProjection != Component.Side` | **Unknown** | в fixture все тела совпали со стороной компонента |
 | `IPCB_Model.Rotation` | **Unknown** | на fixture 0; отдельное свойство, не совпало с state rotZ |
 | `GetOrigin.Z` | **Unknown** | API даёт X/Y; Z не предоставлен |
-| Board origin | **Confirmed as Altium absolute origin** | outline 212.6…387.6 × 167.2…322.2 mm и Component.Position в той же системе; отдельного поля в Core snapshot нет |
+| Board origin | **Altium absolute in Core; STEP uses board-local `T_BS`** | `T_BS = T(-212.6,-167.2,-T/2)`; C366 matched STEP within ~0.000006 mm; отдельного boardOrigin поля в Core нет |
 | `SnapCount` / `SnapPoint` | **Unknown** | API документирован, значения fixture не сняты |
-| Body projection polygon → 3D matrix | **Partially confirmed** | rectangle sides/orientation and Z bounds matched RzRyRx; feature-level XYZ remains blocker |
-| Full board STEP golden reference | **Unknown** | не выполнялся |
+| Body projection polygon → 3D matrix | **Partially confirmed** | rectangle sides/orientation and Z bounds matched RzRyRx; full board model state confirmed, component rotation blocked |
+| Full board STEP golden reference | **Obtained; rotation coverage incomplete** | file SHA `7FC3E1C…B9894`; board/origin/state/dz/Bottom rot0 confirmed; component RotationDeg not encoded |
+| Board thickness | **Mismatch 0.02 mm** | Altium properties 2.00800208 mm; STEP board body 2.02800204 mm; unresolved |
+| Board cutout landmarks | **Unknown** | board volume deficit confirms voids; exact cutout XYZ not extracted |
 | Component height vs body height | Not used | `Component.Height` не равен body Overall (C75: 10.5 vs 4.0 mm) |
 
 ## 14.1. Capability matrix
 
 | Capability | Status | First placement version |
 |---|---|---|
-| Top, state 0, Generic/Native | Confirmed by STEP bbox/volume and transform probe | Allowed |
-| Top, combined Rx/Ry/Rz + dz | Order/outline/Z bounds confirmed; feature-level full XYZ blocker | Conditional: allow only after board reference |
-| Component RotationDeg sign | Confirmed by pad landmarks | Allowed |
-| Top, non-zero model-origin offset with component rot 90 | Confirmed by C62 numeric test | Allowed |
-| Bottom, component rotation and state | Transform axis/reflection Unknown | Excluded |
+| Top rot0, state 0, Generic/Native | C366 full board feature-level pass, ≤0.000006 mm | Allowed |
+| Top combined Rx/Ry/Rz + dz (component rot0) | Full board state matrix/dz matches C524/C516 at rot0-relative frame | Allowed only with component rotation excluded |
+| Top non-zero model-origin offset + component rot90 (C62) | Translation pass; full board body rotation is identity, R1 expects Rz90 | **Blocked** |
+| Top component RotationDeg 90/180/270 | Full board STEP omits component rotation for fixture bodies | **Blocked** |
+| Bottom rot0 | Full board STEP confirms `Rx(180°)` and translation | Confirmed but excluded from R2 implementation |
+| Bottom with component rotation | Reference omits rotation | **Blocked** |
 | BodyProjection != Component.Side | Not exercised | Excluded |
 | Multi-body component | Mapping exists; 3D transform not separately validated | Mapping only, no placement claim |
 | SnapPoint origin correction | Runtime values Unknown | Excluded |
-| Full board STEP reference | Not obtained | Blocker for final 3D sign-off |
+| Full board STEP reference | Obtained but rotation coverage incomplete | Blocker for full Top sign-off |
 
 ## 15. Рекомендуемая структура assembly
 
@@ -520,7 +603,7 @@ SOLIDWORKS backend (после отдельного решения):
 - Representative Altium/SOLIDWORKS per-body STEP measurement: volume/bbox passed; results в разделе 8.
 - Component rotation sign: pad landmark check passed.
 - Board origin: outline/component absolute-frame check passed.
-- Full Altium board STEP reference: **not obtained**; blocker for feature-level XYZ and Bottom.
+- Full Altium board STEP: obtained, SHA `7FC3E1…B9894`; block/origin/state/dz/Bottom rot0 checks passed; component RotationDeg not encoded, so rotation-bearing Top/Bottom remains blocked.
 - Full MiniPC assembly не запускался.
 
 ## 20. Commit и PR
