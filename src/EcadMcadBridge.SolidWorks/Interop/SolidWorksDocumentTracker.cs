@@ -11,11 +11,17 @@ public sealed record SolidWorksDocumentLifecycle(
     int CreatedDocuments,
     int ClosedDocuments,
     int RemainingCreatedDocuments,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    SolidWorksCleanupStatus CleanupStatus = SolidWorksCleanupStatus.Incomplete,
+    SolidWorksDocumentSnapshotStatus BaselineSnapshotStatus = SolidWorksDocumentSnapshotStatus.Incomplete,
+    SolidWorksDocumentSnapshotStatus? FinalSnapshotStatus = null,
+    int FinalDocuments = 0,
+    string? SnapshotMessage = null);
 
 /// <summary>
-/// Captures the user's open documents before Bridge work and closes only documents that
-/// appeared afterwards. Titles and paths are re-read at close time because SaveAs changes them.
+/// Captures the user's open documents before Bridge work and closes only documents
+/// positively tracked as belonging to this Bridge operation. Titles and paths are
+/// re-read at close time because SaveAs changes them.
 /// </summary>
 public sealed class SolidWorksDocumentTracker
 {
@@ -24,33 +30,46 @@ public sealed class SolidWorksDocumentTracker
     private readonly HashSet<IntPtr> _protectedIdentities = new();
     private readonly HashSet<string> _protectedPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _warnings = new();
+    private readonly HashSet<string> _reportedUnknown = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<DocumentIdentity> _baseline;
     private readonly HashSet<IntPtr> _baselineIdentities = new();
     private readonly HashSet<string> _baselinePaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly string? _baselineMessage;
     private int _createdCount;
     private int _closedCount;
+    private bool _comUnavailable;
+    private SolidWorksCleanupStatus _cleanupStatus = SolidWorksCleanupStatus.Incomplete;
+    private SolidWorksDocumentSnapshotStatus? _finalStatus;
+    private int _finalCount;
+    private string? _snapshotMessage;
 
     private SolidWorksDocumentTracker(
         ISldWorks solidWorks,
-        IReadOnlyList<ModelDoc2> documents,
-        bool baselineAvailable)
+        CapturedDocumentSet baseline)
     {
         _solidWorks = solidWorks;
-        BaselineAvailable = baselineAvailable;
-        _baseline = new List<DocumentIdentity>();
-        foreach (var document in documents)
+        BaselineStatus = baseline.Status;
+        _baselineMessage = baseline.Message;
+        _baseline = baseline.Documents.ToList();
+        foreach (var identity in _baseline)
         {
-            var identity = Capture(document);
-            if (identity is null || identity.Identity == IntPtr.Zero)
-                continue;
-            _baseline.Add(identity);
             _baselineIdentities.Add(identity.Identity);
             if (identity.Path is not null)
                 _baselinePaths.Add(identity.Path);
         }
+
+        if (baseline.Status != SolidWorksDocumentSnapshotStatus.Available)
+        {
+            _warnings.Add(
+                "Open document baseline is " + baseline.Status +
+                "; Bridge will not close documents automatically" +
+                (string.IsNullOrWhiteSpace(baseline.Message) ? "." : ": " + baseline.Message));
+        }
     }
 
-    public bool BaselineAvailable { get; }
+    public SolidWorksDocumentSnapshotStatus BaselineStatus { get; }
+
+    public bool BaselineAvailable => BaselineStatus == SolidWorksDocumentSnapshotStatus.Available;
 
     public int BaselineCount => _baseline.Count;
 
@@ -60,44 +79,46 @@ public sealed class SolidWorksDocumentTracker
 
     public int RemainingCreatedCount => _owned.Count;
 
+    public SolidWorksCleanupStatus CleanupStatus => _cleanupStatus;
+
     public IReadOnlyList<string> Warnings => _warnings;
 
     public static SolidWorksDocumentTracker Capture(ISldWorks solidWorks)
     {
         ArgumentNullException.ThrowIfNull(solidWorks);
+        return new SolidWorksDocumentTracker(solidWorks, ReadDocuments(solidWorks));
+    }
+
+    /// <summary>
+    /// Registers a document that the current Bridge operation positively opened or created.
+    /// Callers must supply a document returned by LoadFile4, OpenDoc6, NewDocument, or a
+    /// component obtained from the STEP assembly.
+    /// </summary>
+    public bool Track(ModelDoc2? document, int loadWarnings = 0)
+    {
+        if (document is null)
+            return false;
+
+        if (!BaselineAvailable)
+        {
+            _warnings.Add(
+                "A Bridge document could not be tracked because the baseline is " +
+                BaselineStatus + "; it will not be closed automatically.");
+            return false;
+        }
+
+        DocumentIdentity identity;
         try
         {
-            var raw = solidWorks.GetDocuments();
-            var documents = raw switch
-            {
-                object[] array => array.OfType<ModelDoc2>().ToArray(),
-                ModelDoc2 single => new[] { single },
-                _ => Array.Empty<ModelDoc2>(),
-            };
-            return new SolidWorksDocumentTracker(solidWorks, documents, baselineAvailable: true);
+            identity = Capture(document);
         }
         catch (Exception ex)
         {
-            var tracker = new SolidWorksDocumentTracker(
-                solidWorks,
-                Array.Empty<ModelDoc2>(),
-                baselineAvailable: false);
-            tracker._warnings.Add(
-                "Open document baseline is unavailable; Bridge will not close documents automatically: " +
-                ex.GetType().Name + ".");
-            return tracker;
-        }
-    }
-
-    public bool Track(ModelDoc2? document, int loadWarnings = 0)
-    {
-        if (document is null || !BaselineAvailable)
-            return false;
-
-        var identity = Capture(document);
-        if (identity is null || identity.Identity == IntPtr.Zero)
-        {
-            _warnings.Add("A created document could not be identified; it will not be closed automatically.");
+            _warnings.Add(
+                "A created document could not be identified; it will not be closed automatically: " +
+                DescribeFailure("Capture", ex));
+            if (SolidWorksComFailure.IsUnavailable(ex))
+                _comUnavailable = true;
             return false;
         }
 
@@ -115,54 +136,158 @@ public sealed class SolidWorksDocumentTracker
     }
 
     /// <summary>
-    /// Closes all documents that appeared after the baseline. Assemblies are closed before
-    /// their component parts, using the current title/path of each open document.
+    /// Closes only documents positively tracked as Bridge-owned. Any post-baseline document
+    /// whose ownership cannot be established is left open and recorded as a warning.
     /// </summary>
     public IReadOnlyList<string> CloseCreated(ModelDoc2? preferredFirst = null)
     {
         var warnings = new List<string>();
         if (!BaselineAvailable)
         {
-            warnings.Add("Document baseline is unavailable; no Bridge documents were closed.");
+            warnings.Add(
+                "Document baseline is " + BaselineStatus + "; no Bridge documents were closed.");
+            _cleanupStatus = BaselineStatus == SolidWorksDocumentSnapshotStatus.Unavailable
+                ? SolidWorksCleanupStatus.Unavailable
+                : SolidWorksCleanupStatus.Incomplete;
+            _snapshotMessage = _baselineMessage;
             _warnings.AddRange(warnings);
             return warnings;
         }
 
-        if (!TryReadCurrentDocuments(out var documents))
+        var current = ReadCurrentDocuments();
+        if (current.Status == SolidWorksDocumentSnapshotStatus.Unavailable)
         {
-            warnings.Add("Open documents could not be enumerated; no Bridge documents were closed.");
+            warnings.Add(
+                "Open documents could not be enumerated; no Bridge documents were closed" +
+                (string.IsNullOrWhiteSpace(current.Message) ? "." : ": " + current.Message));
+            _comUnavailable = true;
+            _cleanupStatus = SolidWorksCleanupStatus.Unavailable;
+            _finalStatus = current.Status;
+            _finalCount = current.Documents.Count;
+            _snapshotMessage = current.Message;
             _warnings.AddRange(warnings);
             return warnings;
         }
 
-        // Close the operation's root document first; STEP import helper documents stay open
-        // while their root document is loaded. Then close children before parent assemblies.
-        var preferredIdentity = preferredFirst is null ? IntPtr.Zero : IdentityOf(preferredFirst);
-        foreach (var document in documents
-            .OrderBy(item => item.Identity == preferredIdentity ? 0 : 1)
-            .ThenBy(item => item.DocType)
-            .ToArray())
-        {
-            if (IsBaseline(document) || IsProtected(document))
-                continue;
+        var unknownDocuments = current.Documents
+            .Where(document =>
+                !IsBaseline(document)
+                && !IsProtected(document)
+                && FindOwned(document) is null)
+            .ToArray();
+        foreach (var unknownDocument in unknownDocuments)
+            ReportUnknown(unknownDocument, warnings);
 
-            try
+        if (unknownDocuments.Length > 0)
+        {
+            // Closing an assembly can unload/close its component documents. Fail closed:
+            // while any post-baseline document lacks proven ownership, close nothing.
+            warnings.Add(
+                "Document cleanup did not close Bridge-owned documents because " +
+                unknownDocuments.Length.ToString(CultureInfo.InvariantCulture) +
+                " post-baseline document(s) could not be identified.");
+        }
+        else
+        {
+            // Close the operation's root document first; STEP import helper documents stay open
+            // while their root document is loaded. Then close children before parent assemblies.
+            var preferredIdentity = IntPtr.Zero;
+            if (preferredFirst is not null)
             {
-                var owned = FindOwned(document);
-                if (owned is null)
-                    _createdCount++;
+                try
+                {
+                    preferredIdentity = IdentityOf(preferredFirst);
+                }
+                catch
+                {
+                    preferredIdentity = IntPtr.Zero;
+                }
+            }
 
-                if (!TryCloseIdentity(document, warnings))
+            foreach (var document in current.Documents
+                .OrderBy(item => item.Identity == preferredIdentity ? 0 : 1)
+                .ThenBy(item => item.DocType)
+                .ToArray())
+            {
+                if (IsBaseline(document) || IsProtected(document))
                     continue;
 
-                _closedCount++;
-                if (owned is not null)
+                var owned = FindOwned(document);
+                if (owned is null)
+                    continue;
+
+                if (!SolidWorksDocumentOwnershipPolicy.CanClose(
+                        isBaseline: IsBaseline(document),
+                        isProtected: IsProtected(document),
+                        isBridgeOwned: true))
+                {
+                    continue;
+                }
+
+                var outcome = TryCloseIdentity(document, warnings);
+                if (outcome == CloseOutcome.Unavailable)
+                {
+                    _comUnavailable = true;
+                    break;
+                }
+
+                if (outcome == CloseOutcome.Closed)
+                {
+                    _closedCount++;
+                    _owned.Remove(owned.Identity);
+                }
+            }
+        }
+
+        var final = _comUnavailable
+            ? new CapturedDocumentSet(
+                SolidWorksDocumentSnapshotStatus.Unavailable,
+                Array.Empty<DocumentIdentity>(),
+                "SOLIDWORKS COM/RPC is unavailable.")
+            : ReadCurrentDocuments();
+
+        if (final.Status == SolidWorksDocumentSnapshotStatus.Unavailable)
+            _comUnavailable = true;
+
+        if (final.Status == SolidWorksDocumentSnapshotStatus.Available)
+        {
+            foreach (var owned in _owned.Values.ToArray())
+            {
+                if (!final.Documents.Any(document => SameDocument(document, owned)))
                     _owned.Remove(owned.Identity);
             }
-            catch (Exception ex)
-            {
-                warnings.Add(DescribeCloseFailure("CloseCreated", document.Path ?? document.Title, ex));
-            }
+        }
+
+        var missingBaseline = final.Status == SolidWorksDocumentSnapshotStatus.Unavailable
+            ? 0
+            : _baseline.Count(item => !final.Documents.Any(document => SameDocument(item, document)));
+        var ownedOpen = _owned.Values.Count(item =>
+            final.Documents.Any(document => SameDocument(item, document)));
+        var unknown = final.Documents.Count(document =>
+            !IsBaseline(document)
+            && !IsProtected(document)
+            && FindOwned(document) is null);
+
+        _finalStatus = final.Status;
+        _finalCount = final.Documents.Count;
+        _snapshotMessage = final.Message ?? _baselineMessage;
+        _cleanupStatus = SolidWorksCleanupEvaluator.Evaluate(
+            new SolidWorksCleanupEvidence(
+                BaselineStatus,
+                final.Status,
+                missingBaseline,
+                ownedOpen,
+                unknown,
+                _snapshotMessage));
+
+        if (_cleanupStatus != SolidWorksCleanupStatus.Verified)
+        {
+            warnings.Add(
+                "Document cleanup is " + _cleanupStatus +
+                (ownedOpen > 0 ? "; " + ownedOpen.ToString(CultureInfo.InvariantCulture) + " Bridge-owned document(s) remain open" : string.Empty) +
+                (unknown > 0 ? "; " + unknown.ToString(CultureInfo.InvariantCulture) + " unidentified post-baseline document(s) remain open" : string.Empty) +
+                (missingBaseline > 0 ? "; " + missingBaseline.ToString(CultureInfo.InvariantCulture) + " baseline document(s) are missing" : string.Empty) +
+                (string.IsNullOrWhiteSpace(_snapshotMessage) ? "." : ": " + _snapshotMessage));
         }
 
         _warnings.AddRange(warnings);
@@ -170,45 +295,66 @@ public sealed class SolidWorksDocumentTracker
     }
 
     public SolidWorksDocumentLifecycle Snapshot() =>
-        new(BaselineCount, CreatedCount, ClosedCount, RemainingCreatedCount, _warnings.ToArray());
+        new(
+            BaselineCount,
+            CreatedCount,
+            ClosedCount,
+            RemainingCreatedCount,
+            _warnings.ToArray(),
+            _cleanupStatus,
+            BaselineStatus,
+            _finalStatus,
+            _finalCount,
+            _snapshotMessage ?? _baselineMessage);
 
-    private bool TryCloseIdentity(DocumentIdentity current, List<string> warnings)
+    private void ReportUnknown(DocumentIdentity document, List<string> warnings)
+    {
+        var label = string.IsNullOrWhiteSpace(document.Path)
+            ? document.Title
+            : document.Path;
+        var key = document.Identity != IntPtr.Zero
+            ? "identity:" + document.Identity.ToString("X", CultureInfo.InvariantCulture)
+            : "name:" + label;
+        if (!_reportedUnknown.Add(key))
+            return;
+
+        warnings.Add(
+            "A post-baseline document (" + label +
+            ") was not identified as Bridge-owned; it was left open.");
+    }
+
+    private CloseOutcome TryCloseIdentity(DocumentIdentity current, List<string> warnings)
     {
         if (string.IsNullOrWhiteSpace(current.Title))
         {
             warnings.Add("A Bridge document has no current title; it was not closed.");
-            return false;
+            return CloseOutcome.Failed;
         }
 
         var label = Path.GetFileName(current.Path ?? current.Title);
-        var closed = false;
         var lastError = string.Empty;
         for (var attempt = 0; attempt < 5; attempt++)
         {
-            if (TryCloseDocument(current, out lastError))
+            var outcome = TryCloseDocument(current, out lastError);
+            if (outcome == CloseOutcome.Closed)
+                return CloseOutcome.Closed;
+            if (outcome == CloseOutcome.Unavailable)
             {
-                closed = true;
-                break;
+                warnings.Add(
+                    "A Bridge document (" + label + ") could not be closed: " + lastError + ".");
+                return CloseOutcome.Unavailable;
             }
 
             if (attempt < 4)
                 Thread.Sleep(50);
         }
 
-        if (!closed)
-            warnings.Add("A Bridge document (" + label + ") could not be closed: " + lastError + ".");
-
-        return closed;
+        warnings.Add("A Bridge document (" + label + ") could not be closed: " + lastError + ".");
+        return CloseOutcome.Failed;
     }
 
     private DocumentIdentity? FindOwned(DocumentIdentity document) =>
-        _owned.Values.FirstOrDefault(item => item.Identity == document.Identity)
-        ?? _owned.Values.FirstOrDefault(item =>
-            item.Path is not null
-            && document.Path is not null
-            && SolidWorksPath.Same(item.Path, document.Path))
-        ?? _owned.Values.FirstOrDefault(item =>
-            string.Equals(item.Title, document.Title, StringComparison.Ordinal));
+        _owned.Values.FirstOrDefault(item => SameDocument(item, document));
 
     private bool IsBaseline(DocumentIdentity identity) =>
         _baselineIdentities.Contains(identity.Identity)
@@ -225,36 +371,23 @@ public sealed class SolidWorksDocumentTracker
             _protectedPaths.Add(identity.Path);
     }
 
-    private bool TryReadCurrentDocuments(out IReadOnlyList<DocumentIdentity> documents)
+    private CapturedDocumentSet ReadCurrentDocuments()
     {
-        try
+        if (_comUnavailable)
         {
-            var raw = _solidWorks.GetDocuments();
-            var values = raw switch
-            {
-                object[] array => array.OfType<ModelDoc2>(),
-                ModelDoc2 single => new[] { single },
-                _ => Array.Empty<ModelDoc2>(),
-            };
-            var result = new List<DocumentIdentity>();
-            foreach (var document in values)
-            {
-                var identity = Capture(document);
-                if (identity is not null && identity.Identity != IntPtr.Zero)
-                    result.Add(identity);
-            }
+            return new CapturedDocumentSet(
+                SolidWorksDocumentSnapshotStatus.Unavailable,
+                Array.Empty<DocumentIdentity>(),
+                "SOLIDWORKS COM/RPC is unavailable.");
+        }
 
-            documents = result;
-            return true;
-        }
-        catch
-        {
-            documents = Array.Empty<DocumentIdentity>();
-            return false;
-        }
+        var current = ReadDocuments(_solidWorks);
+        if (current.Status == SolidWorksDocumentSnapshotStatus.Unavailable)
+            _comUnavailable = true;
+        return current;
     }
 
-    private bool TryCloseDocument(DocumentIdentity identity, out string lastError)
+    private CloseOutcome TryCloseDocument(DocumentIdentity identity, out string lastError)
     {
         lastError = string.Empty;
         var candidates = new[] { identity.Path, identity.Title }
@@ -273,8 +406,13 @@ public sealed class SolidWorksDocumentTracker
                     break;
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                if (SolidWorksComFailure.IsUnavailable(ex))
+                {
+                    AppendError(ref lastError, DescribeCloseFailure("ActivateDoc3", candidate!, ex));
+                    return CloseOutcome.Unavailable;
+                }
                 // Closing can still work without activation.
             }
         }
@@ -285,13 +423,21 @@ public sealed class SolidWorksDocumentTracker
             {
                 _solidWorks.CloseDoc(candidate!);
                 if (IsClosed(identity))
-                    return true;
+                    return CloseOutcome.Closed;
+                if (_comUnavailable)
+                {
+                    AppendError(ref lastError, "CloseDoc verification could not read open documents.");
+                    return CloseOutcome.Unavailable;
+                }
                 AppendError(ref lastError, "CloseDoc returned but document is still open.");
             }
             catch (Exception ex)
             {
-                if (IsDisconnected(ex) && IsClosed(identity))
-                    return true;
+                if (SolidWorksComFailure.IsUnavailable(ex))
+                {
+                    AppendError(ref lastError, DescribeCloseFailure("CloseDoc", candidate!, ex));
+                    return CloseOutcome.Unavailable;
+                }
                 AppendError(ref lastError, DescribeCloseFailure("CloseDoc", candidate!, ex));
             }
         }
@@ -302,74 +448,164 @@ public sealed class SolidWorksDocumentTracker
             {
                 _solidWorks.QuitDoc(candidate!);
                 if (IsClosed(identity))
-                    return true;
+                    return CloseOutcome.Closed;
+                if (_comUnavailable)
+                {
+                    AppendError(ref lastError, "QuitDoc verification could not read open documents.");
+                    return CloseOutcome.Unavailable;
+                }
                 AppendError(ref lastError, "QuitDoc returned but document is still open.");
             }
             catch (Exception ex)
             {
-                if (IsDisconnected(ex) && IsClosed(identity))
-                    return true;
+                if (SolidWorksComFailure.IsUnavailable(ex))
+                {
+                    AppendError(ref lastError, DescribeCloseFailure("QuitDoc", candidate!, ex));
+                    return CloseOutcome.Unavailable;
+                }
                 AppendError(ref lastError, DescribeCloseFailure("QuitDoc", candidate!, ex));
             }
         }
 
-        return false;
+        return CloseOutcome.Failed;
     }
 
     private bool IsClosed(DocumentIdentity identity)
     {
-        if (!TryReadCurrentDocuments(out var documents))
+        if (_comUnavailable)
             return false;
-        return !documents.Any(item =>
-            item.Identity == identity.Identity
-            || (identity.Path is not null && SolidWorksPath.Same(item.Path, identity.Path)));
+
+        var current = ReadCurrentDocuments();
+        if (current.Status != SolidWorksDocumentSnapshotStatus.Available)
+            return false;
+
+        return !current.Documents.Any(item => SameDocument(item, identity));
     }
 
-    private static bool IsDisconnected(Exception ex) =>
-        ex.HResult == unchecked((int)0x80010108);
+    private static CapturedDocumentSet ReadDocuments(ISldWorks solidWorks)
+    {
+        object? raw;
+        try
+        {
+            raw = solidWorks.GetDocuments();
+        }
+        catch (Exception ex)
+        {
+            return new CapturedDocumentSet(
+                SolidWorksDocumentSnapshotStatus.Unavailable,
+                Array.Empty<DocumentIdentity>(),
+                DescribeFailure("GetDocuments", ex));
+        }
 
-    private static void AppendError(ref string lastError, string message) =>
-        lastError = string.IsNullOrWhiteSpace(lastError) ? message : lastError + "; " + message;
+        ModelDoc2[] documents;
+        var unexpectedEntry = false;
+        switch (raw)
+        {
+            case null:
+                documents = Array.Empty<ModelDoc2>();
+                break;
+            case object[] array:
+                documents = array.OfType<ModelDoc2>().ToArray();
+                unexpectedEntry = documents.Length != array.Length;
+                break;
+            case ModelDoc2 single:
+                documents = new[] { single };
+                break;
+            default:
+                return new CapturedDocumentSet(
+                    SolidWorksDocumentSnapshotStatus.Incomplete,
+                    Array.Empty<DocumentIdentity>(),
+                    "GetDocuments returned an unsupported value.");
+        }
+
+        var result = new List<DocumentIdentity>();
+        var incomplete = unexpectedEntry;
+        string? message = unexpectedEntry
+            ? "GetDocuments returned at least one unsupported entry."
+            : null;
+        foreach (var document in documents)
+        {
+            try
+            {
+                result.Add(Capture(document));
+            }
+            catch (Exception ex)
+            {
+                if (SolidWorksComFailure.IsUnavailable(ex))
+                {
+                    return new CapturedDocumentSet(
+                        SolidWorksDocumentSnapshotStatus.Unavailable,
+                        result,
+                        DescribeFailure("GetDocuments identity", ex));
+                }
+
+                incomplete = true;
+                message = DescribeFailure("GetDocuments identity", ex);
+            }
+        }
+
+        return incomplete
+            ? new CapturedDocumentSet(
+                SolidWorksDocumentSnapshotStatus.Incomplete,
+                result,
+                message ?? "At least one open document could not be identified.")
+            : new CapturedDocumentSet(
+                SolidWorksDocumentSnapshotStatus.Available,
+                result,
+                null);
+    }
+
+    private static DocumentIdentity Capture(ModelDoc2 document)
+    {
+        var identity = IdentityOf(document);
+        if (identity == IntPtr.Zero)
+            throw new InvalidOperationException("The document has no COM identity.");
+
+        return new DocumentIdentity(
+            document,
+            identity,
+            SolidWorksPath.Normalize(document.GetPathName()),
+            document.GetTitle() ?? string.Empty,
+            document.GetType());
+    }
+
+    private static IntPtr IdentityOf(ModelDoc2 document)
+    {
+        var identity = Marshal.GetIUnknownForObject(document);
+        if (identity != IntPtr.Zero)
+            Marshal.Release(identity);
+        return identity;
+    }
+
+    private static bool SameDocument(DocumentIdentity left, DocumentIdentity right) =>
+        left.Identity == right.Identity
+        || (left.Path is not null
+            && right.Path is not null
+            && SolidWorksPath.Same(left.Path, right.Path));
+
+    private static string DescribeFailure(string operation, Exception ex) =>
+        operation + " failed " + ex.GetType().Name + " 0x" +
+        ex.HResult.ToString("X8", CultureInfo.InvariantCulture) + " " + ex.Message;
 
     private static string DescribeCloseFailure(string operation, string candidate, Exception ex) =>
         operation + "(" + Path.GetFileName(candidate) + ") failed " +
         ex.GetType().Name + " 0x" +
         ex.HResult.ToString("X8", CultureInfo.InvariantCulture) + " " + ex.Message;
 
-    private static DocumentIdentity? Capture(ModelDoc2 document)
+    private static void AppendError(ref string lastError, string message) =>
+        lastError = string.IsNullOrWhiteSpace(lastError) ? message : lastError + "; " + message;
+
+    private enum CloseOutcome
     {
-        try
-        {
-            var identity = IdentityOf(document);
-            if (identity == IntPtr.Zero)
-                return null;
-            return new DocumentIdentity(
-                document,
-                identity,
-                SolidWorksPath.Normalize(document.GetPathName()),
-                document.GetTitle() ?? string.Empty,
-                document.GetType());
-        }
-        catch
-        {
-            return null;
-        }
+        Closed,
+        Failed,
+        Unavailable,
     }
 
-    private static IntPtr IdentityOf(ModelDoc2 document)
-    {
-        try
-        {
-            var identity = Marshal.GetIUnknownForObject(document);
-            if (identity != IntPtr.Zero)
-                Marshal.Release(identity);
-            return identity;
-        }
-        catch
-        {
-            return IntPtr.Zero;
-        }
-    }
+    private sealed record CapturedDocumentSet(
+        SolidWorksDocumentSnapshotStatus Status,
+        IReadOnlyList<DocumentIdentity> Documents,
+        string? Message);
 
     private sealed record DocumentIdentity(
         ModelDoc2 Document,

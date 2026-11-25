@@ -181,6 +181,7 @@ public sealed class SolidWorksAssemblyService
                 }
             }
 
+            TrackComponents(assembly, tracker, diagnostics);
             var components = CountComponents(assembly);
             if (components < 2)
             {
@@ -236,7 +237,7 @@ public sealed class SolidWorksAssemblyService
                     tracker);
             }
 
-            AddCleanupWarnings(diagnostics, tracker.CloseCreated(document));
+            CloseAndReport(diagnostics, tracker, document);
 
             var openErrors = 0;
             var openWarnings = 0;
@@ -288,9 +289,12 @@ public sealed class SolidWorksAssemblyService
             }
 
             tracker.Track(reopened, openWarnings);
-            var reopenedComponents = reopened is AssemblyDoc reopenedAssembly
-                ? CountComponents(reopenedAssembly)
-                : 0;
+            var reopenedAssembly = reopened as AssemblyDoc;
+            if (reopenedAssembly is not null)
+                TrackComponents(reopenedAssembly, tracker, diagnostics);
+            var reopenedComponents = reopenedAssembly is null
+                ? 0
+                : CountComponents(reopenedAssembly);
             if (reopenedComponents != components)
             {
                 diagnostics.Add(new SolidWorksDiagnostic(
@@ -300,7 +304,7 @@ public sealed class SolidWorksAssemblyService
                     "Reopened assembly has a different component count."));
             }
 
-            AddCleanupWarnings(diagnostics, tracker.CloseCreated(reopened));
+            CloseAndReport(diagnostics, tracker, reopened);
             return new SolidWorksAssemblyResult(
                 assemblyPath,
                 components,
@@ -323,7 +327,7 @@ public sealed class SolidWorksAssemblyService
         }
         finally
         {
-            AddCleanupWarnings(diagnostics, tracker.CloseCreated());
+            CloseAndReport(diagnostics, tracker);
             foreach (var path in temporaryParts)
             {
                 try
@@ -350,9 +354,8 @@ public sealed class SolidWorksAssemblyService
         IReadOnlyList<SolidWorksDiagnostic> diagnostics,
         SolidWorksDocumentTracker tracker)
     {
-        var cleanup = tracker.CloseCreated();
         if (diagnostics is List<SolidWorksDiagnostic> list)
-            AddCleanupWarnings(list, cleanup);
+            CloseAndReport(list, tracker);
         return new SolidWorksAssemblyResult(
             assemblyPath,
             componentCount,
@@ -363,6 +366,35 @@ public sealed class SolidWorksAssemblyService
             warnings,
             diagnostics,
             tracker.Snapshot());
+    }
+
+    private static void TrackComponents(
+        AssemblyDoc assembly,
+        SolidWorksDocumentTracker tracker,
+        List<SolidWorksDiagnostic> diagnostics)
+    {
+        try
+        {
+            if (assembly.GetComponents(false) is not object[] components)
+                return;
+
+            foreach (var item in components)
+            {
+                if (item is Component2 component
+                    && component.GetModelDoc2() is ModelDoc2 model)
+                {
+                    tracker.Track(model);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            diagnostics.Add(new SolidWorksDiagnostic(
+                "SW-ASM-018",
+                SolidWorksDiagnosticSeverity.Warning,
+                "assembly",
+                "Assembly component documents could not be tracked: " + ex.GetType().Name + "."));
+        }
     }
 
     private static int CountComponents(AssemblyDoc assembly)
@@ -395,6 +427,24 @@ public sealed class SolidWorksAssemblyService
                 "Open warning " + flag.Name + " (" +
                 flag.Value.ToString(CultureInfo.InvariantCulture) + ")."));
         }
+    }
+
+    private static void CloseAndReport(
+        List<SolidWorksDiagnostic> diagnostics,
+        SolidWorksDocumentTracker tracker,
+        ModelDoc2? preferredFirst = null)
+    {
+        AddCleanupWarnings(diagnostics, tracker.CloseCreated(preferredFirst));
+        if (tracker.CleanupStatus == SolidWorksCleanupStatus.Verified)
+            return;
+        if (diagnostics.Any(item => item.Code == "SW-ASM-CLEANUP-STATUS"))
+            return;
+
+        diagnostics.Add(new SolidWorksDiagnostic(
+            "SW-ASM-CLEANUP-STATUS",
+            SolidWorksDiagnosticSeverity.Error,
+            "documents",
+            "Document cleanup is " + tracker.CleanupStatus + "; assembly smoke cannot be considered successful."));
     }
 
     private static void AddCleanupWarnings(

@@ -114,7 +114,7 @@ public sealed class SolidWorksImportService
         }
         finally
         {
-            AddCleanupWarnings(diagnostics, tracker.CloseCreated());
+            CloseAndReport(diagnostics, tracker);
         }
 
         return new SolidWorksImportResult(parts, assets, diagnostics, tracker.Snapshot());
@@ -231,7 +231,7 @@ public sealed class SolidWorksImportService
                 return null;
             }
 
-            AddCleanupWarnings(diagnostics, tracker.CloseCreated(importedDocument));
+            CloseAndReport(diagnostics, tracker, importedDocument);
             if (File.Exists(asset.NativePartPath))
             {
                 diagnostics.Add(new SolidWorksDiagnostic(
@@ -330,7 +330,7 @@ public sealed class SolidWorksImportService
                     importedBodies.ToString(CultureInfo.InvariantCulture) + "."));
             }
 
-            AddCleanupWarnings(diagnostics, tracker.CloseCreated(reopened));
+            CloseAndReport(diagnostics, tracker, reopened);
             return new ImportedAssetResult(
                 new SolidWorksImportedAsset(
                     asset.AssetPath,
@@ -355,7 +355,7 @@ public sealed class SolidWorksImportService
         }
         finally
         {
-            AddCleanupWarnings(diagnostics, tracker.CloseCreated());
+            CloseAndReport(diagnostics, tracker);
             foreach (var temporary in new[] { tempPartPath, verifyPartPath })
             {
                 if (temporary is null)
@@ -562,6 +562,24 @@ public sealed class SolidWorksImportService
                 "Open warning " + flag.Name + " (" +
                 flag.Value.ToString(CultureInfo.InvariantCulture) + ")."));
         }
+    }
+
+    private static void CloseAndReport(
+        List<SolidWorksDiagnostic> diagnostics,
+        SolidWorksDocumentTracker tracker,
+        ModelDoc2? preferredFirst = null)
+    {
+        AddCleanupWarnings(diagnostics, tracker.CloseCreated(preferredFirst));
+        if (tracker.CleanupStatus == SolidWorksCleanupStatus.Verified)
+            return;
+        if (diagnostics.Any(item => item.Code == "SW-IMP-CLEANUP-STATUS"))
+            return;
+
+        diagnostics.Add(new SolidWorksDiagnostic(
+            "SW-IMP-CLEANUP-STATUS",
+            SolidWorksDiagnosticSeverity.Error,
+            "documents",
+            "Document cleanup is " + tracker.CleanupStatus + "; native import cannot be considered successful."));
     }
 
     private static void AddCleanupWarnings(

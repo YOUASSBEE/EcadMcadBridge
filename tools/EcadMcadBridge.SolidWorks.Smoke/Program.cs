@@ -132,12 +132,22 @@ internal static class SmokeRunner
 
         total.Stop();
         var remainingDocuments = ReadOpenDocuments(solidWorks);
-        var baselineSet = new HashSet<string>(baselineDocuments, StringComparer.OrdinalIgnoreCase);
-        var createdDocumentsRemaining = remainingDocuments
-            .Where(item => !baselineSet.Contains(item))
-            .ToArray();
-        var baselinePreserved = baselineDocuments.All(item =>
-            remainingDocuments.Contains(item, StringComparer.OrdinalIgnoreCase));
+        var baselineAvailable = baselineDocuments.IsAvailable;
+        var finalAvailable = remainingDocuments.IsAvailable;
+        string[]? createdDocumentsRemaining = null;
+        bool? baselinePreserved = null;
+        if (baselineAvailable && finalAvailable)
+        {
+            var baselineSet = new HashSet<string>(
+                baselineDocuments.Identities,
+                StringComparer.OrdinalIgnoreCase);
+            createdDocumentsRemaining = remainingDocuments.Identities
+                .Where(item => !baselineSet.Contains(item))
+                .ToArray();
+            baselinePreserved = baselineDocuments.Identities.All(item =>
+                remainingDocuments.Identities.Contains(item, StringComparer.OrdinalIgnoreCase));
+        }
+
         var diagnostics = plan.Diagnostics
             .Concat(importResult.Diagnostics)
             .Concat(assembly?.Diagnostics ?? Array.Empty<SolidWorksDiagnostic>())
@@ -150,13 +160,18 @@ internal static class SmokeRunner
                 && asset.ReopenedBodyCount > 0);
         var mappedAll = importResult.BodyParts.Count == selectedPlan.BodyReferences.Count;
         var assemblyOk = assembly is null || (assembly.Saved && assembly.Reopened);
+        var cleanupVerified = importResult.Lifecycle.CleanupStatus == SolidWorksCleanupStatus.Verified
+            && (assembly is null || assembly.Lifecycle.CleanupStatus == SolidWorksCleanupStatus.Verified);
         var success = plan.IsValid
             && importResult.Assets.Count == selectedPlan.Assets.Count
             && importedAll
             && mappedAll
             && assemblyOk
-            && baselinePreserved
-            && createdDocumentsRemaining.Length == 0
+            && baselineAvailable
+            && finalAvailable
+            && baselinePreserved == true
+            && createdDocumentsRemaining is { Length: 0 }
+            && cleanupVerified
             && diagnostics.All(item => item.Severity != SolidWorksDiagnosticSeverity.Error);
 
         var report = new
@@ -179,10 +194,18 @@ internal static class SmokeRunner
             assets = importResult.Assets,
             bodyParts = importResult.BodyParts,
             assembly,
-            baselineDocuments,
-            remainingDocuments,
+            baselineSnapshot = SnapshotReport(baselineDocuments),
+            finalSnapshot = SnapshotReport(remainingDocuments),
+            baselineDocuments = baselineAvailable ? baselineDocuments.Identities : null,
+            remainingDocuments = finalAvailable ? remainingDocuments.Identities : null,
             createdDocumentsRemaining,
             baselinePreserved,
+            cleanupStatus = new
+            {
+                import = importResult.Lifecycle.CleanupStatus.ToString(),
+                assembly = assembly?.Lifecycle.CleanupStatus.ToString(),
+                verified = cleanupVerified,
+            },
             documentLifecycle = new
             {
                 import = importResult.Lifecycle,
@@ -203,38 +226,101 @@ internal static class SmokeRunner
         if (assembly is not null)
             Console.WriteLine("assemblyComponents=" + assembly.ComponentCount + " reopened=" + assembly.ReopenedComponentCount);
         Console.WriteLine("success=" + success);
-        Console.WriteLine("baselineDocuments=" + baselineDocuments.Count + " remainingDocuments=" + remainingDocuments.Count + " createdDocumentsRemaining=" + createdDocumentsRemaining.Length + " baselinePreserved=" + baselinePreserved);
+        Console.WriteLine(
+            "baseline=" + baselineDocuments.Status + "/" + baselineDocuments.Count +
+            " final=" + remainingDocuments.Status + "/" + remainingDocuments.Count +
+            " createdDocumentsRemaining=" + (createdDocumentsRemaining is null ? "unknown" : createdDocumentsRemaining.Length.ToString()) +
+            " baselinePreserved=" + (baselinePreserved is null ? "unknown" : baselinePreserved.Value.ToString()) +
+            " cleanup=" + importResult.Lifecycle.CleanupStatus +
+            (assembly is null ? string.Empty : "/" + assembly.Lifecycle.CleanupStatus));
         return success ? 0 : 1;
     }
 
-    private static IReadOnlyList<string> ReadOpenDocuments(ISldWorks solidWorks)
+    private static object SnapshotReport(SolidWorksDocumentSnapshot snapshot) =>
+        new
+        {
+            status = snapshot.Status.ToString(),
+            count = snapshot.Count,
+            documents = snapshot.Identities,
+            message = snapshot.Message,
+        };
+
+    private static SolidWorksDocumentSnapshot ReadOpenDocuments(ISldWorks solidWorks)
     {
+        object? raw;
         try
         {
-            var raw = solidWorks.GetDocuments();
-            var documents = raw switch
-            {
-                object[] array => array.OfType<ModelDoc2>().ToArray(),
-                ModelDoc2 single => new[] { single },
-                _ => Array.Empty<ModelDoc2>(),
-            };
-            return documents
-                .Select(document =>
-                {
-                    var path = document.GetPathName();
-                    return string.IsNullOrWhiteSpace(path)
-                        ? "title:" + document.GetTitle()
-                        : SolidWorksPath.Normalize(path) ?? path;
-                })
-                .Where(item => !string.IsNullOrWhiteSpace(item))
-                .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+            raw = solidWorks.GetDocuments();
         }
-        catch
+        catch (Exception ex)
         {
-            return Array.Empty<string>();
+            return SolidWorksDocumentSnapshot.Unavailable(Describe("GetDocuments", ex));
         }
+
+        ModelDoc2[] documents;
+        var unexpectedEntry = false;
+        switch (raw)
+        {
+            case null:
+                documents = Array.Empty<ModelDoc2>();
+                break;
+            case object[] array:
+                documents = array.OfType<ModelDoc2>().ToArray();
+                unexpectedEntry = documents.Length != array.Length;
+                break;
+            case ModelDoc2 single:
+                documents = new[] { single };
+                break;
+            default:
+                return SolidWorksDocumentSnapshot.Incomplete(
+                    Array.Empty<string>(),
+                    "GetDocuments returned an unsupported value.");
+        }
+
+        var identities = new List<string>();
+        var incomplete = unexpectedEntry;
+        string? message = unexpectedEntry
+            ? "GetDocuments returned at least one unsupported entry."
+            : null;
+        foreach (var document in documents)
+        {
+            try
+            {
+                var path = document.GetPathName();
+                var title = document.GetTitle();
+                var identity = string.IsNullOrWhiteSpace(path)
+                    ? (string.IsNullOrWhiteSpace(title) ? null : "title:" + title)
+                    : SolidWorksPath.Normalize(path) ?? path;
+                if (identity is null)
+                {
+                    incomplete = true;
+                    message = "At least one open document has no usable identity.";
+                    continue;
+                }
+
+                identities.Add(identity);
+            }
+            catch (Exception ex)
+            {
+                if (SolidWorksComFailure.IsUnavailable(ex))
+                {
+                    return SolidWorksDocumentSnapshot.Unavailable(Describe("GetDocuments identity", ex));
+                }
+
+                incomplete = true;
+                message = Describe("GetDocuments identity", ex);
+            }
+        }
+
+        identities.Sort(StringComparer.OrdinalIgnoreCase);
+        return incomplete
+            ? SolidWorksDocumentSnapshot.Incomplete(identities, message ?? "At least one open document could not be identified.")
+            : SolidWorksDocumentSnapshot.Available(identities);
     }
+
+    private static string Describe(string operation, Exception ex) =>
+        operation + " failed " + ex.GetType().Name + " 0x" +
+        ex.HResult.ToString("X8", System.Globalization.CultureInfo.InvariantCulture) + " " + ex.Message;
 
     private static IReadOnlyList<string> SelectSampleAssets(SolidWorksImportPlan plan)
     {

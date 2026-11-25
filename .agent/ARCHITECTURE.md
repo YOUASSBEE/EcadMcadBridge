@@ -604,11 +604,15 @@ Core рассматривает ID как непрозрачную непуст�
   `AddComponent5(0,0,0)`, `GetComponents`, `SaveAs3`, повторное открытие и
   сравнение количества компонентов. Это не placement ECAD.
 - `SolidWorksDocumentTracker` снимает baseline через `GetDocuments()` до операции
-  и закрывает только документы, появившиеся после baseline. Идентичность и
-  текущие `GetTitle()`/`GetPathName()` перечитываются на этапе cleanup; документы
-  из baseline и документы с `swFileLoadWarning_AlreadyOpen` защищены от закрытия.
-  Успех cleanup подтверждается повторным `GetDocuments()`, а не возвратом
-  `CloseDoc`/`QuitDoc`.
+  и закрывает только положительно зарегистрированные Bridge-owned документы
+  (`LoadFile4`, component `GetModelDoc2()`, `OpenDoc6`, `NewDocument`). Документы
+  baseline, `swFileLoadWarning_AlreadyOpen` и unknown post-baseline защищены от
+  закрытия; unknown оставляет warning и не даёт cleanup статус `Verified`.
+- Snapshot имеет явный статус `Available`/`Unavailable`/`Incomplete`; COM/RPC
+  exception не превращается в пустой список, неполное чтение identity не считается
+  успешным перечислением. `CleanupStatus` — `Verified`/`Incomplete`/`Failed`/
+  `Unavailable`; только `Verified` считается успехом. Успех подтверждается final
+  snapshot, а не возвратом `CloseDoc`/`QuitDoc`.
 - Smoke harness подключается к уже запущенному SOLIDWORKS через ROT, работает в
   STA, вызывает API последовательно, не запускает/не завершает пользовательский
   процесс. Входные STEP assets не изменяются; smoke фиксирует baseline, remaining
