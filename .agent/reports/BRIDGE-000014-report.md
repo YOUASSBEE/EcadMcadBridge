@@ -284,7 +284,7 @@ capabilities сохранены.
 - Commit: `0b21301` (`feat(altium): export component 3D bodies to exchange package`).
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/13, ветка
   `agent/BRIDGE-000014-altium-3d-model-export`, base `source`, merge запрещён.
-- Final branch HEAD after PR/report updates: `8f5ca54ef63a331ee61989c3fc6640e02ce55704`.
+- Final branch HEAD after implementation and PR updates: `aa55d296e9ffc42e3edb46f920a5bff814df7235`.
 
 ## 15. История изменений
 
