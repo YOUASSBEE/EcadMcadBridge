@@ -1,3 +1,4 @@
+using EcadMcadBridge.Core.Diagnostics;
 using EcadMcadBridge.Core.Model;
 
 namespace EcadMcadBridge.Core.Packaging;
@@ -9,6 +10,9 @@ namespace EcadMcadBridge.Core.Packaging;
 public static class ComponentModelsValidator
 {
     private const string AssetPrefix = "assets/3d/";
+
+    /// <summary>Same unit tolerance as BoardSnapshotValidator.</summary>
+    private const double UnitToleranceMm = 1e-9;
 
     public static IReadOnlyList<PackageDiagnostic> ValidateStructure(
         ComponentModelCatalog catalog,
@@ -128,20 +132,38 @@ public static class ComponentModelsValidator
                 ValidatePair(body.Origin.ZIu, body.Origin.ZMm, bodyPath + ".sdkOrigin.z", diagnostics);
                 ValidatePair(body.State.DzIu, body.State.DzMm, bodyPath + ".sdkState.dz", diagnostics);
 
-                var hasPath = !string.IsNullOrEmpty(body.AssetPath);
+                var hasPath = body.AssetPath is not null;
+                var isBlankPath = hasPath && string.IsNullOrWhiteSpace(body.AssetPath);
+                if (isBlankPath)
+                {
+                    Error(
+                        PackageDiagnosticCodes.InvalidModelAsset,
+                        bodyPath + ".assetPath",
+                        "assetPath must not be empty or whitespace.",
+                        diagnostics);
+                }
+
                 var hasFormat = body.AssetFormat.HasValue;
-                if (hasPath != hasFormat)
+                if (!hasPath && hasFormat)
                 {
                     Error(
                         PackageDiagnosticCodes.InvalidModelAsset,
                         bodyPath,
-                        "assetPath and assetFormat must both be set or both be null.",
+                        "assetFormat requires a non-null assetPath.",
+                        diagnostics);
+                }
+                else if (hasPath && !hasFormat)
+                {
+                    Error(
+                        PackageDiagnosticCodes.InvalidModelAsset,
+                        bodyPath,
+                        "assetPath requires assetFormat.",
                         diagnostics);
                 }
 
                 var requiresAsset = body.AssetAcquisition is ComponentModelAssetAcquisition.SdkExport
                     or ComponentModelAssetAcquisition.SourceCopyVerified;
-                if (requiresAsset && !hasPath)
+                if (requiresAsset && (!hasPath || isBlankPath))
                 {
                     Error(
                         PackageDiagnosticCodes.InvalidModelAsset,
@@ -158,7 +180,7 @@ public static class ComponentModelsValidator
                         diagnostics);
                 }
 
-                if (hasPath)
+                if (hasPath && !isBlankPath)
                 {
                     var path = body.AssetPath!;
                     if (!TryValidateAssetPath(path, body.AssetFormat, out var reason))
@@ -217,10 +239,10 @@ public static class ComponentModelsValidator
         {
             foreach (var body in component.Bodies ?? Array.Empty<ComponentBodyEntry>())
             {
-                if (string.IsNullOrEmpty(body.AssetPath))
+                if (body.AssetPath is null)
                     continue;
 
-                var path = body.AssetPath!;
+                var path = body.AssetPath;
                 if (referencedIgnoreCase.TryGetValue(path, out var existing)
                     && !string.Equals(existing, path, StringComparison.Ordinal))
                 {
@@ -365,13 +387,11 @@ public static class ComponentModelsValidator
             Error(PackageDiagnosticCodes.InvalidModelCatalog, path, "Value must be finite.", diagnostics);
     }
 
-    private static void ValidatePair<TIu, TMm>(
-        TIu? iu,
-        TMm? mm,
+    private static void ValidatePair(
+        int? iu,
+        double? mm,
         string path,
         List<PackageDiagnostic> diagnostics)
-        where TIu : struct
-        where TMm : struct
     {
         if (iu.HasValue != mm.HasValue)
         {
@@ -379,6 +399,19 @@ public static class ComponentModelsValidator
                 PackageDiagnosticCodes.InvalidModelCatalog,
                 path,
                 "IU and millimetre values must both be set or both be null.",
+                diagnostics);
+            return;
+        }
+
+        if (!iu.HasValue || !mm.HasValue || !double.IsFinite(mm.Value))
+            return;
+
+        if (Math.Abs(mm.Value - AltiumUnits.IuToMm(iu.Value)) > UnitToleranceMm)
+        {
+            Error(
+                PackageDiagnosticCodes.InvalidModelCatalog,
+                path,
+                "Millimetre value does not match the IU value within tolerance.",
                 diagnostics);
         }
     }

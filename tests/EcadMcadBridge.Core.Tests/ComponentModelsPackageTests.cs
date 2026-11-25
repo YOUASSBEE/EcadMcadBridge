@@ -241,6 +241,7 @@ public sealed class ComponentModelsPackageTests
 
         Assert.False(read.IsSuccess);
         Assert.Contains(read.Errors, diagnostic => diagnostic.Code == PackageDiagnosticCodes.InvalidModelCatalog);
+        Assert.Null(read.Models);
     }
 
     [Fact]
@@ -294,6 +295,221 @@ public sealed class ComponentModelsPackageTests
         Assert.Equal(
             ComponentModelsJson.SerializeToUtf8(ordered),
             ComponentModelsJson.SerializeToUtf8(reversed));
+    }
+
+    [Theory]
+    [InlineData("x")]
+    [InlineData("y")]
+    [InlineData("z")]
+    [InlineData("dz")]
+    public void Reader_RejectsMismatchedIuMmValue(string field)
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        EditCatalog(written.PackageDirectory!, root =>
+        {
+            var body = root["components"]![0]!["bodies"]![0]!;
+            var origin = body["sdkOrigin"]!;
+            var state = body["sdkState"]!;
+            switch (field)
+            {
+                case "x":
+                    origin["xMm"] = 0.0;
+                    break;
+                case "y":
+                    origin["yMm"] = 0.0;
+                    break;
+                case "z":
+                    origin["zIu"] = 1_000_000;
+                    origin["zMm"] = 0.0;
+                    break;
+                case "dz":
+                    state["dzMm"] = 2.0;
+                    break;
+                default:
+                    throw new InvalidOperationException("Unknown field.");
+            }
+        });
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.False(read.IsSuccess);
+        Assert.Contains(read.Errors, diagnostic => diagnostic.Code == PackageDiagnosticCodes.InvalidModelCatalog);
+        Assert.Null(read.Models);
+    }
+
+    [Fact]
+    public void Reader_AcceptsIuMmValueAtToleranceBoundary()
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        EditCatalog(written.PackageDirectory!, root =>
+        {
+            var origin = root["components"]![0]!["bodies"]![0]!["sdkOrigin"]!;
+            origin["xIu"] = 0;
+            origin["xMm"] = 1e-9;
+        });
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.True(read.IsSuccess, Describe(read.Errors));
+        Assert.Equal(0, read.Models!.Components[0].Bodies[0].Origin.XIu);
+        Assert.Equal(1e-9, read.Models.Components[0].Bodies[0].Origin.XMm);
+    }
+
+    [Fact]
+    public void Reader_RejectsIuMmValueOutsideTolerance()
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        EditCatalog(written.PackageDirectory!, root =>
+        {
+            var origin = root["components"]![0]!["bodies"]![0]!["sdkOrigin"]!;
+            origin["xIu"] = 0;
+            origin["xMm"] = 2e-9;
+        });
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.False(read.IsSuccess);
+        Assert.Contains(read.Errors, diagnostic => diagnostic.Code == PackageDiagnosticCodes.InvalidModelCatalog);
+    }
+
+    [Fact]
+    public void Reader_AcceptsNullIuMmPair()
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        EditCatalog(written.PackageDirectory!, root =>
+        {
+            var origin = root["components"]![0]!["bodies"]![0]!["sdkOrigin"]!;
+            origin["xIu"] = null;
+            origin["xMm"] = null;
+        });
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.True(read.IsSuccess, Describe(read.Errors));
+        Assert.Null(read.Models!.Components[0].Bodies[0].Origin.XIu);
+        Assert.Null(read.Models.Components[0].Bodies[0].Origin.XMm);
+    }
+
+    [Fact]
+    public void Writer_RejectsMismatchedIuMmPair()
+    {
+        using var scenario = new Scenario();
+        var request = scenario.RequestWithOrigin(new ModelOrigin
+        {
+            XIu = 1_000_000,
+            XMm = 0,
+        });
+
+        var result = scenario.Write(request);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Errors, diagnostic => diagnostic.Code == PackageDiagnosticCodes.InvalidModelCatalog);
+        Assert.False(Directory.Exists(Path.Combine(scenario.Temp.Path, PackageId.ToString("D"))));
+        Assert.Empty(TemporaryDirectories(scenario.Temp.Path));
+    }
+
+    [Fact]
+    public void Writer_RejectsNonFiniteIuMmPair()
+    {
+        using var scenario = new Scenario();
+        var request = scenario.RequestWithOrigin(new ModelOrigin
+        {
+            XIu = 1,
+            XMm = double.NaN,
+        });
+
+        var result = scenario.Write(request);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Errors, diagnostic => diagnostic.Code == PackageDiagnosticCodes.InvalidModelCatalog);
+        Assert.False(Directory.Exists(Path.Combine(scenario.Temp.Path, PackageId.ToString("D"))));
+        Assert.Empty(TemporaryDirectories(scenario.Temp.Path));
+    }
+
+    [Theory]
+    [InlineData("", null)]
+    [InlineData("   ", null)]
+    [InlineData("", "step-ap214")]
+    [InlineData(null, "step-ap214")]
+    public void Reader_RejectsInvalidAssetPathFormatCombination(string? path, string? format)
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        EditCatalog(written.PackageDirectory!, root =>
+        {
+            var body = root["components"]![0]!["bodies"]![0]!;
+            body["assetPath"] = path is null ? null : JsonValue.Create(path);
+            body["assetFormat"] = format is null ? null : JsonValue.Create(format);
+        });
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.False(read.IsSuccess);
+        Assert.Contains(read.Errors, diagnostic => diagnostic.Code == PackageDiagnosticCodes.InvalidModelAsset);
+        Assert.Null(read.Models);
+    }
+
+    [Theory]
+    [InlineData("assetPath", null)]
+    [InlineData("assetFormat", null)]
+    [InlineData("sdkOrigin", "xIu")]
+    [InlineData("sdkState", "rotationXDegRaw")]
+    [InlineData("modelRotationDegRaw", null)]
+    public void Reader_RejectsMissingNullableProperty(string property, string? nestedProperty)
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        EditCatalog(written.PackageDirectory!, root =>
+        {
+            var body = root["components"]![0]!["bodies"]![0]!;
+            if (nestedProperty is null)
+                body.AsObject().Remove(property);
+            else
+                body[property]!.AsObject().Remove(nestedProperty);
+        });
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.False(read.IsSuccess);
+        Assert.Contains(read.Errors, diagnostic => diagnostic.Code == PackageDiagnosticCodes.InvalidModelCatalog);
+        Assert.Null(read.Models);
+    }
+
+    [Fact]
+    public void Reader_AcceptsExplicitNullNullableFields()
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        EditCatalog(written.PackageDirectory!, root =>
+        {
+            var body = root["components"]![0]!["bodies"]![1]!;
+            body["assetPath"] = null;
+            body["assetFormat"] = null;
+            body["sdkOrigin"]!["xIu"] = null;
+            body["sdkState"]!["dzMm"] = null;
+            body["modelRotationDegRaw"] = null;
+        });
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.True(read.IsSuccess, Describe(read.Errors));
+        var body = read.Models!.Components[0].Bodies[1];
+        Assert.Null(body.AssetPath);
+        Assert.Null(body.AssetFormat);
+        Assert.Null(body.Origin.XIu);
+        Assert.Null(body.State.DzMm);
+        Assert.Null(body.ModelRotationDegRaw);
     }
 
     [Fact]
@@ -1007,6 +1223,46 @@ public sealed class ComponentModelsPackageTests
 
         public ComponentModelsWriteRequest Request(bool includeXtAsset = true, bool referenceXtAsset = true) =>
             BuildRequest(includeXtAsset, referenceXtAsset, StepPath, XtPath);
+
+        public ComponentModelsWriteRequest RequestWithOrigin(ModelOrigin origin) => new()
+        {
+            Assets = new[]
+            {
+                new ComponentModelAssetSource
+                {
+                    AssetKey = "step-a",
+                    SourcePath = StepPath,
+                    Format = ComponentModelAssetFormat.StepAp214,
+                },
+            },
+            Components = new[]
+            {
+                new ComponentModelWriteEntry
+                {
+                    ComponentId = "component-1",
+                    Designator = "R1",
+                    Bodies = new[]
+                    {
+                        new ComponentBodyWriteEntry
+                        {
+                            BodyOrdinal = 0,
+                            Representation = ComponentModelRepresentation.Generic,
+                            SourceOrigin = ComponentModelSourceOrigin.Embedded,
+                            AssetAcquisition = ComponentModelAssetAcquisition.SdkExport,
+                            AssetKey = "step-a",
+                            Origin = origin,
+                            State = new ModelState(),
+                        },
+                    },
+                },
+                new ComponentModelWriteEntry
+                {
+                    ComponentId = "component-2",
+                    Designator = "C1",
+                    Bodies = Array.Empty<ComponentBodyWriteEntry>(),
+                },
+            },
+        };
 
         public ComponentModelsWriteRequest RequestWithAssets(
             params (string Key, string Path, ComponentModelAssetFormat Format)[] assets)

@@ -133,26 +133,26 @@ public static class ComponentModelsJson
             Representation = ParseRepresentation(RequiredString(body, "representation")),
             SourceOrigin = ParseSourceOrigin(RequiredString(body, "sourceOrigin")),
             AssetAcquisition = ParseAssetAcquisition(RequiredString(body, "assetAcquisition")),
-            AssetFormat = ParseAssetFormat(OptionalString(body, "assetFormat")),
-            AssetPath = OptionalString(body, "assetPath"),
+            AssetFormat = ParseAssetFormat(RequiredNullableString(body, "assetFormat")),
+            AssetPath = RequiredNullableString(body, "assetPath"),
             Origin = new ModelOrigin
             {
-                XIu = NullableInt(origin, "xIu"),
-                XMm = NullableDouble(origin, "xMm"),
-                YIu = NullableInt(origin, "yIu"),
-                YMm = NullableDouble(origin, "yMm"),
-                ZIu = NullableInt(origin, "zIu"),
-                ZMm = NullableDouble(origin, "zMm"),
+                XIu = RequiredNullableInt(origin, "xIu"),
+                XMm = RequiredNullableDouble(origin, "xMm"),
+                YIu = RequiredNullableInt(origin, "yIu"),
+                YMm = RequiredNullableDouble(origin, "yMm"),
+                ZIu = RequiredNullableInt(origin, "zIu"),
+                ZMm = RequiredNullableDouble(origin, "zMm"),
             },
             State = new ModelState
             {
-                RotationXDegRaw = NullableDouble(state, "rotationXDegRaw"),
-                RotationYDegRaw = NullableDouble(state, "rotationYDegRaw"),
-                RotationZDegRaw = NullableDouble(state, "rotationZDegRaw"),
-                DzIu = NullableInt(state, "dzIu"),
-                DzMm = NullableDouble(state, "dzMm"),
+                RotationXDegRaw = RequiredNullableDouble(state, "rotationXDegRaw"),
+                RotationYDegRaw = RequiredNullableDouble(state, "rotationYDegRaw"),
+                RotationZDegRaw = RequiredNullableDouble(state, "rotationZDegRaw"),
+                DzIu = RequiredNullableInt(state, "dzIu"),
+                DzMm = RequiredNullableDouble(state, "dzMm"),
             },
-            ModelRotationDegRaw = NullableDouble(body, "modelRotationDegRaw"),
+            ModelRotationDegRaw = RequiredNullableDouble(body, "modelRotationDegRaw"),
         };
     }
 
@@ -201,9 +201,11 @@ public static class ComponentModelsJson
         return value.GetString() ?? string.Empty;
     }
 
-    private static string? OptionalString(JsonElement parent, string name)
+    private static string? RequiredNullableString(JsonElement parent, string name)
     {
-        if (!parent.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
+        if (!parent.TryGetProperty(name, out var value))
+            throw new JsonException($"'{name}' is required.");
+        if (value.ValueKind == JsonValueKind.Null)
             return null;
         if (value.ValueKind != JsonValueKind.String)
             throw new JsonException($"'{name}' must be a string or null.");
@@ -222,18 +224,22 @@ public static class ComponentModelsJson
         return result;
     }
 
-    private static int? NullableInt(JsonElement parent, string name)
+    private static int? RequiredNullableInt(JsonElement parent, string name)
     {
-        if (!parent.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
+        if (!parent.TryGetProperty(name, out var value))
+            throw new JsonException($"'{name}' is required.");
+        if (value.ValueKind == JsonValueKind.Null)
             return null;
         if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var result))
             throw new JsonException($"'{name}' must be a 32-bit integer or null.");
         return result;
     }
 
-    private static double? NullableDouble(JsonElement parent, string name)
+    private static double? RequiredNullableDouble(JsonElement parent, string name)
     {
-        if (!parent.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
+        if (!parent.TryGetProperty(name, out var value))
+            throw new JsonException($"'{name}' is required.");
+        if (value.ValueKind == JsonValueKind.Null)
             return null;
         if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var result) || !double.IsFinite(result))
             throw new JsonException($"'{name}' must be a finite number or null.");
