@@ -1,11 +1,11 @@
 ---
 id: BRIDGE-000016
 type: report
-status: blocked
+status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-25T20:30:00+03:00
-updated: 2026-11-25T22:13:45+03:00
+updated: 2026-11-25T23:10:00+03:00
 base: source
 branch: task/BRIDGE-000016-coordinate-contract
 commit: 1402e3a
@@ -38,13 +38,13 @@ R0/R1 подтвердили математическую модель для `S
 
 Не подтверждено и помечено `Unknown`:
 
-- 3D feature-level residual для component rotation: знак `RotationDeg` подтверждён по pad landmarks (positive=CCW), но полный XYZ body landmark без board STEP не проверен;
+- 3D feature-level residual для component rotation на **Bottom** и для случая `BodyProjection != Component.Side`; для Top library-relative тела это подтверждено в R3-FIX-003;
 - Bottom с ненулевым component rotation: full board STEP не содержит component rotation; `Rx(180°)` подтверждён только для rot0, отражение не требуется;
 - независимый случай `BodyProjection != Component.Side` (в фикстуре все тела совпали со стороной компонента);
 - `IPCB_Model.Rotation` как отдельное свойство: на фикстуре он был 0 и не совпал с `GetState` rotZ;
 - Z-составляющая `GetOrigin`; board origin подтверждён как Altium absolute origin, но отдельного поля в Core snapshot нет;
 - `SnapCount`/snap points: API подтверждён документацией, значения на фикстуре не сняты;
-- полный Altium board STEP golden reference: не выполнялся; сравнение сделано по per-body STEP, Altium body projection и Z-границам, без выдачи визуального совпадения за численное.
+- полный Altium board STEP golden reference: получен в R2 (без component rotation) и R3 (с rotation-bearing Top U101–U104); сравнение численное, по матрицам и landmark-точкам, без выдачи визуального совпадения за численное.
 
 R1 исправил математическую композицию:
 
@@ -58,9 +58,9 @@ R1 исправил математическую композицию:
 
 R2 получил полный board STEP и подтвердил board frame, `GetOrigin`, `R_state`, `dz`, Bottom `Rx(180°)` для rot0 и C366 feature-level placement. Однако Altium full board STEP **не содержит component RotationDeg** для test bodies: C62/C63/C59/C61/C524/C516/C573/C567/C571 имеют identity/state-only transforms. Поэтому component-rotation 3D placement остаётся **blocked**; R2 не закрывает full Top placement sign-off.
 
-R3-FIX-001 completed native fixture creation: `BRIDGE_ROT_3D` footprint exists with exactly one library-owned Generic/Embedded `control-generic` body; PcbLib changed from SHA `A8DDA92D…` to final `FECA6F37…`. R3-FIX-002 attempted four placements, but UI automation edited comments instead of designators; no verified four-instance PCB/full STEP was produced. Component RotationDeg calibration remains **blocked**.
+R3-FIX-001 completed native fixture creation: `BRIDGE_ROT_3D` footprint exists with exactly one library-owned Generic/Embedded `control-generic` body; PcbLib SHA is `FECA6F37…`. R3-FIX-003 used the SDK to create U101–U104 with correct Designators, one owned Generic body each, saved/reopened the PCB, exported the full STEP, and confirmed Top component rotation in SOLIDWORKS with matrix and feature residuals ≤ 0.000014 mm. Top Component RotationDeg is **confirmed**; Bottom remains blocked.
 
-R2/R3 не реализуют production placement, не меняют Core schema и не меняют PR #13/#14. Bottom с rotation и full feature-level sign-off остаются blockers.
+R2/R3 не реализуют production placement, не меняют Core schema и не меняют PR #13/#14. Bottom с rotation и `BodyProjection != Component.Side` остаются blockers; Top component rotation закрыт.
 
 ## 2. Окружение и версии
 
@@ -560,11 +560,91 @@ A board copy `test-matrix-r3-placement.PcbDoc` was opened and the library Place 
 
 R3-FIX-002 is therefore **blocked at component property/edit/export automation**, not at the library fixture. No rotation capability is enabled from this attempt.
 
+## 13.5. R3-FIX-003 SDK-native placement and rotation reference
+
+### 13.5.1. Runtime result
+
+Temporary diagnostic handler was built into the existing `EcadMcadBridge.Altium` add-in and invoked through the existing `Tools → Export Board Snapshot` command; the installed extension registration was not changed. The handler was removed from the working tree before documentation commit.
+
+Inputs:
+
+| Item | Value |
+|---|---|
+| PcbLib | `BRIDGE-000016-R3.PcbLib` |
+| PcbLib SHA-256 before/after | `FECA6F37AD9A690CE1F1A990CD41D8AEC2FF8BD1AE7D7D66F0B17B68FF03B19F` (unchanged) |
+| Scratch PCB | `test-matrix-r3-sdk-placement.PcbDoc` |
+| PCB SHA-256 after save | `69C62604A25972BDE59C65A98866793BC2D8674C211735748728E4E4A7AC3D67` |
+| Full STEP | `test-matrix-r3-sdk-placement.step` |
+| Full STEP SHA-256 | `75B8DD8DA0921D0BFD32489A9CBBE4E465555EECA5475A42F75BE4D61280D8ED` |
+| Full STEP size | `86 154 564` bytes |
+| Schema/units | AP214; mm |
+
+The SDK created exactly four components from footprint `BRIDGE_ROT_3D`:
+
+| Designator | X mm | Y mm | RotationDeg | Body count | Owner resolved | Model | Embedded | Projection |
+|---|---:|---:|---:|---:|---|---|---|---|
+| U101 | 240 | 220 | 0 | 1 | Yes | Generic | Yes | Top |
+| U102 | 280 | 220 | 90 | 1 | Yes | Generic | Yes | Top |
+| U103 | 320 | 220 | 180 | 1 | Yes | Generic | Yes | Top |
+| U104 | 360 | 220 | 270 | 1 | Yes | Generic | Yes | Top |
+
+Runtime JSON `r3-sdk-placement.json` recorded body data size `27 834` bytes for all four, `bodyInComponent=true`, `bodyInBoard=true`, Standoff `0`, Overall `1 181 102 IU` (`3.0 mm`), and Designator readback exactly `U101`…`U104`; Comment remained `Comment`. PcbLib hash was unchanged.
+
+The PCB was saved, closed, reopened, and the read-only SDK enumeration was run again. All four Designators, rotations, pattern, model type/embedding, and body ownership survived serialization.
+
+### 13.5.2. Critical rotation-state finding
+
+Inside the placed components, `IPCB_Model.GetState` returned `rotZ = 0/90/180/270` matching the component rotation, while the source footprint model state was `(0,0,0,0)`. This means the placed-body `GetState` is not an independent local state: Altium has already incorporated the component rotation into the body model state.
+
+Therefore the R1 formula must not add both `Rz(component_rotation)` and the placed-body `R_state` when both are read from the placed component. For this library-relative fixture the measured full STEP occurrence contains exactly one rotation:
+
+- use footprint-local model state `(0,0,0,0)` + component `RotationDeg`, or
+- use the placed-body `GetState` alone and set the component rotation term to identity.
+
+The full STEP relative matrices below match the component-rotation term exactly; no double rotation is present.
+
+### 13.5.3. SOLIDWORKS occurrence transforms
+
+SOLIDWORKS 2026 SP3.2 imported the full STEP with separate occurrences U101–U104, one solid body each, volume `95.2146018 mm³`, and one `control-generic` body per occurrence.
+
+The full board STEP uses board-local coordinates. For the relative test, positions were converted to the same board-local frame used by the STEP:
+
+```text
+P0 = (0.0274, 0.0528) m
+P(U102) = (0.0674, 0.0528) m
+P(U103) = (0.1074, 0.0528) m
+P(U104) = (0.1474, 0.0528) m
+M0 translation = (0.023085654706523, 0.054540449658047, 0) m
+```
+
+Actual child occurrence transforms (rotation converted from SOLIDWORKS `R^T` array to column-vector `R`):
+
+| Occurrence | Actual translation, m | Actual R | Determinant |
+|---|---|---|---|
+| U101 | `(0.023085655, 0.054540450, 0)` | identity | +1 |
+| U102 | `(0.065659553, 0.048485655, 0)` | `Rz(+90°)` | +1 |
+| U103 | `(0.111714332, 0.051059554, 0)` | `Rz(+180°)` | +1 |
+| U104 | `(0.149140449, 0.057114348, 0)` | `Rz(−90°)` | +1 |
+
+Prediction `M_pred(θ) = T(Pi) · Rz(θ) · T(-P0) · M0` produced the same translations/matrices. Maximum translation residual `0.0000136 mm`; all three relative matrices matched the expected basis vectors and determinant.
+
+### 13.5.4. Feature-level XYZ residuals
+
+Landmarks used: local `(0,0,0)`, `(12,0,0)`, `(0,7,3)`, `(10,7,3)`, `(12,7,0)` mm, including points at `z=0` and `z=3`. Reference points were computed from the actual full STEP occurrence transform; calculated points from the per-body Generic asset plus `M_pred(θ)`.
+
+| Component | Landmarks | Max error, mm | RMS error, mm | Tolerance, mm | Pass |
+|---|---:|---:|---:|---:|---|
+| U102 | 5 | 0.0000028 | 0.0000024 | 0.01 | Yes |
+| U103 | 5 | 0.0000136 | 0.0000132 | 0.01 | Yes |
+| U104 | 5 | 0.0000028 | 0.0000028 | 0.01 | Yes |
+
+**Top Component RotationDeg blocker is removed** for library-relative Generic bodies. The component rotation is confirmed in translation, rotation matrix, basis, determinant, and feature-level XYZ. Bottom remains outside R3-FIX-003 and is still blocked.
+
 ## 14. Неподтверждённые параметры
 
 | Параметр | Статус | Причина |
 |---|---|---|
-| Component `RotationDeg` sign on board | **Confirmed (2D pads); 3D body rotation Blocked** | pad landmarks C572/C573/C567/C571 подтвердили positive=CCW; full board STEP не содержит component rotation для test bodies |
+| Component `RotationDeg` sign/3D rotation | **Confirmed for Top library-relative body** | R3-FIX-003: U101–U104, full STEP relative matrices and 5-landmark residuals ≤ 0.000014 mm; Bottom remains separate |
 | Bottom proper rotation axis / reflection | **Rx(180°) confirmed for rot0; rotation-bearing Bottom Blocked** | full board STEP C572 = `diag(1,-1,-1)`; C573/C567/C571 same state-only, component rotation missing |
 | `BodyProjection != Component.Side` | **Unknown** | в fixture все тела совпали со стороной компонента |
 | `IPCB_Model.Rotation` | **Unknown** | на fixture 0; отдельное свойство, не совпало с state rotZ |
@@ -583,14 +663,15 @@ R3-FIX-002 is therefore **blocked at component property/edit/export automation**
 |---|---|---|
 | Top rot0, state 0, Generic/Native | C366 full board feature-level pass, ≤0.000006 mm | Allowed |
 | Top combined Rx/Ry/Rz + dz (component rot0) | Full board state matrix/dz matches C524/C516 at rot0-relative frame | Allowed only with component rotation excluded |
-| Top non-zero model-origin offset + component rot90 (C62) | Translation pass; full board body rotation is identity, R1 expects Rz90 | **Blocked** |
-| Top component RotationDeg 90/180/270 | Full board STEP omits component rotation for fixture bodies | **Blocked** |
+| Top non-zero model-origin offset + component rot90/180/−90 | R3-FIX-003: `M0` offset differs from `P0`; relative matrix and 5 landmarks ≤0.000014 mm | Confirmed for library-relative Generic body |
+| Top component RotationDeg 90/180/270 | R3-FIX-003 full board STEP: U102/U103/U104 transforms are `Rz(+90/+180/−90)` with determinant +1 | Confirmed |
+| Top private model state (placed body rotZ already includes component rotation) | R3-FIX-003: do not add `Rz(component)` to placed-body `rotZ` | Rule recorded in ledger C-107…C-112 note |
 | Bottom rot0 | Full board STEP confirms `Rx(180°)` and translation | Confirmed but excluded from R2 implementation |
 | Bottom with component rotation | Reference omits rotation | **Blocked** |
 | BodyProjection != Component.Side | Not exercised | Excluded |
 | Multi-body component | Mapping exists; 3D transform not separately validated | Mapping only, no placement claim |
 | SnapPoint origin correction | Runtime values Unknown | Excluded |
-| Full board STEP reference | Obtained but rotation coverage incomplete | Blocker for full Top sign-off |
+| Full board STEP reference | R2 board/origin/state/dz/Bottom rot0; R3 adds rotation-bearing Top U101–U104 | Confirmed for Top; Bottom rotation not covered |
 
 ## 15. Рекомендуемая структура assembly
 
@@ -673,13 +754,16 @@ SOLIDWORKS backend (после отдельного решения):
 - Representative Altium/SOLIDWORKS per-body STEP measurement: volume/bbox passed; results в разделе 8.
 - Component rotation sign: pad landmark check passed.
 - Board origin: outline/component absolute-frame check passed.
-- Full Altium board STEP: obtained, SHA `7FC3E1…B9894`; block/origin/state/dz/Bottom rot0 checks passed; component RotationDeg not encoded, so rotation-bearing Top/Bottom remains blocked.
-- R3-FIX library fixture: complete (footprint `BRIDGE_ROT_3D`, one Generic/Embed body, PcbLib SHA `FECA6F37…`); R3-FIX-002 placement/export blocked by UI property/edit automation, rotation calibration remains blocked.
+- Full Altium board STEP R2: SHA `7FC3E1…B9894`; board/origin/state/dz/Bottom rot0 checks passed; component RotationDeg not encoded for those fixture bodies.
+- R3-FIX library fixture: complete (footprint `BRIDGE_ROT_3D`, one Generic/Embed body, PcbLib SHA `FECA6F37…`).
+- R3-FIX-003: SDK placed U101–U104 with correct Designators and one owned Generic body each; PCB SHA `69C62604…3D67` after save/reopen; full STEP SHA `75B8DD8D…8ED` (AP214, mm, 86 154 564 bytes); SOLIDWORKS occurrence transforms, determinants, basis and 5-landmark residuals ≤0.000014 mm.
+- Temporary diagnostic handler removed; installed `EcadMcadBridge` extension restored to the clean 0.4.0 build, registration untouched.
+- `dotnet build -c Release` and `dotnet test -c Release` repeated on branch after restoring the worktree.
 - Full MiniPC assembly не запускался.
 
 ## 20. Commit и PR
 
-- Commit: `1402e3a` (`docs(bridge-000016): record R3-FIX-002 placement blocker`).
+- Commit: `1402e3a` (`docs(bridge-000016): record R3-FIX-002 placement blocker`); R3-FIX-003 documentation commit — см. финальный коммит ветки.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 - Base: `source`
 - Merge: запрещён.
@@ -687,3 +771,7 @@ SOLIDWORKS backend (после отдельного решения):
 ## 21. История изменений
 
 - 2026-11-25: R0 report создан; использован controlled fixture `BRIDGE-000011`, добавлены новые SOLIDWORKS transform probes и numerical checks.
+- 2026-11-25: R1 добавлены frame composition, delta_D, Rz·Ry·Rx и C62 origin-offset проверки.
+- 2026-11-25: R2 добавлен full board STEP reference, board frame, C366 residuals и capability matrix.
+- 2026-11-25: R3-FIX-001 создан `BRIDGE_ROT_3D` с одним Generic/Embedded телом; R3-FIX-002 упёрся в UI-автоматизацию свойств (Designator попал в Comment).
+- 2026-11-25: R3-FIX-003 выполнен SDK-native placement U101–U104, save/reopen, full STEP и SOLIDWORKS проверка; Top component rotation подтверждён, Bottom остаётся blocked.
