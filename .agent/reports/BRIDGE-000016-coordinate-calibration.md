@@ -58,7 +58,7 @@ R1 исправил математическую композицию:
 
 R2 получил полный board STEP и подтвердил board frame, `GetOrigin`, `R_state`, `dz`, Bottom `Rx(180°)` для rot0 и C366 feature-level placement. Однако Altium full board STEP **не содержит component RotationDeg** для test bodies: C62/C63/C59/C61/C524/C516/C573/C567/C571 имеют identity/state-only transforms. Поэтому component-rotation 3D placement остаётся **blocked**; R2 не закрывает full Top placement sign-off.
 
-R3-FIX-001 completed native fixture creation: `BRIDGE_ROT_3D` footprint exists with exactly one library-owned Generic/Embedded `control-generic` body; PcbLib changed from SHA `A8DDA92D…` to final `FECA6F37…`. Four-component PCB placement and full STEP export are not done, so component RotationDeg calibration remains **blocked** for the next task.
+R3-FIX-001 completed native fixture creation: `BRIDGE_ROT_3D` footprint exists with exactly one library-owned Generic/Embedded `control-generic` body; PcbLib changed from SHA `A8DDA92D…` to final `FECA6F37…`. R3-FIX-002 attempted four placements, but UI automation edited comments instead of designators; no verified four-instance PCB/full STEP was produced. Component RotationDeg calibration remains **blocked**.
 
 R2/R3 не реализуют production placement, не меняют Core schema и не меняют PR #13/#14. Bottom с rotation и full feature-level sign-off остаются blockers.
 
@@ -547,6 +547,19 @@ Body ownership is confirmed by the PCB Library panel row + `Component Body Manag
 
 Component placement on PCB, full STEP export and occurrence-transform comparison were not completed in this task. Therefore component `RotationDeg` calibration remains **blocked** until the full STEP occurrence-transform comparison is performed in the next task.
 
+## 13.4. R3-FIX-002 placement attempt
+
+Library fixture was verified at final SHA `FECA6F37AD9A690CE1F1A990CD41D8AEC2FF8BD1AE7D7D66F0B17B68FF03B19F`, size `94 720` bytes:
+
+- footprint `BRIDGE_ROT_3D`;
+- panel row `0 pads, 1 primitive`;
+- Component Body Manager: exactly one body, `130 200.271 sq mils`;
+- model Generic/Embedded `control-generic`, Mechanical 1.
+
+A board copy `test-matrix-r3-placement.PcbDoc` was opened and the library Place control was used. Four instances were created on the board, but the UI automation edited the `Comment` field instead of `Designator`; actual designators remained default (`Designator…`), not `U101…U104`. No full STEP was exported and no SOLIDWORKS occurrence transforms were read. The board copy was not saved as a verified placement fixture.
+
+R3-FIX-002 is therefore **blocked at component property/edit/export automation**, not at the library fixture. No rotation capability is enabled from this attempt.
+
 ## 14. Неподтверждённые параметры
 
 | Параметр | Статус | Причина |
@@ -661,7 +674,7 @@ SOLIDWORKS backend (после отдельного решения):
 - Component rotation sign: pad landmark check passed.
 - Board origin: outline/component absolute-frame check passed.
 - Full Altium board STEP: obtained, SHA `7FC3E1…B9894`; block/origin/state/dz/Bottom rot0 checks passed; component RotationDeg not encoded, so rotation-bearing Top/Bottom remains blocked.
-- R3-FIX library fixture: complete (footprint `BRIDGE_ROT_3D`, one Generic/Embed body, PcbLib SHA `FECA6F37…`); PCB placement/full STEP export not done, rotation calibration remains blocked.
+- R3-FIX library fixture: complete (footprint `BRIDGE_ROT_3D`, one Generic/Embed body, PcbLib SHA `FECA6F37…`); R3-FIX-002 placement/export blocked by UI property/edit automation, rotation calibration remains blocked.
 - Full MiniPC assembly не запускался.
 
 ## 20. Commit и PR
