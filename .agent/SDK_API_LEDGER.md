@@ -179,6 +179,50 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | C-91 | `TObjectId.eViaObject`; `IPCB_Via.GetState_XLocation/YLocation/Size/HoleSize`; `IPCB_ViaHelper.GetState_StartLayer/StopLayer`; `IPCB_PrimitiveHelper.GetState_Layer/GetState_Net`; `IPCB_Primitive.GetState_UniqueId` | Vias на всех трёх платах; 4 025 / 173 / 173; `GetState_UniqueId` пустой, fallback по индексу | `Via` |
 | C-92 | `IPCB_Region.GetState_Kind/Name/Area/HoleCount/GetGeometricPolygon/GetMainContour/GetHole`; `IPCB_Primitive.GetState_Layer/GetState_Net/GetState_IsKeepout/GetState_UniqueId`; `TRegionKind` C-85 | Regions на всех трёх платах; 381 / 12 / 12 core regions, 1 / 3 / 5 Board Cutout; `GetState_UniqueId` пустой | `Region`; Board Cutout остаётся в outline |
 | C-93 | `TObjectId.eTextObject`; `IPCB_Text.GetState_Text/Size/Width/Bold/Italic/IsDesignator/IsComment`; `IPCB_TextHelper.GetState_TextKind`; `IPCB_RectangularPrimitive.GetState_XLocation/YLocation/Rotation`; `IPCB_PrimitiveHelper.GetState_Layer/GetState_Component`; `IPCB_Primitive.GetState_UniqueId` | Texts на всех трёх платах; экспортировано 34 / 87 / 87; пропущено designator/comment 146 (2×73), 2 093 (2×1046 + 1 barcode); `GetState_UniqueId` пустой | `TextItem` |
+| C-104 | `IPCB_ComponentBody.GetStandoffHeight/GetOverallHeight`; `IPCB_ComponentBody.GetBodyProjection`; `TBoardSide.eBoardSide_Top=0` / `eBoardSide_Bottom=1` | BRIDGE-000016-R0 controlled fixture: body projection 0/1 for Top/Bottom; Standoff/Overall in IU; Generic state variants and combined C524/C516 matched Z bounds after `Rz·Ry·Rx` + dz with error ≤ 0.000004 mm. Docs: heights measured outward from board surface on projection side | Raw body metadata for coordinate calibration; not added to Core schema in R0 |
+| C-105 | `IPCB_ComponentBody.GetState_SnapCount`; `IPCB_ComponentBody.GetState_SnapPoint(int)`; `ICoordPoint3D` | Metadata/docs only; BRIDGE-000016-R0 fixture values not read; not used for placement | Requires runtime verification before use |
+| C-106 | `IPCB_ServerInterface.Board3DModelExporter()`; `IPCB_Board3DModelExporter.ExportBoard3DModel(string, int, object, object)`; `IPCB_Board3DModelExporterHelper.ExportBoard3DModel(..., TBoard3DModelExportFormat, IPCB_Board, EDP.IProject)` | BRIDGE-000016-R2: full board STEP exported from Altium test fixture; file SHA `7FC3E1C871A657348555A02FCD81220EC6538E4D1971320CB01E81995F8B9894`; AP214, mm; board body and component transforms imported into SOLIDWORKS | R2 golden-reference export research; no production exporter change |
+| C-107 | `IPCB_ServerInterface.PCBObjectFactory(TObjectId objectId, TDimensionKind dimensionKind, TObjectCreationMode creationMode)`; `TObjectId.eComponentObject`; `TDimensionKind.eNoDimension`; `TObjectCreationMode.eCreate_Default`; результат приводится к `IPCB_Component` | BRIDGE-000016-R3-FIX-003 AD26.12.2.9: создано 4 компонента в активной PCB; runtime JSON `r3-sdk-placement.json` | Создание компонентов без UI-автоматизации |
+| C-108 | `IPCB_Component.SetState_Board(IPCB_Board)`; `IPCB_Component.LoadFromLibrary(string)` со строкой `"FileName=<PcbLib>|Footprint=<name>"`; `SetState_Layer(TV6_Layer.eV6_TopLayer)`; `SetState_XLocation(int)` / `SetState_YLocation(int)`; `SetState_Rotation(double)`; `IPCB_Board.AddPCBObject(IPCB_Primitive)`; `IPCB_ServerInterface.PreProcess()/PostProcess()`; `IPCB_ServerInterface.DestroyPCBObject(ref IPCB_Primitive)` | R3-FIX-003: U101–U104 `BRIDGE_ROT_3D` созданы на 240/280/320/360 мм, 220 мм, 0/90/180/270°, Top; тело и модель загружены из PcbLib; `AddPCBObject` в документ; `PreProcess/PostProcess` вокруг пакетной вставки | SDK-native размещение из PcbLib |
+| C-109 | `IPCB_Component.GetState_Name()` → `IPCB_Text`; `IPCB_Text.IsDesignator()`; `IPCB_Text.SetState_Text(string)`; `IPCB_Primitive.BeginModify()/EndModify()`; `IPCB_Primitive.GraphicallyInvalidate()` | R3-FIX-003: Designator записан через Name-текст (не Comment) и прочитан обратно `U101`…`U104`; Comment остался `Comment`; значения сохранились после save/close/reopen | Запись Designator без UI |
+| C-110 | `IPCB_ComponentBody.GetState_Component()`, `GetState_InComponent()`, `GetState_Board()`; `IPCB_ComponentBody.GetModel()`; `IPCB_Model.GetState(out double, out double, out double, out int)`, `GetEmbed()`, `GetDataSize()`, `GetState_ModelType()` (`e3DModelType_Generic`); `IPCB_ComponentBody.GetBodyProjection()` | R3-FIX-003: у каждого U101–U104 ровно одно тело, `GetState_Component()` возвращает владельца, `GetState_InComponent=true`, `GetState_Board()` не null, `GetEmbed=true`, data size `27 834` байт, тип Generic, projection Top | Проверка владения телом и модели |
+| C-111 | `IPCB_Component.GroupIterator_Create()/Destroy()`; `AddFilter_ObjectSet(new TObjectSet { TObjectId.eComponentBodyObject })`; `FirstPCBObject()/NextPCBObject()` приводится к `IPCB_ComponentBody`; `AddFilter_Method` для фильтра тел не требуется | R3-FIX-003: перечисление тел компонента дало ровно 1 body на компонент; фильтр `eComponentBodyObject` работает без `AddFilter_Method` | Перебор 3D-тел компонента |
+| C-112 | `IPCB_Component.GetState_Name().GetState_Text()` как Designator и `GetState_Comment().GetState_Text()` как Comment; `IPCB_Component.GetState_SourceUniqueId()` после `LoadFromLibrary` может вернуть `null` | R3-FIX-003: designator/comment читаются раздельно; `SourceUniqueId` у новых компонентов `null` — нельзя использовать как ключ до сохранения/присвоения | Идентификация после создания |
+| C-113 | `IPCB_Component.FlipComponent()` | BRIDGE-000016-R4-A/B AD26.12.2.9: Top → Bottom; `GetState_Rotation()` становится `180°`; `GetBodyProjection()` автоматически меняется Top → Bottom; принудительный `SetBodyProjection` не потребовался | Перенос компонента на Bottom |
+| C-114 | `static PCB.TBoardSide PCB.IPCB_ComponentBodyHelper.GetBodyProjection(PCB.IPCB_ComponentBody)`; `static void ...SetBodyProjection(PCB.IPCB_ComponentBody, PCB.TBoardSide)` | R4-B: setter меняет Z-сторону и Z-ориентацию тела, не меняя `StandoffHeight`/`OverallHeight`; значение сохраняется после save/reopen; `TBoardSide.eBoardSide_Top/Bottom` | Управление стороной 3D-тела |
+| C-115 | `static PCB.IPCB_Model PCB.IPCB_ModelHelper.I_Replicate(PCB.IPCB_Model)`; `IPCB_Model.SetState(double rx, double ry, double rz, int dzIU)`; `static void PCB.IPCB_ComponentBodyHelper.SetModel(PCB.IPCB_ComponentBody, PCB.IPCB_Model)`; `IPCB_Model.SetEmbed(bool)` | R4-C: prototype `body.GetModel().SetState(23,37,41,+1mm)` прочитался сразу и сохранился после save/reopen; для серии использован `I_Replicate → SetState → SetModel`; `GetDataSize()` остался `27 834`; состояния A/B сохранились, `rz` после повторного открытия нормализуется в `[0,360)` | Изоляция и запись model state |
+| C-116 | `IPCB_Component.GetState_ModelHash()`; `static PCB.CoordPoint PCB.IPCB_ModelHelper.GetOrigin(PCB.IPCB_Model)` (`X`, `Y` в IU); `IPCB_Model.GetDataSize()` | R4: ModelHash меняется после записи/повторного открытия; `GetOrigin` даёт X/Y модели; `GetDataSize` неизменен при смене state | Идентичность модели и origin |
+| C-117 | `IPCB_Board.RemovePCBObject(IPCB_Primitive)` | R4-C: временный `TMP401` удалён с платы перед основной серией; повторная проверка `Exists` показала отсутствие | Удаление временного prototype |
+| C-118 | `IPCB_Model.GetDataHash(string)` с аргументом `"SHA256"` | R4-C: вызов вернул `Hash type "SHA256" not supported`; корректный токен не подтверждён — использовать `GetState_ModelHash()` | Не использовать до проверки (V-26) |
+
+Важное уточнение R3-FIX-003: у **размещённого** компонента `IPCB_ComponentBody.GetModel().GetState(...)`
+возвращает `rotZ`, уже включающий поворот компонента (`0/90/180/270` совпали с `GetState_Rotation()`),
+тогда как в исходном PcbLib состояние модели было `(0,0,0,0)`. Поэтому при расчёте трансформации
+нельзя складывать `Rz(component.RotationDeg)` и `rotZ` размещённого тела: для библиотечно-относительного
+Generic-тела используется либо исходное состояние модели + поворот компонента, либо состояние
+размещённого тела без повторного поворота. Полный STEP и SOLIDWORKS подтвердили одну ротацию
+(остатки ≤ 0.000014 мм).
+
+Уточнения R4:
+
+- `Component.Side` определяет **XY origin** модели: Top offset `(−4.314346, +1.740448) mm`,
+  Bottom `(−0.943031, −1.740448) mm` для фикстуры; он не задаёт итоговую Z-ориентацию тела.
+- `BodyProjection` определяет **Z-сторону и Z-ориентацию** тела независимо от `Component.Side`:
+  Top → identity над платой (`z = 0…+3 mm`), Bottom → `Rx(180)` под платой
+  (`z = −T…−T+3 mm`). Обе mismatch-комбинации описываются одним жёстким правилом
+  (остатки ≤ 0.0000153 мм).
+- Bottom rotation: матрица `Rz(+θ)` в board frame, determinant `+1`; pivot смещён на
+  `e = d_bottom.x − d_top.x` (`+3.371316 mm` для фикстуры). Кандидат с `S = Rx(180)`
+  и сопряжением `S·Rz·S⁻¹` **неверен** — он меняет знак вращения.
+- Compound Top: `M = T(modelOrigin) · Tz(dz) · Rz(rz) · Ry(ry) · Rx(rx)`;
+  порядок `Rz·Ry·Rx`, `Tz` до `R_state`. При установке state до rotation Altium
+  добавляет `RotationDeg` к `rz` размещённого тела (`41 → 131`, `−53 → 217`), поэтому
+  повторно применять `Rz(component)` нельзя. При обратном порядке (rotation до SetModel)
+  тело остаётся не повёрнутым — это отдельный наблюдаемый случай.
+- Host-наблюдение: в AD26.12.2.9 `IServerDocument.DoFileSave`, `DoSafeFileSave` и
+  `DXP.Utils.RunCommand("File:Save")` в этом сценарии не записали `.PcbDoc` даже после
+  `SetModified(true)`; запись выполнилась только командой меню **File → Save**.
+- `IPCB_Model.GetDataHash("SHA256")` не поддерживается; корректный токен неизвестен (V-26).
 
 Подтверждено smoke-тестом на `MiniPC.PcbDoc`: 31 слой, 1046 компонентов, 6004 пада,
 837 сетей, 245 multi-layer PadStack с 16 shapes, 9669 форм; `rotations` включают
@@ -290,7 +334,7 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-11 | Автоматизация установки расширения и правки `ExtensionsRegistry.xml` | Известен только ручной путь | Отдельная задача; учесть права администратора и блокировку файла |
 | V-12 | Лицензирование и допустимость поставки SDK-сборок Altium вместе с Add-in | Требуется проверка лицензии; в репозиторий DLL не коммитятся | Юридическая/техническая проверка, решение в `DECISIONS.md` |
 | V-13 | Точный build AD26 и runtime на целевом стенде | Частично закрыт в `BRIDGE-000001`: `X2.EXE` 26.12.2.9, `X2.runtimeconfig.json` → `tfm=net10.0`, `Microsoft.NETCore.App`/`Microsoft.WindowsDesktop.App` 10.0.10, CLR в логе Add-in — 10.0.10. Конкретный вариант `Altium.SDK.dll` внутри хоста по-прежнему не изолирован | Зафиксированы версия файла, runtimeconfig и лог загрузки; изоляция сборки — отдельная задача |
-| V-14 | API SOLIDWORKS 2026 (interop, версия, загрузка Add-in) | Backend API подтверждён в `BRIDGE-000015` (S-001…S-015), interop 34.3.2.3; загрузка `ISwAddin`/COM Add-in в хосте не проверялась | Backend smoke и lifecycle-probe выполнены; Add-in registration — отдельная задача |
+| V-14 | API SOLIDWORKS 2026 (interop, версия, загрузка Add-in) | Backend API подтверждён в `BRIDGE-000015` (S-001…S-015), interop 34.3.2.3; R0 дополнительно подтвердил `GetMathUtility`, `CreateTransform`, `ComposeTransform`, `MathTransform.ArrayData`, `Component2.Transform2`, `SetTransformAndSolve3`, `GetTotalTransform`, `AddComponent5` на локальном probe; загрузка `ISwAddin`/COM Add-in в хосте не проверялась | Backend smoke и lifecycle-probe выполнены, transform/occurrence часть закрыта для R0; Add-in registration — отдельная задача |
 | V-15 | Поддержка WPF/WinForms внутри AD26 и тема оформления | Частично закрыт в `BRIDGE-000001`: хост-диалог `DXP.Utils.ShowInfo` (C-69) и минимальная WinForms-панель (C-72) работают в AD26; полноценные панели не создавались | Отдельный smoke-тест полноценной панели; для текущей команды кастомный UI не нужен |
 | V-16 | Требования к потоку и COM-апартаменту для вызовов PCB API | Не проверено; возможны UI-thread-only ограничения | Smoke-тест с фоновым потоком и без него |
 | V-17 | Поведение `TIterationMethod.eProcessAll` на всех типах объектов | Значение известно, полный набор объектов не проверен | Сравнить счётчики с UI/отчётом Altium |
@@ -302,6 +346,7 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-23 | Почему `IPCB_Pad.DefinitionLayerIterator` иногда возвращает V7-ID, не совпадающие с V6? | Adapter обходит это перебором copper-слоёв board layer iterator; высокие V7-ID не используются как V6 | Отдельное исследование V7 layer mapping при необходимости |
 | V-24 | Гарантирует ли `IPCB_Polygon.GetState_Segments()` все циклы Board Outline? | Нет: на `PC4-SODIMM` циклы не замкнулись, adapter перешёл на line-fallback для geometric contour. `GeometricPolygon` остаётся источником количества/ролей; Board Cutout берётся из `ClipWithPolyRegShapes`, а не из этого API | Отдельное исследование API сегментов при необходимости |
 | V-25 | Можно ли достоверно отличить `eRotatedRectShape`/`eArcShape`/`eTerminator` от поддерживаемых форм? | Семантика не подтверждена; adapter не преобразует их в круг/прямоугольник и выдаёт warning | Отдельный эксперимент с известными pad shape |
+| V-26 | Какой аргумент принимает `IPCB_Model.GetDataHash(string)`? | R4-C: `"SHA256"` вернул `Hash type "SHA256" not supported`; корректный токен не найден | Проверить документацию/исходники SDK или использовать `Component.GetState_ModelHash()` |
 
 ## 4. Запрещено
 
@@ -323,6 +368,15 @@ assembly 2 components) и MiniPC package (155 unique STEP assets; см. report).
 R1 дополнительно подтвердил enumerate/close-only-created lifecycle, прямое
 сохранение assembly→part через временную настройку и декодирование warning-флагов.
 `Extra`/неподтверждённые Add-in интерфейсы не смешиваются с backend API.
+
+### 5.1. Подтверждено в R0 (локальный probe, не production backend)
+
+| ID | Сигнатура | Доказательство | Использование |
+|---|---|---|---|
+| S-016 | `ISldWorks.GetMathUtility()` → `IMathUtility`; `IMathUtility.CreateTransform(object)`; `IMathUtility.ComposeTransform(MathVector XVec, MathVector YVec, MathVector ZVec, MathVector TransVec, double Scale)`; `MathTransform.ArrayData` | SOLIDWORKS 2026 SP3.2 probe `SwTransformProbe`: identity/translation/basis vectors; 16-element layout: 3×3 block 0–8, translation 9–11, scale 12, zeros 13–15; translation in meters | Calibration of `MathTransform`; no production code in R0 |
+| S-017 | `IComponent2.Transform2` (get/set); `IComponent2.SetTransformAndSolve3(MathTransform, bool)`; `IComponent2.GetTotalTransform(bool)`; `IAssemblyDoc.AddComponent5(...)` | Probe: `AddComponent5(...,0,0,0)` then `Transform2`/`SetTransformAndSolve3`; readback and `GetTotalTransform` identical; origin `(0.01,0.02,0.03) m`, x basis `(0.01,-0.98,0.03) m` | Exact occurrence transform calibration; `AddComponent5` X/Y/Z is only approximate bbox placement |
+
+`MathTransform.ArrayData` first 9 values are the transpose of the column-vector rotation matrix: `ArrayData[0..8] = R^T` row-major. This is confirmed by basis-vector mapping; do not pass a user 4×4 row-major matrix directly.
 
 | ID | Сигнатура | Доказательство / ограничение |
 |---|---|---|
@@ -347,6 +401,11 @@ R1 дополнительно подтвердил enumerate/close-only-created 
 `ActivateDoc3`/`CloseDoc` с fallback `QuitDoc`, а успех проверяется повторным
 `GetDocuments()`, а не возвращаемым значением вызова. Отдельный успех `QuitDoc`
 не изолирован, поэтому в ledger он не записывается как подтверждённый API.
+
+- как загружается Add-in и как регистрируется;
+- как получить сборку/деталь и дерево компонентов;
+- как создавать/обновлять геометрию без разрушения пользовательской модели;
+- как сопоставлять MCAD-компоненты с ECAD-идентификаторами.
 
 `ISwAddin`, `ConnectToSW`, `DisconnectFromSW`, регистрация Add-in и
 `CommandManager` в хосте не проверялись. Они остаются в разделе ожидающих
@@ -378,3 +437,6 @@ R1 дополнительно подтвердил enumerate/close-only-created 
 | 2026-11-25 | BRIDGE-000015-R1-FIX-001: `GetDocuments()` fail-closed semantics (`Available`/`Unavailable`/`Incomplete`); закрытие только Bridge-owned; cleanup `Verified`/`Incomplete`/`Failed`/`Unavailable`; representative `smoke-r33-fix` | local-agent |
 | 2026-11-25 | BRIDGE-000015-R1-FIX-002: initial `Incomplete`/`Unavailable` запрещает cleanup; post-CloseDoc проверка `Closed`/`StillOpen`/`Incomplete`/`Unavailable`; запрет QuitDoc fallback и следующих close при неизвестном snapshot; representative `smoke-r34-fix2` | local-agent |
 | 2026-11-25 | BRIDGE-000015-R1-FIX-003: после не-RPC exception CloseDoc/QuitDoc один CheckClosed; Incomplete/Unavailable останавливают cleanup, ownership сохраняется; representative `smoke-r35-fix3` | local-agent |
+| 2026-11-25 | BRIDGE-000016-R0: C-104 body projection/heights, C-105 snap API (metadata only); S-016/S-017 SOLIDWORKS transform probe; V-14 transform part partially closed | local-agent |
+| 2026-11-25 | BRIDGE-000016-R2: C-106 full board STEP exporter; full board golden reference shows board-local offset and no Component RotationDeg for fixture bodies | local-agent |
+| 2026-11-25 | BRIDGE-000016-R3: library-relative fixture creation blocked by UI-only workflow; no new API confirmed and no capability enabled | local-agent |
