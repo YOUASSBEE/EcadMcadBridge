@@ -8,7 +8,7 @@ created: 2026-11-25T13:20:00+03:00
 updated: 2026-11-25T13:20:00+03:00
 base: source
 branch: agent/BRIDGE-000013-core-3d-assets
-commit: 0c4d45f
+commit: c050ebe
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/12
 related:
   - BRIDGE-000004
@@ -221,7 +221,9 @@ SHA-256. Reader хеширует файлы потоково и не загру�
 
 ## 6. Commit SHA и ссылка на PR
 
-- Commit: `0c4d45f` (`feat(core): add 3D assets to exchange package`).
+- Commit: `c050ebe` (`fix(core): stop staging invalid duplicate assets`) — implementation
+  head на момент обновления отчёта; `0c4d45f`, `de06851`, `8f96886` — предыдущие
+  коммиты ветки.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/12, ветка
   `agent/BRIDGE-000013-core-3d-assets`, base `source`, merge запрещён.
 
@@ -229,3 +231,5 @@ SHA-256. Reader хеширует файлы потоково и не загру�
 
 - 2026-11-25: реализован контракт каталога, Writer/Reader, потоковая обработка,
   тесты и документация. Первый commit `0c4d45f`; PR #12 открыт без merge.
+- 2026-11-25: добавлен тест сортировки каталога (`8f96886`); duplicate/invalid
+  asset keys больше не staging-уются (`c050ebe`).
