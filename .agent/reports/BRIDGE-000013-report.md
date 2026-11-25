@@ -8,7 +8,7 @@ created: 2026-11-25T13:20:00+03:00
 updated: 2026-11-25T13:20:00+03:00
 base: source
 branch: agent/BRIDGE-000013-core-3d-assets
-commit: c050ebe
+commit: ef3b1b7
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/12
 related:
   - BRIDGE-000004
@@ -48,7 +48,10 @@ content-addressed файлов STEP/X_T. Manifest остаётся `1.0.0`; ка
   переведены на потоковое чтение;
 - новые стабильные коды `EMB-PKG-022`…`EMB-PKG-026`;
 - обязательные тесты раздела 9 добавлены; старые тесты Writer/Reader не менялись
-  по смыслу и проходят.
+  по смыслу и проходят;
+- R1: добавлена численная сверка IU/мм (X/Y/Z/dz), строгое различие
+  `assetPath == null` и пустой/whitespace строки, обязательное присутствие всех
+  nullable-полей JSON.
 
 Не сделано и не входило в scope: извлечение моделей из Altium, `IPCB_ComponentBody`
 enumeration, `ExportToStep`, `SaveModelToFile`, SOLIDWORKS Add-in, построение
@@ -150,6 +153,36 @@ SHA-256. Reader хеширует файлы потоково и не загру�
 
 Сообщения не содержат абсолютных путей исходных моделей.
 
+### 3.8 R1 — усиление строгости валидации
+
+**R1-1. Численная согласованность IU/мм.** `ValidatePair` теперь проверяет не
+только одновременное наличие IU и мм, но и значение:
+
+```text
+Math.Abs(mm - AltiumUnits.IuToMm(iu)) <= 1e-9
+```
+
+Допуск `1e-9` совпадает с `BoardSnapshotValidator.UnitToleranceMm`. Проверяются
+`sdkOrigin.x`, `sdkOrigin.y`, `sdkOrigin.z` и `sdkState.dz`. Оба `null` допустимы;
+только одно значение, несовпадение или `NaN`/`Infinity` дают `EMB-PKG-022`.
+Значения не пересчитываются и не исправляются автоматически: Writer отклоняет
+некорректный вход, Reader — некорректный каталог.
+
+**R1-2. `assetPath`: null vs пустая строка.** Отсутствие файла представляется
+только `assetPath == null`. Пустая и whitespace-only строка — `EMB-PKG-025`.
+`assetPath` и `assetFormat` обязательны вместе: `null` + формат или путь + `null`
+формат отклоняются. `ValidateAssetLinks` пропускает только `null`, а не пустую
+строку, поэтому некорректная ссылка не может выглядеть как отсутствие asset.
+
+**R1-3. Обязательные nullable-поля JSON.** Для схемы 1.0.0 Reader требует
+физического присутствия `assetFormat`, `assetPath`, всех полей `sdkOrigin`
+(`xIu/xMm/yIu/yMm/zIu/zMm`), всех полей `sdkState`
+(`rotationXDegRaw/rotationYDegRaw/rotationZDegRaw/dzIu/dzMm`) и
+`modelRotationDegRaw`. Явный JSON `null` по-прежнему допустим; отсутствующее
+свойство даёт `JsonException`, которую Reader преобразует в `EMB-PKG-022`.
+Writer всегда сериализует эти поля, поэтому созданные им пакеты проходят
+round-trip.
+
 ## 4. Неподтверждённые вопросы и риски
 
 - Полная матрица `T_B_S`, Z-origin, Bottom и порядок Euler остаются
@@ -185,9 +218,9 @@ SHA-256. Reader хеширует файлы потоково и не загру�
 
 - `dotnet build -c Release` — 0 warnings, 0 errors.
 - `dotnet test -c Release --no-build`:
-  - Core.Tests: 121/121;
+  - Core.Tests: 140/140;
   - Altium.Tests: 82/82;
-  - всего 203/203.
+  - всего 222/222.
 - `git diff --check` — проверяется перед коммитом.
 - Бинарные STEP/X_T/PCB в Git не добавлялись.
 - Ручной smoke-тест в Altium/SOLIDWORKS не выполнялся: задача Core-only, Add-in и
@@ -211,7 +244,12 @@ SHA-256. Reader хеширует файлы потоково и не загру�
 | ссылка вне manifest / неиспользуемый asset | `Reader_RejectsAssetNotInManifest`, `Reader_RejectsUnreferencedAssetFile` |
 | некорректный JSON / major version / enum | `Reader_RejectsCorruptCatalogJson`, `Reader_RejectsUnsupportedCatalogMajorVersion`, `Reader_RejectsUnknownEnumValue` |
 | `componentId`, designator, ordinal, duplicate | `Reader_RejectsUnknownComponentId`, `Reader_RejectsDesignatorMismatch`, `Reader_RejectsDuplicateBodyOrdinal`, `Reader_RejectsDuplicateComponentId`, `Writer_RejectsCatalogMissingComponent` |
-| `NaN`/`Infinity`, парность IU/мм | `Reader_RejectsNonFiniteNumber`, `Reader_RejectsUnpairedIuMmValue` |
+| `NaN`/`Infinity` | `Reader_RejectsNonFiniteNumber`, `Writer_RejectsNonFiniteIuMmPair` |
+| IU/мм: несовпадение X/Y/Z/dz | `Reader_RejectsMismatchedIuMmValue` |
+| IU/мм: граница допуска и null-пара | `Reader_AcceptsIuMmValueAtToleranceBoundary`, `Reader_RejectsIuMmValueOutsideTolerance`, `Reader_AcceptsNullIuMmPair`, `Reader_RejectsUnpairedIuMmValue` |
+| Writer отклоняет неверную IU/мм пару | `Writer_RejectsMismatchedIuMmPair` |
+| `assetPath` null/empty/whitespace и формат | `Reader_RejectsInvalidAssetPathFormatCombination` |
+| обязательные nullable-поля JSON | `Reader_RejectsMissingNullableProperty`, `Reader_AcceptsExplicitNullNullableFields` |
 | case-insensitive конфликт | `Reader_RejectsCaseInsensitivePathConflict` |
 | потоковый большой файл | `WriterAndReader_SupportLargeStreamedAsset` |
 | нет частичного пакета/временного каталога | `Writer_RejectsMissingAssetSource`, `Writer_RejectsUnreferencedAsset`, `Writer_RejectsCatalogMissingComponent` |
@@ -221,9 +259,9 @@ SHA-256. Reader хеширует файлы потоково и не загру�
 
 ## 6. Commit SHA и ссылка на PR
 
-- Commit: `c050ebe` (`fix(core): stop staging invalid duplicate assets`) — implementation
-  head на момент обновления отчёта; `0c4d45f`, `de06851`, `8f96886` — предыдущие
-  коммиты ветки.
+- Commit: `ef3b1b7` (`fix(core): tighten 3D catalog validation`) — R1 implementation
+  head на момент обновления отчёта; `0c4d45f`, `de06851`, `8f96886`, `c050ebe` —
+  предыдущие коммиты ветки.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/12, ветка
   `agent/BRIDGE-000013-core-3d-assets`, base `source`, merge запрещён.
 
@@ -233,3 +271,6 @@ SHA-256. Reader хеширует файлы потоково и не загру�
   тесты и документация. Первый commit `0c4d45f`; PR #12 открыт без merge.
 - 2026-11-25: добавлен тест сортировки каталога (`8f96886`); duplicate/invalid
   asset keys больше не staging-уются (`c050ebe`).
+- 2026-11-25 (R1): `ValidatePair` проверяет численное значение IU/мм; пустой
+  `assetPath` отличается от `null`; nullable-поля JSON обязательны. Добавлены
+  тесты; `ef3b1b7`.
