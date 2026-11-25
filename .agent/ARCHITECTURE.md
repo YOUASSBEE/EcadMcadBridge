@@ -567,6 +567,38 @@ Core рассматривает ID как непрозрачную непуст�
 - Ошибки каталога и assets используют стабильные коды `EMB-PKG-022`…`EMB-PKG-026`.
   Сообщения не содержат абсолютных путей пользователя.
 
+### 6.5 SOLIDWORKS STEP import backend (BRIDGE-000015)
+
+- Проект `EcadMcadBridge.SolidWorks` — `net10.0-windows`, x64, зависит от Core,
+  не зависит от Altium. SOLIDWORKS interop подключается локально из
+  `SolidWorksApiDir` с `Private=false`; proprietary DLL не коммитятся.
+- `SolidWorksImportPlanBuilder` читает `PackageReadResult`, проверяет
+  snapshot/models, собирает уникальные `assetPath` и связи
+  `componentId/bodyOrdinal → asset`. NotAcquired bodies пропускаются с warning;
+  не-STEP формат — ошибка; отсутствующий/пустой asset — ошибка.
+- Выходное имя — content-addressed SHA basename + `.SLDPRT`; dedup по
+  `AssetPath`; один asset импортируется один раз, несколько bodies ссылаются на
+  одну деталь.
+- `SolidWorksImportService`: `GetImportFileData`/`MapConfigurationData=false`,
+  `LoadFile4`, проверка `swDocPART`, `PartDoc.GetBodies2(swSolidBody)`,
+  `ModelDocExtension.SaveAs3(swSaveAsCurrentVersion, swSaveAsOptions_Silent)`,
+  закрытие импортированного документа, `OpenDoc6` native part, повторная
+  проверка solid bodies.
+- Если STEP импортируется как `swDocASSEMBLY`, backend считает solid bodies
+  всех component instances и сохраняет assembly как native part через
+  `SaveAs3(.SLDPRT)`; после повторного открытия сравнивается body count. Это
+  сохраняет геометрию asset без ручного merge.
+- `SolidWorksAssemblyService` — только API smoke: `NewDocument` по явному
+  assembly template, загрузка native parts в память, `AddComponent5(0,0,0)`,
+  `GetComponents`, `SaveAs3`, повторное открытие и сравнение количества
+  компонентов. Это не placement ECAD.
+- Smoke harness подключается к уже запущенному SOLIDWORKS через ROT, работает в
+  STA, вызывает API последовательно, не запускает/не завершает пользовательский
+  процесс и закрывает только созданные им документы. Входные STEP assets не
+  изменяются.
+- `T_B_S`, Z/Bottom, Euler composition, ECAD placement, Add-in registration,
+  Registry и установщик остаются вне scope.
+
 ## 7. Обработка ошибок и логирование
 
 - Все ошибки Core имеют стабильный код `EMB-<AREA>-<NNN>` и сообщение без привязки к UI.

@@ -27,6 +27,7 @@
 | D-016 | Разделение Git-протокола разработки и runtime-обмена | Accepted | 2026-11-24 |
 | D-017 | COM-контракт Bridge по образцу InteractiveBom (assembly-level `ComVisible`, `AutoDispatch`, `IPluginFactory`) | Accepted | 2026-11-24 |
 | D-018 | Необязательный каталог 3D-моделей и content-addressed assets в Exchange Package | Accepted | 2026-11-25 |
+| D-020 | SOLIDWORKS backend: local interop, per-asset STEP import в native SLDPRT, без Add-in registration и placement | Accepted | 2026-11-25 |
 
 ---
 
@@ -416,6 +417,51 @@ Bottom, порядок Euler или полная матрица не вычис�
   Altium; это отдельная задача `BRIDGE-000014`.
 - V-27/V-30 и полная 3D-матрица остаются открытыми.
 - Пользовательские STEP/X_T не попадают в Git (D-016).
+
+---
+
+## D-020 — SOLIDWORKS backend и независимый STEP import pipeline
+
+**Статус:** Accepted (`BRIDGE-000015`).
+
+**Контекст.** Core Exchange Package уже содержит `models/models.json` и
+content-addressed STEP AP214 assets (`BRIDGE-000013`). Для MCAD-стороны нужен
+отдельный backend, который читает пакет, импортирует каждый уникальный asset
+средствами SOLIDWORKS API и сохраняет нативные `.SLDPRT`, не смешивая Core с
+SOLIDWORKS interop. D-019 зарезервирован открытым PR #13 (`BRIDGE-000014`) и
+здесь не используется.
+
+**Решение.**
+
+- Создаётся отдельный проект `EcadMcadBridge.SolidWorks` (`net10.0-windows`,
+  x64), зависящий от Core, но не от Altium.
+- SOLIDWORKS interop (`SolidWorks.Interop.sldworks.dll`,
+  `SolidWorks.Interop.swconst.dll`) подключается локально через
+  `SolidWorksApiDir`; DLL не коммитятся и не добавляются NuGet-пакетом.
+- Новая отдельная smoke-консоль `EcadMcadBridge.SolidWorks.Smoke` подключается
+  к уже запущенному SOLIDWORKS через ROT, работает в STA и выполняет вызовы
+  последовательно. Она не запускает/не завершает пользовательский процесс.
+- Входной формат — STEP AP214; выходной — native `.SLDPRT` на каждый уникальный
+  `AssetPath`. Content-addressed dedup сохраняется: несколько body references
+  одного asset используют одну деталь.
+- Per-asset import: `GetImportFileData`/`MapConfigurationData`,
+  `LoadFile4`, проверка solid B-Rep bodies, `SaveAs3`, повторное открытие и
+  сравнение body count. STEP, импортированный как assembly, сохраняется как
+  native part через `SaveAs3(.SLDPRT)`; body count assembly components
+  сравнивается с reopened part.
+- Assembly smoke только проверяет API `NewDocument`/`AddComponent5`/
+  `GetComponents` и сохранение/повторное открытие `.SLDASM`; компоненты
+  вставляются в `0,0,0`. Это не ECAD placement.
+- В текущей задаче нет регистрации `ISwAddin`, изменения Registry, установщика
+  и UI. `T_B_S`, Bottom reflection, Euler composition и реальное размещение
+  платы не реализуются.
+
+**Последствия.**
+
+- SOLIDWORKS backend можно развивать независимо от Altium adapter.
+- Успешный STEP import не доказывает корректность placement.
+- Proprietary interop и CAD-бинарники остаются вне Git.
+- Q-004 закрыт для прототипа; полноценный Add-in остаётся отдельной задачей.
 
 ---
 

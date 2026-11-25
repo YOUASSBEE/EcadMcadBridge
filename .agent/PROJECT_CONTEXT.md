@@ -5,8 +5,8 @@
 | Проект | ECAD-MCAD Bridge |
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
-| Текущая ветка | `agent/BRIDGE-000013-core-3d-assets` |
-| Статус | `BRIDGE-000013` добавляет опциональный каталог 3D-моделей и assets в Core Exchange Package |
+| Текущая ветка | `agent/BRIDGE-000015-solidworks-step-import` |
+| Статус | `BRIDGE-000015` добавляет SOLIDWORKS STEP import backend и native SLDPRT smoke |
 | Дата фиксации | 2026-11-25 |
 | Владелец продукта | Оператор проекта (человек) |
 
@@ -49,12 +49,15 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 - Core Exchange Package: deterministic manifest, snapshot, checksums, atomic writer,
   validating reader и безопасные относительные пути (`BRIDGE-000004`);
 - опциональный каталог 3D-моделей компонентов `models/models.json` и
-  content-addressed STEP/X_T assets в `assets/3d/` (`BRIDGE-000013`).
+  content-addressed STEP/X_T assets в `assets/3d/` (`BRIDGE-000013`);
+- SOLIDWORKS STEP import backend: чтение Exchange Package, per-asset STEP AP214,
+  native `.SLDPRT`, content-addressed dedup и assembly API smoke
+  (`BRIDGE-000015`).
 
 Не входит в scope текущего этапа:
 
-- реализация обмена с SOLIDWORKS;
-- реализация экспорта/импорта данных платы;
+- полноценный SOLIDWORKS Add-in, регистрация `ISwAddin` и UI;
+- реальное размещение ECAD-компонентов в SOLIDWORKS (`T_B_S`, Bottom, Euler);
 - ECO, обратная аннотация, синхронизация изменений;
 - установщик, CI/CD, подпись сборок, публикация расширения;
 - изменение архитектуры без отдельного согласования.
@@ -69,9 +72,10 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 | Target Framework (Altium) | `net10.0-windows` | Зафиксировано, совместимость подтверждена оператором |
 | Target Framework (Core) | `net10.0` | Зафиксировано (D-014) |
 | Target Framework (Core.Tests) | `net10.0` | Зафиксировано (D-014) |
-| Target Framework (SOLIDWORKS) | отдельным решением | Открытый вопрос Q-009 |
+| Target Framework (SOLIDWORKS) | `net10.0-windows`, x64 | Зафиксировано (D-020) |
+| SOLIDWORKS interop | `SolidWorks.Interop.sldworks` / `swconst` 34.3.2.3, локальный reference | Зафиксировано (D-020) |
 | Язык | C# | Зафиксировано |
-| SOLIDWORKS | 2026 | Зафиксировано |
+| SOLIDWORKS | 2026 SP3.2, 34.3.2.0003 | Зафиксировано |
 | Core UI | не зафиксировано | Открытый вопрос Q-005 |
 
 Ограничения стека:
@@ -100,9 +104,14 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 ├── global.json
 ├── src/
 │   ├── EcadMcadBridge.Core/        Model, Serialization, Validation, Diagnostics; net10.0
-│   └── EcadMcadBridge.Altium/      bootstrap, adapter, application, installation; net10.0-windows
+│   ├── EcadMcadBridge.Altium/      bootstrap, adapter, application, installation; net10.0-windows
+│   └── EcadMcadBridge.SolidWorks/  STEP import, native SLDPRT, assembly smoke; net10.0-windows x64
+├── tools/
+│   └── EcadMcadBridge.SolidWorks.Smoke/  STA ROT smoke harness
 ├── tests/
-│   └── EcadMcadBridge.Core.Tests/  модель, JSON, валидатор, преобразования; net10.0
+│   ├── EcadMcadBridge.Core.Tests/
+│   ├── EcadMcadBridge.Altium.Tests/
+│   └── EcadMcadBridge.SolidWorks.Tests/
 └── .agent/
     ├── PROJECT_CONTEXT.md
     ├── ARCHITECTURE.md
@@ -212,13 +221,17 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   `models/models.json` (`ecad-mcad-bridge/component-models` 1.0.0) и
   content-addressed `assets/3d/<sha256>.step|.x_t`; capability
   `component-3d-models`; raw IU/mm metadata, потоковое копирование/хеширование
-  assets и полное покрытие manifest/checksums. Извлечение моделей из Altium и
-  SOLIDWORKS Add-in не реализованы (D-018, `BRIDGE-000014`).
+  assets и полное покрытие manifest/checksums (D-018).
+- `BRIDGE-000015`: добавлен отдельный `EcadMcadBridge.SolidWorks`
+  (`net10.0-windows`, x64): Core Reader → unique STEP plan → typed SOLIDWORKS
+  import → native `.SLDPRT`; assembly API smoke с `AddComponent5`. Smoke harness
+  подключается через ROT, работает в STA и не регистрирует Add-in. Реальное
+  размещение ECAD-компонентов не реализовано (D-020).
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.
   `BRIDGE-000002` новых Altium API не добавляет.
 - Git-протокол и runtime-обмен разделены: Git не используется для пользовательских PCB, STEP
   и рабочих сборок.
-- Обмен с SOLIDWORKS не реализуется и не проектируется детально до отдельного решения.
+- Полноценный SOLIDWORKS Add-in, UI и placement остаются отдельной задачей.
 
 ## 9. Ключевые открытые вопросы
 
@@ -227,12 +240,12 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 | Q-001 | Загружает ли AD26 in-process сборку `net10.0-windows`? | **Закрыт:** подтверждено оператором (C-65) | TFM InteractiveBom выбирается по версии Altium; TFM Bridge зафиксирован как `net10.0-windows` |
 | Q-002 | Какая точная сборка Altium Designer 26 используется на стенде? | **Уточнён:** `X2.EXE` 26.12.2.9, runtime `net10.0` / 10.0.10 | Изоляция конкретного варианта `Altium.SDK.dll` внутри хоста остаётся открытой (V-13) |
 | Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | Открыт; контракт хранения готов (`BRIDGE-000013`) | Нужно для будущей передачи в SOLIDWORKS, API не проверен; извлечение вынесено в `BRIDGE-000014` |
-| Q-004 | Какой interop-пакет и API использовать для SOLIDWORKS 2026? | Открыт | Не проверено; в реестр не вносится до проверки |
+| Q-004 | Какой interop-пакет и API использовать для SOLIDWORKS 2026? | **Закрыт для prototype:** local `SolidWorks.Interop.*` 34.3.2.3, ROT, STA; Add-in registration отдельно | STEP/native/assembly API подтверждены smoke `BRIDGE-000015`; D-020 |
 | Q-005 | Какой UI-стек использовать в Add-in (WPF/WinForms)? | Частично закрыт | Для smoke-команды — хост-диалог, для запуска сервера — минимальная WinForms-панель; полноценные панели ещё не проектировались |
 | Q-006 | Как автоматизировать установку/регистрацию расширения? | Открыт | Известен ручной путь через `ExtensionsRegistry.xml`; автоматизация требует отдельного решения |
 | Q-007 | Можно ли распространять SDK-сборки Altium в составе репозитория? | Открыт | Лицензионные ограничения; вероятно, ссылаться на локальную установку |
 | Q-008 | Достаточно ли `SourceUniqueId` для стабильной идентификации компонентов? | Открыт | Нужно для сопоставления ECAD/MCAD без ложных совпадений |
-| Q-009 | Какой Target Framework у SOLIDWORKS Add-in? | Открыт | Определяется отдельным решением (D-014, O-009) |
+| Q-009 | Какой Target Framework у SOLIDWORKS Add-in? | **Закрыт для backend:** `net10.0-windows`, x64 (D-020); Add-in host отдельно | Backend и smoke собраны и запущены на .NET SDK 10 |
 | Q-010 | Полно ли `BoardSnapshot` покрывает данные, которые Altium отдаёт через подтверждённые `IPCB_*`? | Частично закрыт в `BRIDGE-000009` | Tracks/vias/texts/regions извлекаются; region analytic arcs пока line-fallback, text font outline и часть region semantics не представлены в Core 1.0.0 |
 | Q-011 | Как проверять пространственную вложенность отверстий и контуров? | Открыт | Валидатор проверяет роли, замкнутость и непрерывность, но не point-in-polygon |
 | Q-012 | Как расширить Core для отверстий падов, pin designator, локальных координат и stack order? | Открыт | Требует отдельного решения до изменения публичного контракта |
