@@ -860,9 +860,9 @@ internal static class AltiumBoardSnapshotAdapter
                     warnings,
                     diagnostics);
                 if (!string.IsNullOrWhiteSpace(uniqueId))
-                    componentIds[uniqueId] = componentId;
+                    componentIds.TryAdd(uniqueId, componentId);
                 if (!string.IsNullOrWhiteSpace(sourceUniqueId))
-                    componentIds[sourceUniqueId] = componentId;
+                    componentIds.TryAdd(sourceUniqueId, componentId);
                 var rawX = component.GetState_XLocation();
                 var rawY = component.GetState_YLocation();
                 var rotation = AngleNormalizer.NormalizeDegrees(component.GetState_Rotation());
