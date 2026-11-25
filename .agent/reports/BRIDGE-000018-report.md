@@ -8,7 +8,7 @@ created: 2026-11-26T02:00:00+03:00
 updated: 2026-11-26T03:00:00+03:00
 base: source
 branch: agent/BRIDGE-000018-first-placed-pcb-assembly
-commit: d3064c2
+commit: d217eae
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/17
 related: [BRIDGE-000014, BRIDGE-000015, BRIDGE-000016, BRIDGE-000017]
 ---
@@ -316,7 +316,8 @@ MiniPC assembly and no Bottom/Native/External runtime.
 
 - Branch: `agent/BRIDGE-000018-first-placed-pcb-assembly`
 - Base: `source` `9c5a98f05a175ba612349dda3675f6379f730981`
-- Content commit: `d3064c2` (`feat(bridge-000018): implement first placed Top assembly`)
+- Content commits: `d3064c2` (`feat(bridge-000018): implement first placed Top assembly`);
+  `d217eae` (`fix(bridge-000018): correct board bounds and placement completeness`).
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/17
 - Merge: not performed.
 
@@ -432,6 +433,7 @@ Multi-body fixture:
 - `tests/EcadMcadBridge.SolidWorks.Tests/SolidWorksPlacementTests.cs`
 - `.agent/reports/BRIDGE-000018-report.md`
 - `.agent/ARCHITECTURE.md`, `.agent/DEVELOPMENT_RULES.md`
+- FIX-001 content commit: `d217eae`.
 
 ### 13.6. Проверки
 
