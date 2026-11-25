@@ -191,8 +191,9 @@ Capability matrix:
   asset с другим контрактом не размещается без отдельной проверки.
 - Board thickness берётся из Altium BoardSnapshot; расхождение с STEP board
   solid (R0–R4, 0.02 мм) не используется и не «исправляется» в этом prototype.
-- Если контур платы пуст, board origin принимается `(0,0)`; это ограничение
-  контракта snapshot, а не догадка о толщине.
+- Отсутствие достоверного `ContourRole.Outer` или некорректная геометрия
+  внешнего контура приводят к invalid placement plan с диагностикой
+  `SW-PLC-021`. Fallback к BoardOrigin `(0,0)` отсутствует.
 - Multi-body components поддерживаются запросом на каждый body; FIX-001
   подтвердил runtime на M501 с двумя разными Generic Embedded body (2/2 occurrences).
 - Полноценный SOLIDWORKS Add-in, Registry, installer и UI не реализованы.
