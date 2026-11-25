@@ -270,10 +270,13 @@ public static class ExchangePackageWriter
             if (string.IsNullOrWhiteSpace(asset.AssetKey))
             {
                 diagnostics.Add(Error(PackageDiagnosticCodes.InvalidMetadata, "models.assets", "Asset key is required."));
+                continue;
             }
-            else if (!keys.Add(asset.AssetKey))
+
+            if (!keys.Add(asset.AssetKey))
             {
                 diagnostics.Add(Error(PackageDiagnosticCodes.InvalidMetadata, "models.assets", $"Duplicate asset key '{asset.AssetKey}'."));
+                continue;
             }
 
             if (!Enum.IsDefined(asset.Format))
