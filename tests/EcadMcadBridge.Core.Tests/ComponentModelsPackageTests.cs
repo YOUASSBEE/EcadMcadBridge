@@ -244,6 +244,59 @@ public sealed class ComponentModelsPackageTests
     }
 
     [Fact]
+    public void ComponentModelsJson_SortsComponentsAndBodies()
+    {
+        static ComponentModelCatalog Catalog(IReadOnlyList<ComponentModelEntry> components) =>
+            new() { Components = components };
+
+        var firstBody = new ComponentBodyEntry
+        {
+            BodyOrdinal = 0,
+            Representation = ComponentModelRepresentation.Generic,
+            AssetAcquisition = ComponentModelAssetAcquisition.NotAcquired,
+        };
+        var secondBody = new ComponentBodyEntry
+        {
+            BodyOrdinal = 1,
+            Representation = ComponentModelRepresentation.Native,
+            AssetAcquisition = ComponentModelAssetAcquisition.NotAcquired,
+        };
+        var firstComponent = new ComponentModelEntry
+        {
+            ComponentId = "component-1",
+            Designator = "R1",
+            Bodies = new[] { firstBody, secondBody },
+        };
+        var secondComponent = new ComponentModelEntry
+        {
+            ComponentId = "component-2",
+            Designator = "C1",
+            Bodies = new[] { secondBody },
+        };
+
+        var ordered = Catalog(new[] { firstComponent, secondComponent });
+        var reversed = Catalog(new[]
+        {
+            new ComponentModelEntry
+            {
+                ComponentId = "component-2",
+                Designator = "C1",
+                Bodies = new[] { secondBody },
+            },
+            new ComponentModelEntry
+            {
+                ComponentId = "component-1",
+                Designator = "R1",
+                Bodies = new[] { secondBody, firstBody },
+            },
+        });
+
+        Assert.Equal(
+            ComponentModelsJson.SerializeToUtf8(ordered),
+            ComponentModelsJson.SerializeToUtf8(reversed));
+    }
+
+    [Fact]
     public void Writer_RejectsMissingAssetSource()
     {
         using var scenario = new Scenario();

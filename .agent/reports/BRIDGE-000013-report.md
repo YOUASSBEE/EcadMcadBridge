@@ -185,11 +185,13 @@ SHA-256. Reader хеширует файлы потоково и не загру�
 
 - `dotnet build -c Release` — 0 warnings, 0 errors.
 - `dotnet test -c Release --no-build`:
-  - Core.Tests: 120/120;
+  - Core.Tests: 121/121;
   - Altium.Tests: 82/82;
-  - всего 202/202.
+  - всего 203/203.
 - `git diff --check` — проверяется перед коммитом.
 - Бинарные STEP/X_T/PCB в Git не добавлялись.
+- Ручной smoke-тест в Altium/SOLIDWORKS не выполнялся: задача Core-only, Add-in и
+  CAD API не изменялись; smoke-тест в CAD неприменим.
 
 Покрытие обязательных тестов:
 
@@ -215,7 +217,7 @@ SHA-256. Reader хеширует файлы потоково и не загру�
 | нет частичного пакета/временного каталога | `Writer_RejectsMissingAssetSource`, `Writer_RejectsUnreferencedAsset`, `Writer_RejectsCatalogMissingComponent` |
 | нет перезаписи package-id | `Writer_DoesNotOverwriteExistingPackage` |
 | изменение файла во время копирования | `Writer_RejectsAssetChangedDuringCopy` |
-| детерминизм | `Writer_IsDeterministicWithModels` |
+| детерминизм | `Writer_IsDeterministicWithModels`, `ComponentModelsJson_SortsComponentsAndBodies` |
 
 ## 6. Commit SHA и ссылка на PR
 
