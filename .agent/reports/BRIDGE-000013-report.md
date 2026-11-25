@@ -5,10 +5,10 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-25T13:20:00+03:00
-updated: 2026-11-25T13:20:00+03:00
+updated: 2026-11-25T14:40:00+03:00
 base: source
 branch: agent/BRIDGE-000013-core-3d-assets
-commit: ef3b1b7
+commit: 74b7ced
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/12
 related:
   - BRIDGE-000004
@@ -259,9 +259,9 @@ round-trip.
 
 ## 6. Commit SHA и ссылка на PR
 
-- Commit: `ef3b1b7` (`fix(core): tighten 3D catalog validation`) — R1 implementation
-  head на момент обновления отчёта; `0c4d45f`, `de06851`, `8f96886`, `c050ebe` —
-  предыдущие коммиты ветки.
+- Commit: `74b7ced` (`docs(bridge-000013): record R1 validation fixes`) — branch HEAD
+  после R1; implementation commit R1 — `ef3b1b7`, предыдущие коммиты —
+  `0c4d45f`, `de06851`, `8f96886`, `c050ebe`.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/12, ветка
   `agent/BRIDGE-000013-core-3d-assets`, base `source`, merge запрещён.
 
@@ -273,4 +273,4 @@ round-trip.
   asset keys больше не staging-уются (`c050ebe`).
 - 2026-11-25 (R1): `ValidatePair` проверяет численное значение IU/мм; пустой
   `assetPath` отличается от `null`; nullable-поля JSON обязательны. Добавлены
-  тесты; `ef3b1b7`.
+  тесты; `ef3b1b7`. Отчёт обновлён в `74b7ced`.
