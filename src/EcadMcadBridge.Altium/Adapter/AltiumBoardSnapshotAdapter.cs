@@ -9,6 +9,8 @@ namespace EcadMcadBridge.Altium.Adapter;
 
 internal sealed record AltiumBoardSnapshotResult(
     BoardSnapshot Snapshot,
+    IPCB_Board Board,
+    IReadOnlyList<AltiumComponentIdentity> ComponentIdentities,
     IReadOnlyList<string> Warnings,
     IReadOnlyList<AltiumRegionInfo> Regions,
     AltiumAdapterDiagnostics Diagnostics);
@@ -158,7 +160,7 @@ internal sealed class AltiumAdapterDiagnostics
 /// </summary>
 internal static class AltiumBoardSnapshotAdapter
 {
-    private const string ToolVersion = "0.3.0";
+    private const string ToolVersion = "0.4.0";
 
     public static AltiumBoardSnapshotResult Read(IServerDocumentView? view)
     {
@@ -183,6 +185,7 @@ internal static class AltiumBoardSnapshotAdapter
         var regions = ReadRegions(board, layers, nets, warnings, diagnostics);
 
         var components = new List<ComponentInstance>();
+        var componentIdentities = new List<AltiumComponentIdentity>();
         var padStacks = new List<PadStack>();
         var pads = new List<Pad>();
         var componentIds = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -191,6 +194,7 @@ internal static class AltiumBoardSnapshotAdapter
             layers,
             nets,
             components,
+            componentIdentities,
             padStacks,
             pads,
             componentIds,
@@ -238,7 +242,13 @@ internal static class AltiumBoardSnapshotAdapter
             Texts = texts.OrderBy(text => text.Id, StringComparer.Ordinal).ToArray(),
         };
 
-        return new AltiumBoardSnapshotResult(snapshot, warnings, regions, diagnostics);
+        return new AltiumBoardSnapshotResult(
+            snapshot,
+            board,
+            componentIdentities,
+            warnings,
+            regions,
+            diagnostics);
     }
 
     private static LayerCatalog ReadLayers(IPCB_Board board, List<string> warnings)
@@ -812,6 +822,7 @@ internal static class AltiumBoardSnapshotAdapter
         LayerCatalog layers,
         NetCatalog nets,
         List<ComponentInstance> components,
+        List<AltiumComponentIdentity> componentIdentities,
         List<PadStack> padStacks,
         List<Pad> pads,
         Dictionary<string, string> componentIds,
@@ -827,38 +838,48 @@ internal static class AltiumBoardSnapshotAdapter
 
             var index = 0;
             var holeWarning = false;
+            var componentIdsSeen = new HashSet<string>(StringComparer.Ordinal);
             for (var primitive = iterator.FirstPCBObject(); primitive is not null; primitive = iterator.NextPCBObject())
             {
                 if (primitive is not IPCB_Component component)
                     continue;
 
-                var designator = component.GetState_Name()?.GetState_Text() ?? string.Empty;
+                var rawDesignator = component.GetState_Name()?.GetState_Text() ?? string.Empty;
+                var designator = rawDesignator;
                 if (string.IsNullOrWhiteSpace(designator))
                 {
                     designator = "UNNAMED_" + index;
                     warnings.Add("A component has no designator; a synthetic designator was used.");
                 }
 
-                var sourceUniqueId = component.GetState_SourceUniqueId();
-                var uniqueId = component.GetState_UniqueId();
-                var componentId = MakeId(
-                    "component",
+                var sourceUniqueId = AltiumComponentIdBuilder.NormalizeKey(component.GetState_SourceUniqueId());
+                var uniqueId = AltiumComponentIdBuilder.NormalizeKey(component.GetState_UniqueId());
+                var componentId = AltiumComponentIdBuilder.Build(
                     uniqueId,
-                    sourceUniqueId ?? designator + ":" + index,
+                    sourceUniqueId,
+                    designator,
+                    index,
+                    componentIdsSeen,
                     warnings,
                     diagnostics);
                 if (!string.IsNullOrWhiteSpace(uniqueId))
-                    componentIds[uniqueId] = componentId;
+                    componentIds.TryAdd(uniqueId, componentId);
                 if (!string.IsNullOrWhiteSpace(sourceUniqueId))
-                    componentIds[sourceUniqueId] = componentId;
-                var rawLayer = (int)component.GetState_Layer();
-                var side = rawLayer == 32
-                    ? BoardSide.Bottom
-                    : rawLayer == 1
-                        ? BoardSide.Top
-                        : component.GetState_FlippedOnLayer()
-                            ? BoardSide.Bottom
-                            : BoardSide.Top;
+                    componentIds.TryAdd(sourceUniqueId, componentId);
+                var rawX = component.GetState_XLocation();
+                var rawY = component.GetState_YLocation();
+                var rotation = AngleNormalizer.NormalizeDegrees(component.GetState_Rotation());
+                var side = ResolveComponentSide(component);
+                componentIdentities.Add(new AltiumComponentIdentity(
+                    componentId,
+                    new AltiumComponentKey(
+                        uniqueId,
+                        sourceUniqueId,
+                        rawDesignator,
+                        rawX,
+                        rawY,
+                        rotation,
+                        side)));
                 var layer = side == BoardSide.Top ? TV6_Layer.eV6_TopLayer : TV6_Layer.eV6_BottomLayer;
                 var layerId = layers.GetOrAdd((int)layer, null, warnings);
 
@@ -873,8 +894,8 @@ internal static class AltiumBoardSnapshotAdapter
                     LayerId = layerId,
                     Placement = new Transform
                     {
-                        Position = Point2D.FromIu(component.GetState_XLocation(), component.GetState_YLocation()),
-                        RotationDeg = AngleNormalizer.NormalizeDegrees(component.GetState_Rotation()),
+                        Position = Point2D.FromIu(rawX, rawY),
+                        RotationDeg = rotation,
                         Side = side,
                     },
                     Height = height > 0 ? LengthValue.FromIu(height) : LengthValue.FromIu(null),
@@ -1147,6 +1168,17 @@ internal static class AltiumBoardSnapshotAdapter
         while (!ids.Add(candidate))
             candidate += "_";
         return candidate;
+    }
+
+    /// <summary>Side used by both the snapshot and the component identity resolver.</summary>
+    internal static BoardSide ResolveComponentSide(IPCB_Component component)
+    {
+        var rawLayer = (int)component.GetState_Layer();
+        if (rawLayer == 32)
+            return BoardSide.Bottom;
+        if (rawLayer == 1)
+            return BoardSide.Top;
+        return component.GetState_FlippedOnLayer() ? BoardSide.Bottom : BoardSide.Top;
     }
 
     private static BoardSide? MapSide(int layerId) => layerId switch
