@@ -109,6 +109,32 @@ public static class SolidWorksCleanupPolicy
             or SolidWorksDocumentCheckResult.StillOpen;
 }
 
+public enum SolidWorksCloseExceptionAction
+{
+    Closed,
+    RetryOrFallback,
+    Stop,
+}
+
+public static class SolidWorksCloseExceptionPolicy
+{
+    /// <summary>
+    /// RPC/COM-unavailable exceptions already prove the server is gone; do not call
+    /// GetDocuments again. Any other exception still requires a state check.
+    /// </summary>
+    public static bool RequiresStateCheck(Exception exception) =>
+        !SolidWorksComFailure.IsUnavailable(exception);
+
+    public static SolidWorksCloseExceptionAction Decide(
+        SolidWorksDocumentCheckResult checkedState) =>
+        checkedState switch
+        {
+            SolidWorksDocumentCheckResult.Closed => SolidWorksCloseExceptionAction.Closed,
+            SolidWorksDocumentCheckResult.StillOpen => SolidWorksCloseExceptionAction.RetryOrFallback,
+            _ => SolidWorksCloseExceptionAction.Stop,
+        };
+}
+
 public static class SolidWorksComFailure
 {
     public static bool IsUnavailable(Exception exception) =>

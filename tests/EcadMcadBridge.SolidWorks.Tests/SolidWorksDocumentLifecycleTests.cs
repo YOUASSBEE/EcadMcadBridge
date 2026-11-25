@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using EcadMcadBridge.SolidWorks.Interop;
 using Xunit;
 
@@ -162,6 +163,78 @@ public sealed class SolidWorksDocumentLifecycleTests
             MissingBaselineCount: 0,
             BridgeOwnedOpenCount: 2,
             UnknownPostBaselineCount: 1));
+
+        Assert.Equal(SolidWorksCleanupStatus.Incomplete, status);
+        Assert.NotEqual(SolidWorksCleanupStatus.Verified, status);
+    }
+
+    [Fact]
+    public void CloseDocExceptionWithClosedSnapshotIsTreatedAsClosed()
+    {
+        var exception = new InvalidOperationException("CloseDoc failed.");
+
+        Assert.True(SolidWorksCloseExceptionPolicy.RequiresStateCheck(exception));
+        Assert.Equal(
+            SolidWorksCloseExceptionAction.Closed,
+            SolidWorksCloseExceptionPolicy.Decide(SolidWorksDocumentCheckResult.Closed));
+    }
+
+    [Fact]
+    public void CloseDocExceptionWithStillOpenSnapshotAllowsQuitFallback()
+    {
+        Assert.Equal(
+            SolidWorksCloseExceptionAction.RetryOrFallback,
+            SolidWorksCloseExceptionPolicy.Decide(SolidWorksDocumentCheckResult.StillOpen));
+        Assert.True(SolidWorksCleanupPolicy.CanFallbackToQuit(
+            SolidWorksDocumentCheckResult.StillOpen));
+    }
+
+    [Fact]
+    public void CloseDocExceptionWithIncompleteSnapshotStopsQuitFallback()
+    {
+        Assert.Equal(
+            SolidWorksCloseExceptionAction.Stop,
+            SolidWorksCloseExceptionPolicy.Decide(SolidWorksDocumentCheckResult.Incomplete));
+        Assert.False(SolidWorksCleanupPolicy.CanFallbackToQuit(
+            SolidWorksDocumentCheckResult.Incomplete));
+    }
+
+    [Fact]
+    public void CloseDocExceptionWithUnavailableSnapshotStopsQuitFallback()
+    {
+        Assert.False(SolidWorksCloseExceptionPolicy.RequiresStateCheck(
+            new COMException("RPC unavailable.", unchecked((int)0x800706BA))));
+        Assert.Equal(
+            SolidWorksCloseExceptionAction.Stop,
+            SolidWorksCloseExceptionPolicy.Decide(SolidWorksDocumentCheckResult.Unavailable));
+        Assert.False(SolidWorksCleanupPolicy.CanFallbackToQuit(
+            SolidWorksDocumentCheckResult.Unavailable));
+    }
+
+    [Fact]
+    public void QuitDocExceptionWithUnknownSnapshotStopsFollowingDestructiveCalls()
+    {
+        Assert.Equal(
+            SolidWorksCloseExceptionAction.Stop,
+            SolidWorksCloseExceptionPolicy.Decide(SolidWorksDocumentCheckResult.Incomplete));
+        Assert.Equal(
+            SolidWorksCloseExceptionAction.Stop,
+            SolidWorksCloseExceptionPolicy.Decide(SolidWorksDocumentCheckResult.Unavailable));
+        Assert.False(SolidWorksCleanupPolicy.CanContinueWithNextDocument(
+            SolidWorksDocumentCheckResult.Incomplete));
+        Assert.False(SolidWorksCleanupPolicy.CanContinueWithNextDocument(
+            SolidWorksDocumentCheckResult.Unavailable));
+    }
+
+    [Fact]
+    public void IndeterminateCloseStateKeepsOwnedDocumentsUnverified()
+    {
+        var status = SolidWorksCleanupEvaluator.Evaluate(new SolidWorksCleanupEvidence(
+            SolidWorksDocumentSnapshotStatus.Available,
+            SolidWorksDocumentSnapshotStatus.Incomplete,
+            MissingBaselineCount: 0,
+            BridgeOwnedOpenCount: 2,
+            UnknownPostBaselineCount: 0));
 
         Assert.Equal(SolidWorksCleanupStatus.Incomplete, status);
         Assert.NotEqual(SolidWorksCleanupStatus.Verified, status);

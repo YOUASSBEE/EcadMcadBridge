@@ -614,8 +614,10 @@ Core рассматривает ID как непрозрачную непуст�
   начинается. После `CloseDoc`/`QuitDoc` проверка возвращает
   `Closed`/`StillOpen`/`Incomplete`/`Unavailable`; при неизвестном результате
   fallback `QuitDoc` и следующие close-операции запрещены, `_owned` сохраняется.
-  `CleanupStatus` — `Verified`/`Incomplete`/`Failed`/`Unavailable`; только
-  `Verified` считается успехом. Успех подтверждается final snapshot, а не
+  После обычного COM exception `CloseDoc`/`QuitDoc` выполняется один
+  `CheckClosed`; RPC/Unavailable exception не вызывает дополнительный
+  COM-вызов. `CleanupStatus` — `Verified`/`Incomplete`/`Failed`/`Unavailable`;
+  только `Verified` считается успехом. Успех подтверждается final snapshot, а не
   возвратом `CloseDoc`/`QuitDoc`.
 - Smoke harness подключается к уже запущенному SOLIDWORKS через ROT, работает в
   STA, вызывает API последовательно, не запускает/не завершает пользовательский

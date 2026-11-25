@@ -466,8 +466,19 @@ public sealed class SolidWorksDocumentTracker
             catch (Exception ex)
             {
                 AppendError(ref lastError, DescribeCloseFailure("CloseDoc", candidate!, ex));
-                if (SolidWorksComFailure.IsUnavailable(ex))
+                if (!SolidWorksCloseExceptionPolicy.RequiresStateCheck(ex))
                     return SolidWorksDocumentCheckResult.Unavailable;
+
+                var result = CheckClosed(identity, out verification);
+                var action = SolidWorksCloseExceptionPolicy.Decide(result);
+                if (action == SolidWorksCloseExceptionAction.Closed)
+                    return SolidWorksDocumentCheckResult.Closed;
+                if (action == SolidWorksCloseExceptionAction.Stop)
+                    return result;
+
+                // The document is still open; continue to the existing QuitDoc fallback.
+                AppendError(ref lastError, "CloseDoc exception left the document open; checking QuitDoc fallback.");
+                break;
             }
         }
 
@@ -491,8 +502,17 @@ public sealed class SolidWorksDocumentTracker
             catch (Exception ex)
             {
                 AppendError(ref lastError, DescribeCloseFailure("QuitDoc", candidate!, ex));
-                if (SolidWorksComFailure.IsUnavailable(ex))
+                if (!SolidWorksCloseExceptionPolicy.RequiresStateCheck(ex))
                     return SolidWorksDocumentCheckResult.Unavailable;
+
+                var result = CheckClosed(identity, out verification);
+                var action = SolidWorksCloseExceptionPolicy.Decide(result);
+                if (action == SolidWorksCloseExceptionAction.Closed)
+                    return SolidWorksDocumentCheckResult.Closed;
+                if (action == SolidWorksCloseExceptionAction.Stop)
+                    return result;
+
+                AppendError(ref lastError, "QuitDoc exception left the document open.");
             }
         }
 
