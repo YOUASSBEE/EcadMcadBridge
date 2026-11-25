@@ -38,7 +38,16 @@ public static class SolidWorksPlacementRequestBuilder
         }
 
         var snapshot = package.Snapshot;
-        var boardOrigin = GetBoardOrigin(snapshot);
+        if (!BoardOutlineBounds.TryCompute(snapshot.Outline, out var bounds, out var outlineError))
+        {
+            diagnostics.Add(Error(
+                "SW-PLC-021",
+                "board.outline",
+                "A valid Outer contour is required for board-origin placement: " + outlineError));
+            return Empty(diagnostics, designators, unsupported, Vector2Mm.Zero);
+        }
+
+        var boardOrigin = new Vector2Mm(bounds.MinX, bounds.MinY);
         var snapshotComponents = snapshot.Components
             .GroupBy(component => component.Id, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
@@ -64,6 +73,11 @@ public static class SolidWorksPlacementRequestBuilder
 
         var topSurface = thickness.Value / 2.0;
         var bottomSurface = -topSurface;
+        var expectedBodies = catalogComponents.Values.ToDictionary(
+            component => component.ComponentId,
+            component => component.Bodies.Select(body => body.BodyOrdinal).OrderBy(ordinal => ordinal).ToArray(),
+            StringComparer.Ordinal);
+        var failureDetails = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var component in catalogComponents.Values
                      .OrderBy(item => item.ComponentId, StringComparer.Ordinal))
@@ -87,6 +101,7 @@ public static class SolidWorksPlacementRequestBuilder
                     body.Representation,
                     body.SourceOrigin);
 
+                var diagnosticStart = diagnostics.Count;
                 if (!TryBuildRequest(
                         snapshot,
                         instance,
@@ -101,6 +116,9 @@ public static class SolidWorksPlacementRequestBuilder
                         out var request))
                 {
                     unsupported++;
+                    failureDetails[ReferenceKey(reference)] = string.Join(
+                        "; ",
+                        diagnostics.Skip(diagnosticStart).Select(item => item.Message));
                     continue;
                 }
 
@@ -108,7 +126,17 @@ public static class SolidWorksPlacementRequestBuilder
             }
         }
 
-        var selected = Select(requests, snapshotComponents, designators, maxComponents, diagnostics);
+        var supportedKeys = requests.Select(request => ReferenceKey(request)).ToHashSet(StringComparer.Ordinal);
+        var selected = Select(
+            requests,
+            snapshotComponents,
+            catalogComponents,
+            expectedBodies,
+            supportedKeys,
+            failureDetails,
+            designators,
+            maxComponents,
+            diagnostics);
         var missing = designators is null
             ? Array.Empty<string>()
             : designators
@@ -139,47 +167,120 @@ public static class SolidWorksPlacementRequestBuilder
     private static SolidWorksPlacementRequest[] Select(
         IReadOnlyList<SolidWorksPlacementRequest> requests,
         IReadOnlyDictionary<string, ComponentInstance> components,
+        IReadOnlyDictionary<string, ComponentModelEntry> catalog,
+        IReadOnlyDictionary<string, int[]> expectedBodies,
+        IReadOnlySet<string> supportedKeys,
+        IReadOnlyDictionary<string, string> failureDetails,
         IReadOnlyCollection<string>? designators,
         int maxComponents,
         List<SolidWorksDiagnostic> diagnostics)
     {
+        var requestsByComponent = requests
+            .GroupBy(request => request.ComponentId, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(request => request.BodyOrdinal).ToArray(),
+                StringComparer.Ordinal);
+
         if (designators is { Count: > 0 })
         {
-            var requested = new HashSet<string>(designators, StringComparer.Ordinal);
-            var selected = requests
-                .Where(request => requested.Contains(request.Designator))
+            var selected = new List<SolidWorksPlacementRequest>();
+            foreach (var designator in designators
+                         .Distinct(StringComparer.Ordinal)
+                         .OrderBy(item => item, StringComparer.Ordinal))
+            {
+                var matches = components.Values
+                    .Where(component => string.Equals(component.Designator, designator, StringComparison.Ordinal))
+                    .OrderBy(component => component.Id, StringComparer.Ordinal)
+                    .ToArray();
+                if (matches.Length == 0)
+                    continue;
+
+                foreach (var component in matches)
+                {
+                    if (!catalog.TryGetValue(component.Id, out var catalogEntry))
+                    {
+                        diagnostics.Add(Error(
+                            "SW-PLC-022",
+                            designator,
+                            "Requested designator has no ComponentModelCatalog entry."));
+                        continue;
+                    }
+
+                    if (!expectedBodies.TryGetValue(component.Id, out var ordinals) || ordinals.Length == 0)
+                    {
+                        diagnostics.Add(Error(
+                            "SW-PLC-023",
+                            designator,
+                            "Requested designator has no body entries in the ComponentModelCatalog."));
+                        continue;
+                    }
+
+                    var missing = ordinals
+                        .Where(ordinal => !supportedKeys.Contains(ComponentBodyKey(component.Id, ordinal)))
+                        .ToArray();
+                    if (missing.Length > 0)
+                    {
+                        foreach (var ordinal in missing)
+                        {
+                            var key = ComponentBodyKey(component.Id, ordinal);
+                            var detail = failureDetails.TryGetValue(key, out var reason) && !string.IsNullOrWhiteSpace(reason)
+                                ? reason
+                                : "body is unsupported or cannot be mapped to a STEP asset.";
+                            diagnostics.Add(Error(
+                                "SW-PLC-024",
+                                designator + "/" + ordinal.ToString(CultureInfo.InvariantCulture),
+                                "Requested component body is not fully placeable (designator=" +
+                                designator + ", bodyOrdinal=" +
+                                ordinal.ToString(CultureInfo.InvariantCulture) + "): " + detail));
+                        }
+
+                        // Never partially place a requested multi-body component.
+                        continue;
+                    }
+
+                    if (!requestsByComponent.TryGetValue(component.Id, out var componentRequests))
+                    {
+                        diagnostics.Add(Error(
+                            "SW-PLC-024",
+                            designator,
+                            "Requested designator has no placement requests."));
+                        continue;
+                    }
+
+                    selected.AddRange(componentRequests.OrderBy(request => request.BodyOrdinal));
+                }
+            }
+
+            return selected
                 .OrderBy(request => request.Designator, StringComparer.Ordinal)
                 .ThenBy(request => request.ComponentId, StringComparer.Ordinal)
                 .ThenBy(request => request.BodyOrdinal)
                 .ToArray();
-
-            foreach (var designator in requested)
-            {
-                if (!components.Values.Any(component =>
-                        string.Equals(component.Designator, designator, StringComparison.Ordinal)))
-                    continue;
-
-                if (!selected.Any(request => string.Equals(request.Designator, designator, StringComparison.Ordinal)))
-                {
-                    diagnostics.Add(Error(
-                        "SW-PLC-018",
-                        designator,
-                        "Requested designator has no supported Top/Top Generic body reference."));
-                }
-            }
-
-            return selected;
         }
 
-        var groupLimit = maxComponents > 0 ? maxComponents : DefaultMaxComponents;
-        var groups = requests
-            .GroupBy(request => request.ComponentId, StringComparer.Ordinal)
-            .OrderBy(group => group.First().Designator, StringComparer.Ordinal)
-            .ThenBy(group => group.Key, StringComparer.Ordinal)
-            .Take(groupLimit);
+        var completeComponents = expectedBodies
+            .Where(pair => pair.Value.Length > 0)
+            .Where(pair => pair.Value.All(ordinal =>
+                supportedKeys.Contains(ComponentBodyKey(pair.Key, ordinal))))
+            .Select(pair => new
+            {
+                ComponentId = pair.Key,
+                Designator = components.TryGetValue(pair.Key, out var component)
+                    ? component.Designator
+                    : string.Empty,
+            })
+            .Where(item => requestsByComponent.ContainsKey(item.ComponentId))
+            .OrderBy(item => item.Designator, StringComparer.Ordinal)
+            .ThenBy(item => item.ComponentId, StringComparer.Ordinal)
+            .Take(maxComponents > 0 ? maxComponents : DefaultMaxComponents)
+            .ToArray();
 
-        return groups
-            .SelectMany(group => group.OrderBy(request => request.BodyOrdinal))
+        return completeComponents
+            .SelectMany(item => requestsByComponent[item.ComponentId])
+            .OrderBy(request => request.Designator, StringComparer.Ordinal)
+            .ThenBy(request => request.ComponentId, StringComparer.Ordinal)
+            .ThenBy(request => request.BodyOrdinal)
             .ToArray();
     }
 
@@ -356,37 +457,14 @@ public static class SolidWorksPlacementRequestBuilder
         return true;
     }
 
-    private static Vector2Mm GetBoardOrigin(BoardSnapshot snapshot)
-    {
-        var xs = new List<double>();
-        var ys = new List<double>();
-        foreach (var contour in snapshot.Outline?.Contours ?? Array.Empty<Contour>())
-        {
-            foreach (var segment in contour.Segments ?? Array.Empty<ContourSegment>())
-            {
-                Add(segment.Start);
-                Add(segment.End);
-                if (segment is ArcSegment arc)
-                    Add(arc.Center);
-            }
-        }
-
-        return xs.Count == 0
-            ? Vector2Mm.Zero
-            : new Vector2Mm(xs.Min(), ys.Min());
-
-        void Add(Point2D point)
-        {
-            if (point.XMm is { } x && point.YMm is { } y && double.IsFinite(x) && double.IsFinite(y))
-            {
-                xs.Add(x);
-                ys.Add(y);
-            }
-        }
-    }
-
     private static string ReferenceKey(SolidWorksBodyReference reference) =>
-        reference.ComponentId + "\u001f" + reference.BodyOrdinal.ToString(CultureInfo.InvariantCulture);
+        ComponentBodyKey(reference.ComponentId, reference.BodyOrdinal);
+
+    private static string ReferenceKey(SolidWorksPlacementRequest request) =>
+        ComponentBodyKey(request.ComponentId, request.BodyOrdinal);
+
+    private static string ComponentBodyKey(string componentId, int bodyOrdinal) =>
+        componentId + "\u001f" + bodyOrdinal.ToString(CultureInfo.InvariantCulture);
 
     private static SolidWorksPlacementPlan Empty(
         List<SolidWorksDiagnostic> diagnostics,

@@ -100,8 +100,16 @@ tests/
 - Запросы размещения строятся только из Exchange Package и Core
   `PlacementTransformBuilder`; production-код не содержит fixture designators,
   координат и footprint offsets.
-- `ComponentPositionBoardMm` переводится в board-local frame по минимуму контура
-  платы. Model-origin offset передаётся как локальный
+- `ComponentPositionBoardMm` переводится в board-local frame по аналитическому
+  bounding box только `ContourRole.Outer`: линии — Start/End; дуги — Start/End и
+  кардинальные точки внутри фактического CW/CCW sweep. Центр окружности не является
+  границей; inner/cutout contours не учитываются. Нет Outer contour или дуга
+  некорректна — plan invalid, не `(0,0)`.
+- Явный `--designators` требует **все** body entries компонента: отсутствие
+  snapshot/catalog/import/STEP или unsupported body делает plan invalid и smoke
+  `success=false`; частичное размещение компонента запрещено. Автоматический
+  выбор включает только полностью поддержанные component instances.
+- Model-origin offset передаётся как локальный
   `Rz(-ComponentRotationDeg) * deltaBoard`, не как board offset.
 - `BoardSurfaceFrame` берётся только из `BoardSnapshot.Properties.Thickness`
   (`±T/2`); нельзя подставлять 1.6 мм, толщину STEP board solid или любое

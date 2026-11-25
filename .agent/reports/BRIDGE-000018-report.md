@@ -5,7 +5,7 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T02:00:00+03:00
-updated: 2026-11-26T02:00:00+03:00
+updated: 2026-11-26T03:00:00+03:00
 base: source
 branch: agent/BRIDGE-000018-first-placed-pcb-assembly
 commit: d3064c2
@@ -193,8 +193,8 @@ Capability matrix:
   solid (R0–R4, 0.02 мм) не используется и не «исправляется» в этом prototype.
 - Если контур платы пуст, board origin принимается `(0,0)`; это ограничение
   контракта snapshot, а не догадка о толщине.
-- Multi-body components поддерживаются запросом на каждый body, но runtime smoke
-  на multi-body не выполнялся (в выбранных 20 — по одному body).
+- Multi-body components поддерживаются запросом на каждый body; FIX-001
+  подтвердил runtime на M501 с двумя разными Generic Embedded body (2/2 occurrences).
 - Полноценный SOLIDWORKS Add-in, Registry, installer и UI не реализованы.
 
 ## 7. Runtime smoke
@@ -299,8 +299,8 @@ mid-plane board frame. XY matches R3 within `1e-5 mm`; readback residuals are 0.
 - `dotnet test -c Release --no-build`:
   - Core `188/188`
   - Altium `151/151`
-  - SolidWorks `48/48`
-  - total `387/387`.
+  - SolidWorks `64/64`
+  - total `403/403` (after FIX-001).
 - `git diff --check` — OK.
 - New coverage includes catalog 1.0.0/1.1.0 compatibility, legacy missing
   fields, invalid enums/LengthValue, Altium projection/heights/state source,
@@ -322,14 +322,133 @@ MiniPC assembly and no Bottom/Native/External runtime.
 
 ## 12. Остаточные риски и следующий этап
 
-- Board-local origin uses outline minimum; snapshots without outline fall back
-  to `(0,0)`. This must be made an explicit contract or diagnostic later.
+- Board-local origin uses the analytic Outer-contour minimum. Missing or invalid
+  Outer contour now makes the placement plan invalid; there is no `(0,0)`
+  fallback (FIX-001).
 - Board thickness source remains Altium `BoardProperties`; STEP board solid
   mismatch (0.02 mm) is unresolved and board solid is not in the assembly.
 - Only Top/Top Generic Embedded is proven; Bottom calibration, projection
-  mismatch, Native/External and multi-body runtime remain next-stage work.
+  mismatch and Native/External remain next-stage work. Multi-body runtime is
+  confirmed by FIX-001 (one controlled component, two bodies).
 - The assembly contains occurrences only, not board copper/pads/outline solids.
 - Large package performance (300 MB snapshot, 1055 STEP assets) needs streaming
   or subset package strategy before full-board assembly.
 - Full MiniPC assembly, user UI, Add-in registration and installer remain out of
   scope.
+
+## 13. FIX-001 — BoardOrigin bounds and placement completeness
+
+### 13.1. Причины дефектов
+
+- **FIX-A:** `GetBoardOrigin()` учитывал все контуры (включая cutout) и
+  `ArcSegment.Center` как граничную точку. Центр окружности не обязан лежать на
+  дуге; для короткой дуги он занижал bounds, а для cutout мог сдвинуть origin.
+  При отсутствии/повреждении Outer contour код возвращал `(0,0)`.
+- **FIX-B:** explicit selection проверял только уже построенные requests. Если у
+  компонента два body и только один поддержан, второй молча пропускался, а
+  `SW-PLC-018` не переводил план в invalid. Проверки catalog/import/STEP для
+  каждого body отсутствовали.
+
+### 13.2. FIX-A — аналитический Outer bounds
+
+Добавлен независимый `BoardOutlineBounds`:
+
+- используются только контуры `ContourRole.Outer`;
+- `LineSegment` — Start/End;
+- `ArcSegment` — Start/End и кардинальные точки 0/90/180/270, только если они
+  попадают в фактический CW/CCW sweep;
+- `Center` никогда не добавляется как граница;
+- внутренние/cutout contours игнорируются;
+- отсутствие Outer contour, некорректный radius/center/sweep/start/end или
+  несовпадение точки с радиусом — ошибка `SW-PLC-021`;
+- fallback `(0,0)` удалён.
+
+Новые тесты (`BoardOutlineBoundsTests`): line rectangle, CCW/CW arcs с центром
+за фактической границей, короткая дуга, cardinal внутри/вне sweep, outer+cutout,
+missing Outer, invalid radius/start. Проверяются точные min/max.
+
+### 13.3. FIX-B — полнота Designators
+
+План теперь хранит полный набор ожидаемых body entries из catalog и проверяет
+snapshot/catalog/import reference/STEP asset для каждого body.
+
+Для явного `--designators`:
+
+- отсутствие Designator в snapshot — `SW-PLC-017`;
+- отсутствие ComponentModelCatalog entry — `SW-PLC-022`;
+- отсутствие body entries — `SW-PLC-023`;
+- unsupported/missing body/asset/import — `SW-PLC-024` с `Designator/BodyOrdinal`;
+- при неполном multi-body компоненте не добавляется ни один его request;
+- `IsValid=false` и smoke `success=false`.
+
+Для автоматического `--max-components`:
+
+- выбираются только компоненты, у которых **все** body entries поддержаны;
+- частично поддержанный multi-body компонент исключается целиком;
+- лимит считается по component instances, а не по body requests.
+
+Новые тесты: partial multi-body explicit, один unsupported из двух, два
+supported body → 2 requests, body без STEP, body без import reference,
+автоматическое исключение частичного multi-body. Сравнивается полный набор
+`ComponentId + BodyOrdinal`.
+
+### 13.4. Runtime smoke после FIX-001
+
+| Smoke | Package | Результат | JSON SHA-256 | Assembly SHA-256 |
+|---|---|---|---|---|
+| MiniPC 20 | `e3c7ca93-be53-402c-a109-141f04a32bf0` | 20/20 reopened, verified, cleanup Verified | `7FD92BF39B2FE37E3A0FB652AC8D51DF6FA1B4571A66DC74E1BAFEF4142CA498` | `C9301050A78783C0D68D1414DA2B49BC126AFA1270102E6309805F6A215D81BE` |
+| R3 U101–U104 | `39c0d4a0-935d-491d-bd38-61c6b4152e6c` | 4/4 reopened, verified, cleanup Verified | `FA7E3A29F0DA049AB96858B5FE7C692970CDBF061847D7F905306E98AED4EA6F` | `1B49264C83FAFD752C7675EF77A0C66011CBA2DDB92CB1E55E23E8CB7F2C854F` |
+| Multi-body M501 | `3f68dfe4-2dcd-4bdc-90b3-30dae9e84e88` | 2/2 reopened, verified, cleanup Verified | `C6BE490309D8D06FB29A8D12D46252490C1F77B964B8BA4C136A579AE4D20335` | `7222213F0AF4FA3491DA1BEEF483F847093052E897CAB3F22F23A2D03D83D70D` |
+
+Общий board origin после аналитического Outer bounds:
+`(212.59999898, 167.19999834) mm`; R3 XY transforms не изменились в пределах
+`1e-5 mm`. MiniPC 20/20 и R3 4/4 transforms verified, residual 0.
+
+Multi-body fixture:
+
+- scratch board `multi-body.PcbDoc` SHA-256
+  `22BF91C0DC232D56F91E3E8004538DE36336BBE47CF069B56DE50CBAA485A3F6`;
+- scratch PcbLib `multi-body.PcbLib` SHA-256
+  `BE74368D90236DF7C1B00E0B3A33E7A0C781C97F7569F8E9F66DDD881356429C`,
+  footprint `BRIDGE_ROT_3D`, two primitives/two bodies;
+- M501 has two Generic Embedded Top bodies, different data sizes/STEP assets
+  (`0be67952…`, `e5f44d66…`), both `PlacedBodyEffective`;
+- package 168 files / 401 365 134 bytes; checksums SHA
+  `9B5F4C70C8E2ABFEC55C353BC1E257145F1EEF8DCBBCDE156C058B94A6FC6DAA`,
+  manifest SHA `95736D98191C4F7D395003CF5EA083FF193412FC6EF9633ECA4319BE60603CB5`,
+  models SHA `1F6394B43DBA4EED41D223467BB04B04818DBC4680C8568B6E5A7208E22D57E4`;
+- 2 unique STEP assets → 2 native SLDPRT → 2 occurrences; save/reopen 2/2,
+  translation/rotation residuals 0, determinant 1; baseline preserved, cleanup
+  Verified.
+
+Временный Altium SDK handler для scratch component удалён; установленный
+`EcadMcadBridge.dll` восстановлен (`E376B34E…717E`), `.ins`/Registry не менялись.
+
+### 13.5. Изменённые файлы FIX-001
+
+- `src/EcadMcadBridge.SolidWorks/Placement/BoardOutlineBounds.cs`
+- `src/EcadMcadBridge.SolidWorks/Placement/SolidWorksPlacementRequestBuilder.cs`
+- `tests/EcadMcadBridge.SolidWorks.Tests/BoardOutlineBoundsTests.cs`
+- `tests/EcadMcadBridge.SolidWorks.Tests/SolidWorksPlacementTests.cs`
+- `.agent/reports/BRIDGE-000018-report.md`
+- `.agent/ARCHITECTURE.md`, `.agent/DEVELOPMENT_RULES.md`
+
+### 13.6. Проверки
+
+- `dotnet build -c Release` — 0 warnings / 0 errors.
+- `dotnet test -c Release` — Core `188/188`, Altium `151/151`,
+  SolidWorks `64/64`, всего `403/403`.
+- `git diff --check` — OK.
+- Runtime: Altium 26.12.2.9, SOLIDWORKS 2026 SP3.2 (34.3.2.3).
+
+### 13.7. Остаточные ограничения
+
+- FIX-A bounds проверены unit-тестами (включая CW/CCW arc cases); реальные
+  MiniPC/R3 outlines line-only, поэтому их результаты не изменились.
+- Multi-body runtime uses a controlled scratch PcbLib with two different embedded
+  STEP models; it is not a user board.
+- Bottom/Native/External, board solid and full MiniPC assembly remain out of
+  scope.
+- `SW-PLC-024` is a deliberate fatal diagnostic for incomplete explicit
+  selection; automatic inventory may still contain unsupported bodies as
+  warnings.

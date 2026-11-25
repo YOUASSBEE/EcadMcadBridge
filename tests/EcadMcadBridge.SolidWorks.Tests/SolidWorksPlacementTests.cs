@@ -121,7 +121,7 @@ public sealed class SolidWorksPlacementTests
 
         Assert.False(plan.IsValid);
         Assert.Contains(plan.Diagnostics, item => item.Code == "SW-PLC-014");
-        Assert.Contains(plan.Diagnostics, item => item.Code == "SW-PLC-018");
+        Assert.Contains(plan.Diagnostics, item => item.Code == "SW-PLC-024");
         Assert.Equal(0, plan.SupportedBodyReferences);
     }
 
@@ -261,10 +261,199 @@ public sealed class SolidWorksPlacementTests
         Assert.Equal(1.0, residual.Determinant, precision: 12);
     }
 
+    [Fact]
+    public void ExplicitSelectionRejectsPartiallySupportedMultiBodyComponent()
+    {
+        using var temp = new PlanTestFixture.TempDirectory();
+        var snapshot = CreateSnapshot(
+            LengthValue.FromIu(AltiumUnits.MmToIu(ThicknessMm)),
+            new[] { Component("component-1", "U101", 240, 220, 0) });
+        var package = WritePackage(temp, snapshot, component => new[]
+        {
+            Body(ModelOriginFor(component), 0, ComponentModelStateSource.PlacedBodyEffective, bodyOrdinal: 0),
+            Body(
+                ModelOriginFor(component),
+                0,
+                ComponentModelStateSource.PlacedBodyEffective,
+                projection: ComponentBodyProjection.Bottom,
+                bodyOrdinal: 1),
+        });
+
+        var plan = SolidWorksPlacementRequestBuilder.Build(
+            package.Read,
+            ImportPlan(package, temp),
+            designators: new[] { "U101" });
+
+        Assert.False(plan.IsValid);
+        Assert.Empty(plan.Requests);
+        Assert.Contains(plan.Diagnostics, item =>
+            item.Code == "SW-PLC-024" &&
+            item.Path.Contains("U101/1", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ExplicitSelectionRejectsOneUnsupportedDesignator()
+    {
+        using var temp = new PlanTestFixture.TempDirectory();
+        var snapshot = CreateSnapshot(
+            LengthValue.FromIu(AltiumUnits.MmToIu(ThicknessMm)),
+            new[]
+            {
+                Component("component-1", "U101", 240, 220, 0),
+                Component("component-2", "U102", 280, 220, 0),
+            });
+        var package = WritePackage(temp, snapshot, component =>
+            Body(
+                ModelOriginFor(component),
+                0,
+                ComponentModelStateSource.PlacedBodyEffective,
+                projection: component.Designator == "U101"
+                    ? ComponentBodyProjection.Top
+                    : ComponentBodyProjection.Bottom));
+
+        var plan = SolidWorksPlacementRequestBuilder.Build(
+            package.Read,
+            ImportPlan(package, temp),
+            designators: new[] { "U101", "U102" });
+
+        Assert.False(plan.IsValid);
+        Assert.Single(plan.Requests);
+        Assert.Equal("U101", plan.Requests[0].Designator);
+        Assert.Contains(plan.Diagnostics, item =>
+            item.Code == "SW-PLC-024" &&
+            item.Path.Contains("U102/0", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ExplicitSelectionPlacesAllBodiesOfMultiBodyComponent()
+    {
+        using var temp = new PlanTestFixture.TempDirectory();
+        var snapshot = CreateSnapshot(
+            LengthValue.FromIu(AltiumUnits.MmToIu(ThicknessMm)),
+            new[] { Component("component-1", "U101", 240, 220, 0) });
+        var package = WritePackage(temp, snapshot, component => new[]
+        {
+            Body(ModelOriginFor(component), 0, ComponentModelStateSource.PlacedBodyEffective, bodyOrdinal: 0),
+            Body(ModelOriginFor(component), 0, ComponentModelStateSource.PlacedBodyEffective, bodyOrdinal: 1),
+        });
+
+        var plan = SolidWorksPlacementRequestBuilder.Build(
+            package.Read,
+            ImportPlan(package, temp),
+            designators: new[] { "U101" });
+
+        Assert.True(plan.IsValid, Describe(plan.Diagnostics));
+        Assert.Equal(2, plan.Requests.Count);
+        Assert.Equal(
+            new[] { "component-1|0", "component-1|1" },
+            plan.Requests
+                .Select(request => request.ComponentId + "|" + request.BodyOrdinal)
+                .OrderBy(item => item, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void ExplicitSelectionRejectsBodyWithoutStepAsset()
+    {
+        using var temp = new PlanTestFixture.TempDirectory();
+        var snapshot = CreateSnapshot(
+            LengthValue.FromIu(AltiumUnits.MmToIu(ThicknessMm)),
+            new[] { Component("component-1", "U101", 240, 220, 0) });
+        var package = WritePackage(temp, snapshot, component =>
+            Body(
+                ModelOriginFor(component),
+                0,
+                ComponentModelStateSource.PlacedBodyEffective,
+                assetKey: null,
+                acquisition: ComponentModelAssetAcquisition.NotAcquired));
+
+        var plan = SolidWorksPlacementRequestBuilder.Build(
+            package.Read,
+            ImportPlan(package, temp),
+            designators: new[] { "U101" });
+
+        Assert.False(plan.IsValid);
+        Assert.Empty(plan.Requests);
+        Assert.Contains(plan.Diagnostics, item =>
+            item.Code == "SW-PLC-024" &&
+            item.Path.Contains("U101/0", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ExplicitSelectionRejectsBodyWithoutImportReference()
+    {
+        using var temp = new PlanTestFixture.TempDirectory();
+        var snapshot = CreateSnapshot(
+            LengthValue.FromIu(AltiumUnits.MmToIu(ThicknessMm)),
+            new[] { Component("component-1", "U101", 240, 220, 0) });
+        var package = WritePackage(temp, snapshot, component =>
+            Body(ModelOriginFor(component), 0, ComponentModelStateSource.PlacedBodyEffective));
+        var full = ImportPlan(package, temp);
+        var withoutReferences = new SolidWorksImportPlan(
+            full.Assets,
+            Array.Empty<SolidWorksBodyReference>(),
+            full.Diagnostics);
+
+        var plan = SolidWorksPlacementRequestBuilder.Build(
+            package.Read,
+            withoutReferences,
+            designators: new[] { "U101" });
+
+        Assert.False(plan.IsValid);
+        Assert.Empty(plan.Requests);
+        Assert.Contains(plan.Diagnostics, item =>
+            item.Code == "SW-PLC-024" &&
+            item.Path.Contains("U101/0", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AutomaticSelectionExcludesPartiallySupportedMultiBodyComponent()
+    {
+        using var temp = new PlanTestFixture.TempDirectory();
+        var snapshot = CreateSnapshot(
+            LengthValue.FromIu(AltiumUnits.MmToIu(ThicknessMm)),
+            new[]
+            {
+                Component("component-1", "U101", 240, 220, 0),
+                Component("component-2", "U102", 280, 220, 0),
+            });
+        var package = WritePackage(temp, snapshot, component =>
+            component.Designator == "U101"
+                ? new[]
+                {
+                    Body(ModelOriginFor(component), 0, ComponentModelStateSource.PlacedBodyEffective, bodyOrdinal: 0),
+                    Body(
+                        ModelOriginFor(component),
+                        0,
+                        ComponentModelStateSource.PlacedBodyEffective,
+                        projection: ComponentBodyProjection.Bottom,
+                        bodyOrdinal: 1),
+                }
+                : new[]
+                {
+                    Body(ModelOriginFor(component), 0, ComponentModelStateSource.PlacedBodyEffective),
+                });
+
+        var plan = SolidWorksPlacementRequestBuilder.Build(
+            package.Read,
+            ImportPlan(package, temp),
+            maxComponents: 10);
+
+        Assert.True(plan.IsValid, Describe(plan.Diagnostics));
+        Assert.Single(plan.Requests);
+        Assert.Equal("U102", plan.Requests[0].Designator);
+        Assert.DoesNotContain(plan.Requests, request => request.Designator == "U101");
+    }
+
     private static TestPackage WritePackage(
         PlanTestFixture.TempDirectory temp,
         BoardSnapshot snapshot,
-        Func<ComponentInstance, ComponentBodyWriteEntry> bodyFactory)
+        Func<ComponentInstance, ComponentBodyWriteEntry> bodyFactory) =>
+        WritePackage(temp, snapshot, component => new[] { bodyFactory(component) });
+
+    private static TestPackage WritePackage(
+        PlanTestFixture.TempDirectory temp,
+        BoardSnapshot snapshot,
+        Func<ComponentInstance, IReadOnlyList<ComponentBodyWriteEntry>> bodyFactory)
     {
         var stepPath = Path.Combine(temp.Path, "placement.step");
         File.WriteAllText(stepPath, "ISO-10303-21;\nHEADER;\nENDSEC;\nEND-ISO-10303-21;\n", new UTF8Encoding(false));
@@ -273,20 +462,24 @@ public sealed class SolidWorksPlacementTests
             {
                 ComponentId = component.Id,
                 Designator = component.Designator,
-                Bodies = new[] { bodyFactory(component) },
+                Bodies = bodyFactory(component),
             })
             .ToArray();
         var request = new ComponentModelsWriteRequest
         {
-            Assets = new[]
-            {
-                new ComponentModelAssetSource
+            Assets = components
+                .SelectMany(component => component.Bodies)
+                .Any(body => string.Equals(body.AssetKey, "shared", StringComparison.Ordinal))
+                ? new[]
                 {
-                    AssetKey = "shared",
-                    SourcePath = stepPath,
-                    Format = ComponentModelAssetFormat.StepAp214,
-                },
-            },
+                    new ComponentModelAssetSource
+                    {
+                        AssetKey = "shared",
+                        SourcePath = stepPath,
+                        Format = ComponentModelAssetFormat.StepAp214,
+                    },
+                }
+                : Array.Empty<ComponentModelAssetSource>(),
             Components = components,
         };
         var written = ExchangePackageWriter.Write(
@@ -319,14 +512,17 @@ public sealed class SolidWorksPlacementTests
         ComponentModelRepresentation representation = ComponentModelRepresentation.Generic,
         double? modelRotationDegRaw = 0,
         LengthValue? standoffHeight = null,
-        ModelState? state = null) =>
+        ModelState? state = null,
+        int bodyOrdinal = 0,
+        string? assetKey = "shared",
+        ComponentModelAssetAcquisition acquisition = ComponentModelAssetAcquisition.SdkExport) =>
         new()
         {
-            BodyOrdinal = 0,
+            BodyOrdinal = bodyOrdinal,
             Representation = representation,
             SourceOrigin = ComponentModelSourceOrigin.Embedded,
-            AssetAcquisition = ComponentModelAssetAcquisition.SdkExport,
-            AssetKey = "shared",
+            AssetAcquisition = acquisition,
+            AssetKey = assetKey,
             Origin = origin,
             State = state ?? new ModelState
             {

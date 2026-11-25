@@ -702,7 +702,11 @@ Writer всегда пишет 1.1.0. Validator проверяет enum, finite 
 Placement request:
 
 - `ComponentPositionBoardMm` — позиция из snapshot, переведённая в board-local
-  frame по минимуму контура платы;
+  frame по аналитическому bounding box только `ContourRole.Outer`: линии —
+  Start/End; дуги — Start/End и кардинальные точки внутри фактического CW/CCW
+  sweep (центр окружности границей не является); cutout/inner contours не
+  учитываются. Отсутствие Outer contour или некорректная дуга делает plan
+  invalid, без fallback `(0,0)` (FIX-001);
 - `deltaBoard = ModelOrigin - ComponentPosition`;
 - `deltaLocal = Rz(-ComponentRotationDeg) * deltaBoard`; в
   `FootprintOriginCalibration.TopModelOriginOffsetLocalMm` передаётся именно
@@ -748,9 +752,13 @@ dotnet run --project tools/EcadMcadBridge.SolidWorks.Smoke -c Release -- \
   [--designators C1,C2,...] [--max-components 20]
 ```
 
-`--designators` требует все запрошенные designators; отсутствующие не заменяются.
-Без списка выбираются первые `max-components` поддержанных component instances в
-детерминированном порядке. JSON содержит package ID, версии, выбранные designators,
+`--designators` требует все запрошенные designators: компонент должен существовать
+в snapshot и catalog, а **все** его body entries должны иметь поддержанные placement
+requests и STEP/import mapping; иначе plan invalid, диагностика содержит
+Designator/BodyOrdinal, smoke `success=false`, частичное размещение запрещено.
+Без списка выбираются только полностью поддержанные component instances в
+детерминированном порядке; `max-components` считает компоненты, не body entries.
+JSON содержит package ID, версии, выбранные designators,
 asset/native/SLDPRT mapping, requested/readback matrices, residuals, lifecycle и
 cleanup status.
 
