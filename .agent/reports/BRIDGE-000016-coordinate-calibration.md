@@ -8,7 +8,7 @@ created: 2026-11-25T20:30:00+03:00
 updated: 2026-11-25T22:13:45+03:00
 base: source
 branch: task/BRIDGE-000016-coordinate-contract
-commit: ea7a603
+commit: 0b4bc31
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 related:
   - BRIDGE-000009
@@ -666,7 +666,7 @@ SOLIDWORKS backend (после отдельного решения):
 
 ## 20. Commit и PR
 
-- Commit: `ea7a603` (`docs(bridge-000016): complete R3 library fixture evidence`).
+- Commit: `0b4bc31` (`docs(bridge-000016): finalize R3 fixture hash`).
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 - Base: `source`
 - Merge: запрещён.
