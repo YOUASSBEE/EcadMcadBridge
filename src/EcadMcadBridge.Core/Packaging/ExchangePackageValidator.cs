@@ -79,6 +79,7 @@ public static class ExchangePackageValidator
         }
 
         var paths = new HashSet<string>(StringComparer.Ordinal);
+        var pathsIgnoreCase = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < manifest.Files.Count; i++)
         {
             var file = manifest.Files[i];
@@ -97,6 +98,11 @@ public static class ExchangePackageValidator
             {
                 if (!paths.Add(file.Path))
                     Error(PackageDiagnosticCodes.DuplicatePath, pathPrefix + ".path", $"Duplicate path '{file.Path}'.", diagnostics);
+                else if (pathsIgnoreCase.TryGetValue(file.Path, out var existing)
+                         && !string.Equals(existing, file.Path, StringComparison.Ordinal))
+                    Error(PackageDiagnosticCodes.DuplicatePath, pathPrefix + ".path", $"Path '{file.Path}' conflicts with '{existing}' by case.", diagnostics);
+                else
+                    pathsIgnoreCase[file.Path] = file.Path;
 
                 if (string.Equals(file.Path, PackageManifest.ManifestFileName, StringComparison.Ordinal)
                     || string.Equals(file.Path, PackageManifest.ChecksumsFileName, StringComparison.Ordinal))

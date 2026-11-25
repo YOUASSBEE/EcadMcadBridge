@@ -15,6 +15,12 @@ public sealed class PackageManifest
 
     public const string ChecksumsFileName = "checksums.sha256";
 
+    public const string ComponentModelsFileName = ComponentModelCatalog.FileRelativePath;
+
+    public const string ComponentModelsCapability = ComponentModelCatalog.Capability;
+
+    public const string ComponentAssetsDirectory = ComponentModelCatalog.AssetDirectory;
+
     public string Schema { get; init; } = SchemaName;
 
     public string SchemaVersion { get; init; } = SchemaVersionValue;
@@ -117,11 +123,13 @@ public sealed class PackageReadResult
         bool isSuccess,
         PackageManifest? manifest,
         BoardSnapshot? snapshot,
+        ComponentModelCatalog? models,
         IReadOnlyList<PackageDiagnostic> diagnostics)
     {
         IsSuccess = isSuccess;
         Manifest = manifest;
         Snapshot = snapshot;
+        Models = models;
         Diagnostics = diagnostics;
         Errors = diagnostics.Where(item => item.Severity == PackageDiagnosticSeverity.Error).ToArray();
         Warnings = diagnostics.Where(item => item.Severity == PackageDiagnosticSeverity.Warning).ToArray();
@@ -133,6 +141,9 @@ public sealed class PackageReadResult
 
     public BoardSnapshot? Snapshot { get; }
 
+    /// <summary>Typed component model catalog; null for packages without 3D models.</summary>
+    public ComponentModelCatalog? Models { get; }
+
     public IReadOnlyList<PackageDiagnostic> Diagnostics { get; }
 
     public IReadOnlyList<PackageDiagnostic> Errors { get; }
@@ -142,12 +153,13 @@ public sealed class PackageReadResult
     internal static PackageReadResult Success(
         PackageManifest manifest,
         BoardSnapshot snapshot,
+        ComponentModelCatalog? models,
         IReadOnlyList<PackageDiagnostic> diagnostics) =>
-        new(true, manifest, snapshot, diagnostics);
+        new(true, manifest, snapshot, models, diagnostics);
 
     internal static PackageReadResult Failure(
         PackageManifest? manifest,
         BoardSnapshot? snapshot,
         IReadOnlyList<PackageDiagnostic> diagnostics) =>
-        new(false, manifest, snapshot, diagnostics);
+        new(false, manifest, snapshot, null, diagnostics);
 }

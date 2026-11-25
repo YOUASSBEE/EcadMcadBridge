@@ -12,8 +12,17 @@ internal static class PackageChecksums
     public static string ComputeSha256(byte[] bytes) =>
         Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
-    public static string ComputeFileSha256(string path) =>
-        ComputeSha256(File.ReadAllBytes(path));
+    public static string ComputeFileSha256(string path)
+    {
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 81920,
+            FileOptions.SequentialScan);
+        return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+    }
 
     public static byte[] Serialize(IReadOnlyList<PackageChecksumEntry> entries)
     {

@@ -22,7 +22,7 @@ public sealed record PackageSourceResult(
 
 public static class PackageFileHasher
 {
-    /// <summary>Reads a file once and verifies that size and mtime did not change.</summary>
+    /// <summary>Reads a file in a stream and verifies that size and mtime did not change.</summary>
     public static PackageFileHashResult ComputeStableSha256(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -36,13 +36,34 @@ public static class PackageFileHasher
 
             var sizeBefore = before.Length;
             var writeBefore = before.LastWriteTimeUtc;
-            var bytes = File.ReadAllBytes(path);
+            string sha;
+            long size;
+            using (var stream = new FileStream(
+                       path,
+                       FileMode.Open,
+                       FileAccess.Read,
+                       FileShare.ReadWrite | FileShare.Delete,
+                       bufferSize: 81920,
+                       FileOptions.SequentialScan))
+            using (var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+            {
+                var buffer = new byte[81920];
+                size = 0;
+                int read;
+                while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    hash.AppendData(buffer, 0, read);
+                    size += read;
+                }
+
+                sha = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            }
+
             var after = new FileInfo(path);
             if (!after.Exists || after.Length != sizeBefore || after.LastWriteTimeUtc != writeBefore)
                 return Failure("File changed while it was being read.");
 
-            var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-            return new PackageFileHashResult(true, sha, bytes.LongLength, writeBefore, "File hash is stable.");
+            return new PackageFileHashResult(true, sha, size, writeBefore, "File hash is stable.");
         }
         catch (Exception ex)
         {

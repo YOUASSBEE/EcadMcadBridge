@@ -440,6 +440,11 @@ Core рассматривает ID как непрозрачную непуст�
 <package-id>/
 ├── manifest.json
 ├── board.snapshot.json
+├── models/
+│   └── models.json        # опционально
+├── assets/
+│   └── 3d/
+│       └── <sha256>.step  # опционально; также .x_t
 ├── checksums.sha256
 └── attachments/          # опционально, только по согласованию
 ```
@@ -519,6 +524,48 @@ Core рассматривает ID как непрозрачную непуст�
 - Writer создаёт пакет атомарно и не перезаписывает существующий каталог;
   пользователю показываются путь, package id, counts и warnings, но в лог не
   попадают absolute user paths.
+
+### 6.3 Core 3D component model catalog (BRIDGE-000013)
+
+- `models/models.json` — отдельная версионируемая схема
+  `ecad-mcad-bridge/component-models` 1.0.0. Версия схемы manifest остаётся 1.0.0:
+  каталог необязательный.
+- Capability `component-3d-models` и `models/models.json` обязательны вместе.
+  Каталог без capability, capability без каталога или расхождение manifest —
+  ошибка целостности `EMB-PKG-026`.
+- Каталог содержит запись для каждого `ComponentInstance.Id` из
+  `board.snapshot.json`; `designator` сверяется. Компонент без тел имеет пустой
+  `bodies`. `bodyOrdinal` уникален внутри компонента; тела не объединяются.
+- `representation`: `generic`, `native`, `unknown`; `sourceOrigin`: `embedded`,
+  `native`, `linked`, `unknown`. `GetEmbed=false` сам по себе не доказывает
+  `linked`. Неизвестное значение не подменяется догадкой.
+- `assetAcquisition`: `sdk-export`, `source-copy-verified`, `not-acquired`,
+  `unknown`. `source-copy-verified` допустим только при доказанной побайтовой
+  идентичности; совпадение размера доказательством не является.
+- `assetFormat`: `step-ap214`, `parasolid-x_t`; `assetPath` обязателен только
+  вместе с форматом и файлом. Путь — `assets/3d/<lowercase-sha256>.<ext>`,
+  относительный, только внутри `assets/3d/`; абсолютные пути и `..` запрещены.
+- `sdkOrigin` и `sdkState` хранят сырые значения API. Каждая линейная величина —
+  пара IU/мм или оба `null`; углы не нормализуются (360° сохраняется); `dz`
+  хранится парой. `modelRotationDegRaw` — отдельное nullable-поле. Полная матрица
+  `T_B_S`, Z/Bottom и порядок Euler не выводятся.
+- Публичный `ExchangePackageWriter.Write(..., models)` принимает типизированный
+  request: компоненты/тела и набор исходных файлов, связанных по `assetKey`.
+  Существующий вызов без моделей сохранён. Абсолютные исходные пути не попадают
+  в каталог, manifest или диагностику.
+- Writer вычисляет SHA-256 и размер фактически записанных байтов, формирует
+  content-addressed пути, дедуплицирует одинаковые assets, копирует и хеширует
+  потоково, проверяет неизменность source size/mtime и только затем публикует
+  каталог через общий manifest/checksums.
+- Reader не загружает STEP/X_T в память и не интерпретирует геометрию. Он
+  проверяет JSON/UTF-8, схему и major version, обязательные поля, enum,
+  уникальность `componentId`/`bodyOrdinal`, связь с snapshot, парность IU/мм,
+  `NaN`/`Infinity`, имя/расширение/путь asset, наличие в manifest/checksums,
+  совпадение SHA-256 и размера, обратные ссылки и отсутствие потерянных или
+  неиспользуемых assets. `PackageChecksums.ComputeFileSha256` и
+  `PackageFileHasher.ComputeStableSha256` работают потоково.
+- Ошибки каталога и assets используют стабильные коды `EMB-PKG-022`…`EMB-PKG-026`.
+  Сообщения не содержат абсолютных путей пользователя.
 
 ## 7. Обработка ошибок и логирование
 
