@@ -338,3 +338,4 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | 2026-11-24 | BRIDGE-000009: C-90…C-93 tracks/vias/regions/texts; Q-010 частично открыт (region arc fallback) | local-agent |
 | 2026-11-25 | BRIDGE-000016-R0: C-104 body projection/heights, C-105 snap API (metadata only); S-016/S-017 SOLIDWORKS transform probe; V-14 transform part partially closed | local-agent |
 | 2026-11-25 | BRIDGE-000016-R2: C-106 full board STEP exporter; full board golden reference shows board-local offset and no component RotationDeg for fixture bodies | local-agent |
+| 2026-11-25 | BRIDGE-000016-R3: library-relative fixture creation blocked by UI-only workflow; no new API confirmed and no capability enabled | local-agent |

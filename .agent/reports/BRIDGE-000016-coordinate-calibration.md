@@ -5,7 +5,7 @@ status: blocked
 from: local-agent
 to: operator
 created: 2026-11-25T20:30:00+03:00
-updated: 2026-11-25T20:55:30+03:00
+updated: 2026-11-25T21:50:38+03:00
 base: source
 branch: task/BRIDGE-000016-coordinate-contract
 commit: bf603d6
@@ -18,7 +18,7 @@ related:
   - BRIDGE-000015
 ---
 
-# BRIDGE-000016-R0/R1 — Altium → SOLIDWORKS coordinate contract and calibration
+# BRIDGE-000016-R0/R1/R2/R3 — Altium → SOLIDWORKS coordinate calibration
 
 ## 1. Итог
 
@@ -58,7 +58,9 @@ R1 исправил математическую композицию:
 
 R2 получил полный board STEP и подтвердил board frame, `GetOrigin`, `R_state`, `dz`, Bottom `Rx(180°)` для rot0 и C366 feature-level placement. Однако Altium full board STEP **не содержит component RotationDeg** для test bodies: C62/C63/C59/C61/C524/C516/C573/C567/C571 имеют identity/state-only transforms. Поэтому component-rotation 3D placement остаётся **blocked**; R2 не закрывает full Top placement sign-off.
 
-R2 не реализует production placement, не меняет Core schema и не меняет PR #13/#14. Bottom с rotation и full feature-level sign-off остаются blockers.
+R3 attempted a library-relative fixture, but the allowed UI-only route did not produce a verified footprint/3D body; only a PcbLib shell was saved. R3 remains **blocked for fixture creation**, and no rotation capability is enabled.
+
+R2/R3 не реализуют production placement, не меняют Core schema и не меняют PR #13/#14. Bottom с rotation и full feature-level sign-off остаются blockers.
 
 ## 2. Окружение и версии
 
@@ -490,6 +492,27 @@ C524/C516 state translation and Z boundaries matched full board, but component r
 
 **R2 status: blocked for full Top placement sign-off.** The independent golden reference is valid for board frame, model origin, state rotation, dz, and Bottom rot0, but not for component RotationDeg; production placement cannot start until a valid rotation-bearing fixture/reference is produced.
 
+## 13.2. R3 library-relative fixture attempt
+
+R3 attempted to remove the R2 component-rotation blocker by creating a real PCB Library footprint with a library-relative Generic 3D body.
+
+Environment and attempted route:
+
+| Step | Result |
+|---|---|
+| Copy `test-matrix.PcbDoc` to `test-matrix-r3.PcbDoc` | Created outside Git |
+| `Design > Make PCB Library` on standalone PCB | No persisted `.PcbLib` appeared; command did not produce a usable library document |
+| `File > New > Library...` | Created an in-memory `PcbLib1.PcbLib`; initial library shell |
+| Save As through Windows dialog | Saved `BRIDGE-000016-R3.PcbLib` shell, 105 472 bytes, SHA-256 `A8DDA92D0D616461AA7803C55693194E1BEB4D584CFBFA501CFF52FDA09F4D51` |
+| `Place > 3D Body` with `control-generic.step` | Dialog accepted the file path, but no runtime proof that a body was attached to a footprint; library did not report a modified state and file size did not change after Save |
+| API ownership probe for `IPCB_ComponentBody` | Not run: the allowed fixture did not contain a verifiable library footprint/body |
+
+No R3 full board STEP, per-body library STEP, occurrence matrices, or feature residuals were produced. The R3 fixture is therefore **not a valid library-relative fixture**; it is only a shell library and must not be used as evidence.
+
+Cause is tooling/fixture construction, not a measured contradiction of the R1 formula. Creating a valid library fixture requires either an operator-authored `.PcbLib` with `BRIDGE_ROT_3D` footprint and embedded Generic body, or an explicitly approved temporary .NET SDK extension installed/loaded in Altium (registration/settings change requires operator approval under current constraints).
+
+R3 status: **blocked for fixture creation**; R2 component-rotation blocker remains open. No Top/Bottom rotation capability is enabled by R3.
+
 ## 14. Неподтверждённые параметры
 
 | Параметр | Статус | Причина |
@@ -604,6 +627,7 @@ SOLIDWORKS backend (после отдельного решения):
 - Component rotation sign: pad landmark check passed.
 - Board origin: outline/component absolute-frame check passed.
 - Full Altium board STEP: obtained, SHA `7FC3E1…B9894`; block/origin/state/dz/Bottom rot0 checks passed; component RotationDeg not encoded, so rotation-bearing Top/Bottom remains blocked.
+- R3 library fixture: blocked (PcbLib shell saved; no verified footprint/3D body ownership; no R3 export).
 - Full MiniPC assembly не запускался.
 
 ## 20. Commit и PR
