@@ -8,8 +8,8 @@ created: 2026-11-25T16:30:00+03:00
 updated: 2026-11-25T16:30:00+03:00
 base: source
 branch: agent/BRIDGE-000015-solidworks-step-import
-commit: pending
-pr: pending
+commit: 476e318
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/14
 related:
   - BRIDGE-000004
   - BRIDGE-000013
@@ -193,11 +193,13 @@ missing/empty assets, `SelectAssets`.
 
 ## 12. Commit и PR
 
-- Commit: `pending`.
-- PR: `pending`, ветка `agent/BRIDGE-000015-solidworks-step-import`, base
-  `source`, merge запрещён.
+- Commit: `476e318` (`feat(solidworks): add STEP import backend and smoke harness`).
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/14, ветка
+  `agent/BRIDGE-000015-solidworks-step-import`, base `source`, merge запрещён.
+- Final branch HEAD after PR/report updates: `476e318da34fc16237e1667e51a738610ade76c6`.
 
 ## 13. История изменений
 
 - 2026-11-25: создан SolidWorks backend, plan/import/assembly smoke, tests,
-  S-001…S-010, D-020, документация и smoke.
+  S-001…S-010, D-020, документация и smoke. Первый commit `476e318`; PR #14
+  открыт без merge.
