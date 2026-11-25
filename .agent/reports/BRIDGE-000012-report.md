@@ -34,9 +34,12 @@ related: [BRIDGE-000010, BRIDGE-000011, PR-9, PR-10, V-27, V-29, V-30, V-33]
   даёт матрицу `Rz(-90)` в SW frame; для synthetic controls C63/C59/C61 и native
   controls матрица осталась identity, потому что тела были заменены через SDK и
   не унаследовали component rotation;
-- полная 3D-матрица `T_B_S` в Altium board coordinates **не подтверждена**:
-  координаты компонентов в STEP-сборке не совпадают с Altium X/Y напрямую;
-  требуется отдельная калибровка board/STEP origin.
+- XY-связь для исследованной контрольной группы подтверждена: STEP `X/Y =
+  Altium X/Y - (212.600587, 167.200596) mm`; остатки ≤0.000537 mm. Board Outline
+  после этой трансляции согласуется с AABB Board body `0…175 × 0…155 mm`.
+- полная 3D-матрица `T_B_S` **не подтверждена**: XY-смещение установлено, но
+  Z-origin, толщина/положение поверхностей и полная ориентация board-space ещё
+  требуют отдельной проверки.
 
 ## 2. Исходные данные
 
@@ -184,13 +187,46 @@ Linear components:
 
 - Board-all Board body: local `Z=0…2.028`, transform `Z=-2.028`; top surface
   global `Z=0`, bottom `Z=-2.028`.
-- Component translations in STEP do not match Altium component X/Y directly
-  (e.g. C63 Altium ~329.27/307.14 mm vs STEP `116.67/139.94` mm; C366 Altium
-  ~88.62/77.69 vs STEP `12.50/30.13`). The board STEP coordinate frame/offset is
-  not yet calibrated; a single global origin shift is not sufficient.
-- Consequently no confirmed full `T_B_S` matrix from Altium board coordinates to
-  STEP is asserted. The matrices above are valid in the imported SW assembly
-  frame, which is the frame needed for future MCAD importer validation.
+- `Component.GetState_XLocation/YLocation` и `Model.GetOrigin` на рабочей копии
+  совпали для всех четырёх Generic Top controls: C366 `88620709/77687191`,
+  C63 `129633858/120921259`, C59 `143167421/110905412`,
+  C61 `130484252/118787401` (IU). Отдельного model offset для этих controls нет.
+- Пересчёт C366: `88620709 / 393700 = 225.097051 mm`,
+  `77687191 / 393700 = 197.325860 mm` (ранее в отчёте была арифметическая
+  ошибка `88.6/77.7`; исправлено).
+- Для четырёх Generic Top controls STEP translations дают постоянное смещение:
+
+  | Component | Altium X/Y, mm | STEP X/Y, mm | Offset X/Y, mm |
+  |---|---:|---:|---:|
+  | C366 | 225.097051 / 197.325860 | 12.497 / 30.125 | 212.600051 / 167.200860 |
+  | C63 | 329.270658 / 307.140612 | 116.670 / 139.940 | 212.600658 / 167.200612 |
+  | C59 | 363.645977 / 281.700310 | 151.045 / 114.500 | 212.600977 / 167.200310 |
+  | C61 | 331.430663 / 301.720602 | 118.830 / 134.520 | 212.600663 / 167.200602 |
+
+  Среднее: `(212.600587, 167.200596) mm`; максимальный остаток
+  `0.000537 mm` по X и `0.000287 mm` по Y. Это подтверждает общую XY-трансляцию
+  для исследованной группы в пределах округления/численной точности.
+
+- Board Outline (Altium): характерные вершины `(212.6,167.2)`, `(387.6,322.2)`,
+  `(341.6,171.2) mm`; после вычитания среднего offset они дают
+  `(0,0)`, `(175,155)`, `(129,4) mm`. Board body STEP AABB
+  `0…175 × 0…155 mm` содержит эти точки; это подтверждает, что XY-смещение не
+  является случайным совпадением только компонентных координат. Точное
+  vertex-to-BRep сопоставление каждой вершины Board Outline не выполнялось.
+
+- Следовательно, для исследованной группы подтверждена **XY-калибровка**:
+
+  `X_SW = X_Altium - 212.6006 mm`
+  `Y_SW = Y_Altium - 167.2006 mm`
+
+  Это не полная 3D-матрица `T_B_S`: Z-origin, толщина/положение поверхностей,
+  Bottom и полная ориентация остаются вне этого вывода. Матрицы из §5 валидны
+  в импортированной SW assembly frame.
+
+- `board-controls.step` имеет Board body толщину `2.008 mm`, а `board-all.step`
+  — `2.028 mm`; расхождение `0.020 mm` не объяснено. Для калибровки толщины и
+  Bottom Z использовать только `board-all.step`; `board-controls.step` не
+  является единственным эталоном этих величин.
 
 ## 9. Model state
 
@@ -234,8 +270,10 @@ Linear components:
 - Board-controls was produced via SDK exporter, not the final UI sequence, because
   Altium UI automation after selection was unstable. Board-all is the штатный UI
   export.
-- Board STEP origin/offset relative to Altium PCB coordinates is not calibrated;
-  full board-to-board matrix remains unconfirmed.
+- XY origin shift relative to Altium PCB coordinates is calibrated for the
+  researched control group and Board Outline extents (average `212.600587,
+  167.200596 mm`, residual `≤0.000537 mm`); full 3D board matrix including Z and
+  orientation remains unconfirmed.
 - Native bottom setup is not a valid flipped-body sample; no general native
   bottom conclusion.
 - Full Altium 3D Layout screenshots and visual characteristic-point comparison
