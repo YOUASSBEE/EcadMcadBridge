@@ -8,7 +8,7 @@ created: 2026-11-25T20:30:00+03:00
 updated: 2026-11-25T23:10:00+03:00
 base: source
 branch: task/BRIDGE-000016-coordinate-contract
-commit: 1402e3a
+commit: ab76100
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 related:
   - BRIDGE-000009
@@ -763,7 +763,7 @@ SOLIDWORKS backend (после отдельного решения):
 
 ## 20. Commit и PR
 
-- Commit: `1402e3a` (`docs(bridge-000016): record R3-FIX-002 placement blocker`); R3-FIX-003 documentation commit — см. финальный коммит ветки.
+- Commit: `ab76100` (`docs(bridge-000016): record R3-FIX-003 SDK placement and Top rotation confirmation`); предыдущий blocker commit — `1402e3a`.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 - Base: `source`
 - Merge: запрещён.
