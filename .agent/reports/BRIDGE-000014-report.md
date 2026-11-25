@@ -5,10 +5,10 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-25T15:30:00+03:00
-updated: 2026-11-25T15:30:00+03:00
+updated: 2026-11-25T16:10:00+03:00
 base: source
 branch: agent/BRIDGE-000014-altium-3d-model-export
-commit: 0b21301
+commit: 5e92a79
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/13
 related:
   - BRIDGE-000003
@@ -111,19 +111,33 @@ reader; повторный `GetCurrentPCBBoard()` посреди операци�
 
 ## 5. Component identity
 
-Порядок разрешения:
+Snapshot `ComponentId` строится детерминированно и уникален для каждого
+физического компонента:
 
-1. точный `GetState_UniqueId()` owner;
-2. точный `GetState_SourceUniqueId()` owner;
+- непустой `UniqueId` → `altium:component:<UniqueId>`;
+- повтор того же исходного ID → `:dup:<componentIndex>`; два компонента никогда
+  не получают один `ComponentId`;
+- пустой/whitespace `UniqueId` или `SourceUniqueId` считается отсутствующим;
+- при отсутствии обоих — fallback с designator и индексом;
+- исходные `UniqueId`/`SourceUniqueId` в `AltiumComponentKey` не переписываются,
+  поэтому resolver видит повтор исходного ключа.
+
+Порядок разрешения owner:
+
+1. точный `GetState_UniqueId()`;
+2. точный `GetState_SourceUniqueId()`;
 3. fallback: designator + X/Y IU + normalized rotation + side.
 
-Fallback принимается только при одном совпадении. Дубликат primary-ключа не
-перезаписывает ID: resolver возвращает `Ambiguous`. Неизвестный owner —
-`Unknown`. Оба случая в model reader считаются fatal
-(`AltiumModelInventoryException`), пакет не создаётся.
+Fallback принимается только при одном совпадении. Дубликат primary-ключа
+(даже при разных snapshot `ComponentId`) возвращает `Ambiguous`; неизвестный
+owner — `Unknown`. Оба случая в model reader считаются fatal
+(`AltiumModelInventoryException`), пакет не создаётся. `AltiumComponentIdBuilder`
+и `AltiumComponentResolutionGuard` выделены для тестирования.
 
 Тесты: unique id, source id, unique fallback, ambiguous fallback, unknown,
-duplicate key (не выбирает последний), duplicate same identity.
+duplicate key (не выбирает первый/последний), duplicate source key, пустой и
+whitespace SourceUniqueId, отсутствие обоих идентификаторов, duplicate owner
+guard.
 
 ## 6. Body enumeration и ordinal
 
@@ -157,21 +171,30 @@ Smoke подтвердил multi-body: J1 — 4 тела (ordinal 0…3), C26 �
 
 `sourceOrigin`:
 
-1. `GetEmbed == true` → `embedded`;
-2. procedural type без внешних признаков → `native`;
-3. `GetEmbed == false` само по себе → не `linked`;
-4. File/Vault/filename — внешний признак, но `linked` не подтверждён;
-5. противоречие/недостаток → `unknown`.
+1. `GetEmbed == true` без внешних противоречивых признаков → `embedded`;
+2. `GetEmbed == true` + `ModelSource=File/Vault` или внешний filename →
+   `unknown`;
+3. procedural type без внешних признаков → `native`;
+4. procedural type с внешними признаками → `unknown`;
+5. `GetEmbed == false` само по себе → не `linked`;
+6. `Undefined` сам по себе ничего не доказывает; противоречие/недостаток →
+   `unknown`.
 
-`linked` не присваивается. Тесты покрывают все сценарии, включая
-`GetEmbed=false + no external filename → native` и конфликтующий procedural type
-→ unknown.
+Для embedded Generic basename из `GetFileName()` не считается внешним признаком;
+внешним считается File/Vault source, rooted path или любой filename у
+procedural-модели (`AltiumModelClassification.IsExternalFileName`). `linked` не
+присваивается. Тесты покрывают `embed=true + File`, `embed=true + Vault`,
+`embed=true + filename`, procedural conflict и `GetEmbed=false` без linked.
 
 ## 8. Metadata
 
 - `GetOrigin`: X/Y сохраняются IU + mm через `AltiumUnits.IuToMm`; Z = null.
 - `GetState`: X/Y/Z raw angles без нормализации, включая 360; `dz` IU + mm.
 - `GetRotation`: отдельное nullable-поле, не заменяется state rotZ.
+- `IsEmpty`/`IsStale` читаются как tri-state: `true` — подтверждено, `false` —
+  отсутствует, `null` — getter ошибся. Для `true` и `null` asset не создаётся,
+  body entry остаётся с `not-acquired`, пишется warning и увеличивается
+  `emptyModel`/`staleModel`/`unknownModelState`.
 - При ошибке отдельного API — соответствующая группа null + warning; body entry
   сохраняется.
 - `GetStandoffHeight`/`GetOverallHeight`/body projection в Core не пишутся.
@@ -218,15 +241,20 @@ capabilities сохранены.
 
 | Плата | PackageId | Components | Bodies | Exported body assets | Unique STEP files | Multi-body | Model warnings | Package warnings | Model ms | Total ms |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| multi | `4f0f3f17-b06b-4905-b550-08ddb4482ca4` | 73 | 152 | 152 | 152 | 45 | 0 | 28 | 3 768 | 6 042 |
-| mini | `a609896e-4f3c-4cf6-bd47-5238abe83c0b` | 1 046 | 1 055 | 1 055 | 155 | 7 | 0 | 1 029 | 79 905 | 122 796 |
-| cutout | `052375f2-7672-4fd2-8267-17c91c663587` | 73 | 152 | 152 | 152 | 45 | 0 | 28 | 3 707 | 5 083 |
+| multi (R1) | `3c363021-5b00-4cde-ac20-c33ad383b20a` | 73 | 152 | 152 | 152 | 45 | 0 | 28 | 3 775 | 6 046 |
+| mini (R1) | `b9a6f099-7866-417c-b4f4-17f8265af3ef` | 1 046 | 1 055 | 1 055 | 155 | 7 | 0 | 1 029 | 80 418 | 123 289 |
+| cutout (pre-R1) | `052375f2-7672-4fd2-8267-17c91c663587` | 73 | 152 | 152 | 152 | 45 | 0 | 28 | 3 707 | 5 083 |
 
-`Exported body assets` — число успешных body export; `Unique STEP files` — число
-файлов в `assets/3d/` после content-addressed dedupe Core Writer. На MiniPC
-1 055 успешных body export ссылаются на 155 уникальных STEP-файлов; это
-ожидаемое поведение контракта, а не потеря тел. Manifest MiniPC содержит
-155 asset files + snapshot + models.
+Multi и MiniPC повторно измерены после R1; cutout не перемерялся в R1 и оставлен
+с предыдущего smoke. На R1: `unknownModelState=0`, `modelWarnings=0`,
+`bodiesWithoutAsset=0`; MiniPC имеет 1 035 embedded и 20 native bodies,
+`unknown=0`.
+
+Table columns: `Exported body assets` — успешные body export; `Unique STEP files`
+— файлы в `assets/3d/` после content-addressed dedupe. На MiniPC 1 055 body
+export ссылаются на 155 уникальных STEP-файлов; это ожидаемое поведение
+контракта, а не потеря тел. Manifest MiniPC содержит 155 asset files + snapshot
++ models.
 
 Для всех трёх:
 
@@ -248,15 +276,19 @@ capabilities сохранены.
 ## 12. Тесты и build
 
 - `dotnet build -c Release` — 0 warnings, 0 errors.
-- `dotnet test -c Release`: Core 140/140, Altium 122/122, всего 262/262.
+- `dotnet test -c Release`: Core 140/140, Altium 149/149, всего 289/289.
 - `git diff --check` — OK.
 - GitHub CI не запускался; статусы проверок отсутствуют.
 
 Добавлены Altium tests:
 
-- representation/sourceOrigin, `GetEmbed=false` не linked;
+- representation/sourceOrigin, `GetEmbed=false` не linked, противоречивые
+  `embed=true + File/Vault/filename`;
 - metadata IU/mm, Z null, raw 360, dz, rotation;
+- tri-state `IsEmpty`/`IsStale`: true/false/unknown;
 - resolver unique/source/fallback/ambiguous/unknown/duplicate;
+- duplicate ComponentId disambiguation, blank/whitespace SourceUniqueId, fallback
+  IDs, guard для Ambiguous owner;
 - body ordinal per component;
 - per-body entry сохраняется при missing asset;
 - STEP file validation;
@@ -281,13 +313,20 @@ capabilities сохранены.
 
 ## 14. Commit и PR
 
-- Commit: `0b21301` (`feat(altium): export component 3D bodies to exchange package`).
+- Commit: `5e92a79` (`fix(altium): resolve identity collisions and fail-closed model state`).
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/13, ветка
   `agent/BRIDGE-000014-altium-3d-model-export`, base `source`, merge запрещён.
-- Final branch HEAD after implementation and PR updates: `aa55d296e9ffc42e3edb46f920a5bff814df7235`.
+- R1 implementation HEAD: `5e92a79e10e30efc650d744431b2a77cdf130c73`;
+  предыдущий implementation commit — `0b21301`.
 
 ## 15. История изменений
 
 - 2026-11-25: реализованы Altium per-body extraction, identity resolver,
   classification/metadata, temp export, handler integration, tests, smoke и
   документация. Первый commit `0b21301`; PR #13 открыт без merge.
+- 2026-11-25 (R1): исправлена генерация уникальных `ComponentId` при коллизиях
+  UniqueId/SourceUniqueId; resolver сохраняет raw keys и возвращает Ambiguous;
+  пустой SourceUniqueId считается отсутствующим. `sourceOrigin` учитывает
+  противоречивые File/Vault/filename; `IsEmpty`/`IsStale` переведены в
+  tri-state и fail-closed. Добавлены тесты; `5e92a79`. Повторный smoke multi и
+  MiniPC выполнен.
