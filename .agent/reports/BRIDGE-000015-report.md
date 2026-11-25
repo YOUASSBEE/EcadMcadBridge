@@ -1,14 +1,14 @@
 ---
 id: BRIDGE-000015
 type: report
-status: ready_for_review
+status: blocked
 from: local-agent
 to: operator
 created: 2026-11-25T16:30:00+03:00
-updated: 2026-11-25T22:00:00+03:00
+updated: 2026-11-25T19:47:07+03:00
 base: source
 branch: agent/BRIDGE-000015-solidworks-step-import
-commit: TBD
+commit: 9055bba
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/14
 related:
   - BRIDGE-000004
@@ -174,7 +174,8 @@ sentinel; smoke завершился `SW-IMP-020 Target file already exists`, ф
 Package: `b9a6f099-7866-417c-b4f4-17f8265af3ef` (MiniPC, 1 046 components,
 1 055 body refs, 155 unique STEP assets).
 
-R1 result (`smoke-r26-minipc`, один SOLIDWORKS run):
+Primary R1 result (`smoke-r26-minipc`, один SOLIDWORKS run, сборка с тем же
+импортом/cleanup, что и финальный commit; отличался только счётчик lifecycle):
 
 - `success=True`;
 - 155/155 unique assets imported; 155/155 native parts reopened;
@@ -191,6 +192,33 @@ R1 result (`smoke-r26-minipc`, один SOLIDWORKS run):
 
 Предыдущий baseline отчёт фиксировал split-run (154/155 + isolated retry); R1
 устранил причину и полный MiniPC импорт подтверждён в одном run без substitute.
+
+Revalidation на точном финальном commit не подтвердила one-run результат:
+
+- `smoke-r29-minipc`: 141/155 assets, 1 037/1 055 refs. First failing asset —
+  `assets/3d/f4d68f300a223d9a0eeaf66e3d6132f3a8bf1e0fedcca346306d4c1c6c7aeb67.step`;
+  stage — импорт/сохранение native part, `SW-IMP-012 SOLIDWORKS import failed:
+  COMException` после `SW-IMP-019` (restore preference). Последующие 14 assets
+  получили `SW-IMP-020 Target open state could not be verified: COMException`.
+  Cleanup: `Open documents could not be enumerated; no Bridge documents were
+  closed`; final `createdDocumentsRemaining=0`, `baselinePreserved=True`.
+- `smoke-r30-minipc`: 134/155 assets, 928/1 055 refs. First failing asset —
+  `assets/3d/e733492ebe79e724dc4c04d30447c40cd38413531d7d49170a0adeef1f532d72.step`;
+  stage — импорт/сохранение native part, `SW-IMP-012 SOLIDWORKS import failed:
+  COMException`. Перед этим 77 Bridge-документов `AS0A823H8SB-7H-*.step.sldprt`
+  не закрылись: `CloseDoc`/`QuitDoc` → `COMException 0x800706BA Сервер RPC
+  недоступен`. Последующие 20 assets получили `SW-IMP-020 Target open state
+  could not be verified: COMException`. Diagnostics: 132 Info, 226 Warning,
+  21 Error. Lifecycle import: baseline 0, created 1 594, closed 1 517,
+  remaining 77; финальная проверка `GetDocuments()` недоступна из-за RPC,
+  `baselinePreserved=True`.
+
+Попытка `smoke-r28-minipc` была остановлена внешним timeout на 1 800 s при
+149/155 созданных native parts; result-файл не был записан. Ни r28, ни r29, ни
+r30 не используются как substitute: в отчёте сохранён полный успешный one-run
+`smoke-r26-minipc` и отдельно зафиксированы сбои ревалидации. Причина сбоев —
+COM/RPC-отключение SOLIDWORKS в длинной сессии, не расхождение package и не
+ошибка mapping.
 
 ## 9. API ledger
 
@@ -215,7 +243,7 @@ R1 result (`smoke-r26-minipc`, один SOLIDWORKS run):
   - Altium 82/82;
   - SolidWorks 16/16;
   - всего 238/238.
-- `git diff --check` — см. финальную запись истории.
+- `git diff --check` — 0 ошибок (только informational LF→CRLF warnings).
 - GitHub CI не запускался.
 
 SolidWorks unit tests не требуют запущенного SOLIDWORKS: package read, missing
@@ -228,6 +256,12 @@ no-overwrite guard, save-result guard.
 - SOLIDWORKS interop DLL и CAD-бинарники не входят в Git.
 - `IModelDoc2.Close`/`Quit` недоступны в этой версии interop; cleanup использует
   `ISldWorks.CloseDoc`/`QuitDoc` и проверку через `GetDocuments()`.
+- Длинная MiniPC-сессия нестабильна на стенде: ревалидации на финальном commit
+  прервались COM/RPC-отключением после 141/155 (`smoke-r29-minipc`) и 134/155
+  (`smoke-r30-minipc`) assets. В r30 77 Bridge-документов остались незакрытыми
+  из-за недоступности RPC-сервера. Полный one-run успех зафиксирован на
+  `smoke-r26-minipc`, но на точном финальном commit он не воспроизведён;
+  требуется решение оператора, а не объединение прогонов.
 - Реальное размещение ECAD-компонентов, `T_B_S`, Bottom, Euler, Add-in
   registration, Registry, installer, UI и двусторонняя синхронизация не
   реализованы.
@@ -237,7 +271,7 @@ no-overwrite guard, save-result guard.
 
 ## 12. Commit и PR
 
-- Commit: `TBD`.
+- Commit: `9055bba` (`fix(solidworks): harden document lifecycle and native save guards`).
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/14, ветка
   `agent/BRIDGE-000015-solidworks-step-import`, base `source`, merge запрещён.
 - PR #13/#9/#10/#11 не изменялись.
@@ -252,4 +286,25 @@ no-overwrite guard, save-result guard.
   `SolidWorksDocumentTracker`/`SolidWorksFileGuard`/`SolidWorksPath`/
   `SolidWorksWarningDecoder`, S-011…S-015; подтверждены representative smoke с
   пользовательскими документами, forced-error sentinel и полный MiniPC в одном
-  run.
+  run (`smoke-r26-minipc`). Ревалидации финального commit (`smoke-r29-minipc`,
+  `smoke-r30-minipc`) зафиксировали COM/RPC-отключение после 141/155 и 134/155
+  assets; статус отчёта изменён на `blocked` до решения оператора.
+
+## 14. Блокирующий вопрос
+
+**Вопрос:** считать ли `smoke-r26-minipc` доказательством R1 для финального
+commit `9055bba` (изменение от `smoke-r26-minipc` касалось только счётчика
+lifecycle, import/save/cleanup не менялись) или требовать повторный полный
+one-run 155/155 именно на финальном commit в стабильной сессии SOLIDWORKS?
+
+**Варианты:**
+
+1. Принять `smoke-r26-minipc` как proof для PR #14, зафиксировав риск
+   нестабильности COM/RPC в отчёте.
+2. Не принимать revalidation до повторного полного one-run 155/155 на чистой
+   сессии SOLIDWORKS без параллельных CAD-операций; PR #14 оставить открытым
+   без merge.
+
+**Рекомендация:** вариант 1 для review PR #14, но перед production-gate всё же
+провести один полный one-run на стабильном стенде. Объединять r26/r28/r29/r30
+или подменять неудачные прогоны частичными результатами запрещено.
