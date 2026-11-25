@@ -8,8 +8,8 @@ created: 2026-11-25T13:20:00+03:00
 updated: 2026-11-25T13:20:00+03:00
 base: source
 branch: agent/BRIDGE-000013-core-3d-assets
-commit: pending
-pr: pending
+commit: 0c4d45f
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/12
 related:
   - BRIDGE-000004
   - BRIDGE-000007
@@ -219,11 +219,11 @@ SHA-256. Reader хеширует файлы потоково и не загру�
 
 ## 6. Commit SHA и ссылка на PR
 
-- Commit: `pending`.
-- PR: `pending`, ветка `agent/BRIDGE-000013-core-3d-assets`, base `source`,
-  merge запрещён.
+- Commit: `0c4d45f` (`feat(core): add 3D assets to exchange package`).
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/12, ветка
+  `agent/BRIDGE-000013-core-3d-assets`, base `source`, merge запрещён.
 
 ## 7. История изменений
 
 - 2026-11-25: реализован контракт каталога, Writer/Reader, потоковая обработка,
-  тесты и документация. Подготовлен первый commit.
+  тесты и документация. Первый commit `0c4d45f`; PR #12 открыт без merge.
