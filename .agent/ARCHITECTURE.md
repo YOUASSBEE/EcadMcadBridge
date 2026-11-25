@@ -518,9 +518,10 @@ Core рассматривает ID как непрозрачную непуст�
 - Package root: `ECAD_MCAD_BRIDGE_PACKAGE_ROOT` (absolute), иначе
   `%LOCALAPPDATA%\EcadMcadBridge\Packages`.
 - `PackageId` — новый GUID, `CreatedAtUtc` — UTC, producer — `EcadMcadBridge.Altium`
-  `0.3.0`, capabilities — только реально извлекаемые данные. В `BRIDGE-000009`
+  `0.4.0`, capabilities — только реально извлекаемые данные. В `BRIDGE-000009`
   объявляются `board-outline`, `component-placement`, `layers`, `nets`, `pad-stacks`,
-  `pads`, `regions`, `texts`, `tracks`, `vias`.
+  `pads`, `regions`, `texts`, `tracks`, `vias`; при наличии 3D-каталога Writer
+  добавляет `component-3d-models`.
 - Writer создаёт пакет атомарно и не перезаписывает существующий каталог;
   пользователю показываются путь, package id, counts и warnings, но в лог не
   попадают absolute user paths.
@@ -566,6 +567,52 @@ Core рассматривает ID как непрозрачную непуст�
   `PackageFileHasher.ComputeStableSha256` работают потоково.
 - Ошибки каталога и assets используют стабильные коды `EMB-PKG-022`…`EMB-PKG-026`.
   Сообщения не содержат абсолютных путей пользователя.
+
+### 6.4 Altium 3D body export (BRIDGE-000014)
+
+Pipeline команды `ExportBoardSnapshot`:
+
+```text
+active PCB / IPCB_Board
+  → AltiumBoardSnapshotAdapter (snapshot + component identity index)
+  → AltiumComponentModelReader
+       per-body iterator → owner resolution → metadata → STEP export
+  → ComponentModelsWriteRequest
+  → ExchangePackageWriter (snapshot + models + assets)
+  → ExchangePackageReader verification
+```
+
+- Snapshot adapter и model reader используют один и тот же `IPCB_Board`; новый
+  `GetCurrentPCBBoard()` посреди операции не вызывается.
+- Component identity: точный `UniqueId`, затем `SourceUniqueId`, затем
+  консервативный fallback по designator + X/Y + rotation + side. Fallback
+  принимается только при одном совпадении. Неизвестный/неоднозначный owner —
+  fatal, пакет не публикуется. `GetState_UniqueId` body и `UniqueName` не
+  используются как стабильный ID.
+- Тела перечисляются typed board iterator (`eComponentBodyObject`); каждое тело
+  даёт отдельную запись `bodies[]`. `bodyOrdinal` считается отдельно для каждого
+  `componentId` в порядке enumeration и не является стабильным между сессиями.
+- `GetState_ModelType` → `representation` (`Generic` → generic, `Extruded` /
+  `Cylinder` / `Sphere` → native, иначе unknown). `GetEmbed=true` → embedded;
+  procedural type без внешних признаков → native; `GetEmbed=false` не даёт
+  linked; при противоречиях — unknown. Linked не извлекается.
+- `GetOrigin` X/Y сохраняются парой IU/мм, Z — null. `GetState` углы
+  сохраняются без нормализации, `dz` — IU/мм. `GetRotation` сохраняется
+  отдельно. `T_B_S`, Bottom reflection, Euler composition и SOLIDWORKS
+  placement не вычисляются.
+- Per-body `IPCB_ComponentBody.SaveModelToFile` — основной экспорт STEP AP214;
+  fallback `IPCB_Model.ExportToStep` только для модели этого тела. Component-level
+  export, объединяющий multi-body, не используется.
+- Missing/empty/stale model или неудачный export — non-fatal: body entry
+  остаётся с `not-acquired`, warning; успешный export получает
+  `assetAcquisition=sdk-export` и уникальный `assetKey`.
+- STEP-файлы пишутся в уникальный `%TEMP%\EcadMcadBridge\model-export\<GUID>\`,
+  проверяются на `.step` и непустой размер, передаются Writer и удаляются в
+  `finally`. Исходный `.PcbDoc` не изменяется; `GetModified` и SHA-256
+  проверяются до/после.
+- Если после export документ изменён, owner не разрешён или Reader не подтвердил
+  пакет — публикация отменяется. Частичный 3D inventory показывается как Warning.
+- Add-in/Tool version — `0.4.0`; SOLIDWORKS importer/placement — следующий этап.
 
 ## 7. Обработка ошибок и логирование
 

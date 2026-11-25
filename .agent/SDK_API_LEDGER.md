@@ -237,7 +237,29 @@ FIX-001 уточнения:
   Это устраняет ложный отказ при большой дуге и разной плотности полилинии;
   перенос независимого контура остаётся диагностируемым.
 
-### 2.10 Доказательства, полученные в smoke-тесте BRIDGE-000001
+### 2.10 Altium 3D component model extraction — BRIDGE-000014
+
+Сигнатуры сверены по `Altium.SDK.Interfaces.dll` установленного AD26 26.12.2.9
+(`ilspycmd`) и подтверждены smoke-вызовами в AD26. Используются только типизированные
+вызовы; reflection/dynamic/Legacy API не применялись.
+
+| ID | API | Назначение / ограничение |
+|---|---|---|
+| C-94 | `TObjectId.eComponentBodyObject`; `IPCB_Board.BoardIterator_Create/Destroy`; `AddFilter_ObjectSet(TObjectSet)`, `AddFilter_Method(TIterationMethod.eProcessAll)`, `FirstPCBObject/NextPCBObject` | Перебор `IPCB_ComponentBody`; smoke: 152 / 1 055 / 152 тел на multi/MiniPC/cutout |
+| C-95 | `static PCB.IPCB_Model PCB.IPCB_ComponentBodyHelper.GetModel(this PCB.IPCB_ComponentBody)`; `static PCB.IPCB_Component PCB.IPCB_PrimitiveHelper.GetState_Component(this PCB.IPCB_Primitive)` | Связь body → model → owning component; подтверждено на всех телах smoke-плат |
+| C-96 | `bool PCB.IPCB_ComponentBody.SaveModelToFile(string argFullPath)` | Per-body STEP export; используется как первичный способ; компонентный `SaveModelToFile` не используется |
+| C-97 | `void PCB.IPCB_Model.ExportToStep(string argFileName)` | Fallback per-body STEP export только для модели этого body; в smoke не потребовался (`fallbacks=0`) |
+| C-98 | `static PCB.CoordPoint PCB.IPCB_ModelHelper.GetOrigin(this PCB.IPCB_Model)`; `CoordPoint.X/Y` | X/Y origin модели в координатах платы; Z API не предоставляет |
+| C-99 | `void PCB.IPCB_Model.GetState(out double rotX, out double rotY, out double rotZ, out int dz)` | Сырые углы и `dz`; углы не нормализуются, `dz` сохраняется как IU/mm |
+| C-100 | `double PCB.IPCB_Model.GetRotation()` | Отдельное значение; не подменяется `GetState.rotZ` |
+| C-101 | `bool PCB.IPCB_Model.GetEmbed()`; `string PCB.IPCB_Model.GetFileName()`; `static TModelSource PCB.IPCB_ModelHelper.GetModelSource(this PCB.IPCB_Model)`; `static T3DModelType PCB.IPCB_ModelHelper.GetState_ModelType(this PCB.IPCB_Model)` | Классификация representation/sourceOrigin; `GetEmbed=false` не превращается в `linked`; file path не сохраняется |
+| C-102 | `bool PCB.IPCB_Model.IsEmpty()`; `bool PCB.IPCB_Model.IsStale()` | Проверка перед export; empty/stale body остаётся в каталоге без asset |
+| C-103 | `PCB.T3DModelType.e3DModelType_Generic/e3DModelType_Extruded/e3DModelType_Cylinder/e3DModelType_Sphere`; `PCB.TModelSource.eModelSource_Undefined/eModelSource_File/eModelsource_Vault` | Enum-значения проверены по metadata AD26; неизвестный model type → `unknown` |
+
+`IPCB_Model.GetDataHash("SHA256")` не включён: в исследовании PR #9 он завершался
+`COMException`. SHA-256 вычисляется Core Writer по фактическому экспортированному файлу.
+
+### 2.11 Доказательства, полученные в smoke-тесте BRIDGE-000001
 
 | ID | Сигнатура / вызов | Доказательство | Использование |
 |---|---|---|---|
@@ -260,7 +282,7 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-03 | ~~Работает ли прямой типизированный вызов getCurrentPCB без reflection в AD26?~~ | Закрыт в `BRIDGE-000001`: `PcbSnapshotReader` вызывает типизированный helper `GetCurrentPCBBoard()` (C-18), smoke-тест прошёл, reflection не используется | См. C-18, C-70 и report `BRIDGE-000001`, раздел R-03 |
 | V-04 | ~~Как получить активный документ без reflection?~~ | Закрыт в `BRIDGE-000001` для текущей команды: `view.GetOwnerDocument()` (C-67) и `GetKind()` (C-68) работают в хосте | См. report `BRIDGE-000001`, раздел R-04 |
 | V-05 | ~~Как определить несохранённые изменения и хеш `.PcbDoc`?~~ | Закрыт в `BRIDGE-000007` на AD26.12.2.9: сохранённый PCB — `GetFileName()` absolute path, `GetModified=false`; добавленный в память track — `GetModified=true`; `DoFileSave` → `true`, затем `GetModified=false`; новый несохранённый PCB — `GetFileName()` = `PCB1.PcbDoc` (не absolute), экспорт отклонён. `documentSha256` вычисляется из стабильного файла `.PcbDoc`, не из snapshot | C-89; report `BRIDGE-000007` |
-| V-06 | Как извлекать 3D-модели и высоты для MCAD? | `SaveModelToFile`, `DefaultPCB3DModel` объявлены, поведение и формат не проверены | Отдельная задача MCAD-фазы; не использовать до проверки |
+| V-06 | ~~Как извлекать 3D-модели и высоты для MCAD?~~ | Закрыт для геометрии в `BRIDGE-000014`: per-body `IPCB_ComponentBody.SaveModelToFile` и `IPCB_Model.ExportToStep` дают STEP AP214 B-Rep; `GetModel`, `GetState_Component`, `GetOrigin`, `GetState`, `GetRotation`, `GetEmbed`, `GetState_ModelType`, `IsEmpty`, `IsStale` подтверждены smoke на multi/MiniPC/cutout. Высоты (`GetStandoffHeight`/`GetOverallHeight`) в Core не экспортируются и в текущем contract не требуются; 3D placement/`T_B_S` остаётся вне scope | C-94:C-103; report `BRIDGE-000014`; исследования PR #9–#11 |
 | V-07 | Стабилен ли `SourceUniqueId` между сессиями и ECO? | Не проверено; возможны пустые/меняющиеся значения | Экспорт одного проекта до/после ECO, сравнение |
 | V-08 | Как получить толщину платы и стек слоёв? | Частично закрыт в `BRIDGE-000003`: `GetState_MasterStack().Get_ZTop/Get_ZBottom` дали ненулевые значения на vendor-платах (`790552 IU`, `313581 IU`). Точная семантика Z-значений и порядок stackup не подтверждены | Сравнить с Layer Stack Manager; при необходимости отдельный ADR |
 | V-09 | Как корректно перечислять механические слои и их назначение? | Частично закрыт в `BRIDGE-000003`: `LayerIterator` + V6-ID дают Top/Mid/Bottom/Plane/Mechanical; механические слои классифицируются по ID, не по имени. Назначение конкретного mechanical-слоя не формализовано | Smoke-тест на плате с именованными mechanical-слоями |
@@ -327,3 +349,4 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | 2026-11-24 | BRIDGE-000003-FIX-007: scale-independent matched-centroid dedup для дуговых Hole | local-agent |
 | 2026-11-24 | BRIDGE-000007: C-89 document path/modified API; V-05 закрыт, Altium Package Export | local-agent |
 | 2026-11-24 | BRIDGE-000009: C-90…C-93 tracks/vias/regions/texts; Q-010 частично открыт (region arc fallback) | local-agent |
+| 2026-11-25 | BRIDGE-000014: C-94…C-103 per-body 3D model extraction/export; V-06 закрыт для геометрии; smoke multi 152 / MiniPC 1 055 / cutout 152 bodies | local-agent |

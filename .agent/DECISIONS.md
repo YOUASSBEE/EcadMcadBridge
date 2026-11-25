@@ -27,6 +27,7 @@
 | D-016 | Разделение Git-протокола разработки и runtime-обмена | Accepted | 2026-11-24 |
 | D-017 | COM-контракт Bridge по образцу InteractiveBom (assembly-level `ComVisible`, `AutoDispatch`, `IPluginFactory`) | Accepted | 2026-11-24 |
 | D-018 | Необязательный каталог 3D-моделей и content-addressed assets в Exchange Package | Accepted | 2026-11-25 |
+| D-019 | Altium 3D body export: per-body STEP AP214, SdkExport, без объединения тел и без неподтверждённой матрицы | Accepted | 2026-11-25 |
 
 ---
 
@@ -416,6 +417,47 @@ Bottom, порядок Euler или полная матрица не вычис�
   Altium; это отдельная задача `BRIDGE-000014`.
 - V-27/V-30 и полная 3D-матрица остаются открытыми.
 - Пользовательские STEP/X_T не попадают в Git (D-016).
+
+---
+
+## D-019 — Altium 3D body export
+
+**Статус:** Accepted (`BRIDGE-000014`).
+
+**Контекст.** Core-контракт BRIDGE-000013 уже принимает каталог 3D-моделей и
+content-addressed assets. Для Altium исследованы `IPCB_ComponentBody`,
+`IPCB_Model`, per-body и component-level export. Component-level
+`SaveModelToFile` объединяет тела multi-body компонента и не подходит для
+inventory; `GetDataHash("SHA256")` непригоден; STEP header меняет SHA между
+экспортами; полная 3D-матрица размещения не подтверждена.
+
+**Решение.**
+
+- Источник геометрии — только per-body `IPCB_ComponentBody.SaveModelToFile`,
+  fallback — `IPCB_Model.ExportToStep` для модели этого же тела. Каждое
+  `IPCB_ComponentBody` даёт отдельную запись `bodies[]` с локальным ordinal.
+- Формат первого этапа — STEP AP214 B-Rep; `assetAcquisition = sdk-export`.
+  X_T одновременно в одном body entry не хранится; `source-copy-verified` не
+  используется.
+- `representation` определяется по `GetState_ModelType`, `sourceOrigin` — по
+  `GetEmbed` и отсутствию внешних признаков; `GetEmbed=false` не означает
+  `linked`. Linked-модели не извлекаются.
+- Сохраняются только сырые `GetOrigin` X/Y (Z null), `GetState` углы/dz и
+  отдельный `GetRotation`; `T_B_S`, Bottom reflection, Euler composition и
+  позиционирование в SOLIDWORKS не вычисляются.
+- Временные STEP-файлы создаются в уникальном temp-каталоге, передаются Core
+  Writer и удаляются в `finally`; исходный `.PcbDoc` только читается.
+- Неоднозначный/неизвестный owner body — fatal, пакет не публикуется. Missing,
+  empty, stale или failed export тела — non-fatal: body entry остаётся с
+  `not-acquired` и warning.
+
+**Последствия.**
+
+- Каталог всегда содержит запись для каждого компонента snapshot, включая
+  компоненты без тел.
+- Частичный 3D inventory даёт Warning в UI, а не безусловный Success.
+- SOLIDWORKS Add-in, размещение и обратный импорт остаются вне scope.
+- V-27/V-30 и полная матрица остаются открытыми.
 
 ---
 

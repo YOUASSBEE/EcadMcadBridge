@@ -5,8 +5,8 @@
 | Проект | ECAD-MCAD Bridge |
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
-| Текущая ветка | `agent/BRIDGE-000013-core-3d-assets` |
-| Статус | `BRIDGE-000013` добавляет опциональный каталог 3D-моделей и assets в Core Exchange Package |
+| Текущая ветка | `agent/BRIDGE-000014-altium-3d-model-export` |
+| Статус | `BRIDGE-000014` добавляет per-body экспорт 3D-тел Altium в Exchange Package |
 | Дата фиксации | 2026-11-25 |
 | Владелец продукта | Оператор проекта (человек) |
 
@@ -49,7 +49,9 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 - Core Exchange Package: deterministic manifest, snapshot, checksums, atomic writer,
   validating reader и безопасные относительные пути (`BRIDGE-000004`);
 - опциональный каталог 3D-моделей компонентов `models/models.json` и
-  content-addressed STEP/X_T assets в `assets/3d/` (`BRIDGE-000013`).
+  content-addressed STEP/X_T assets в `assets/3d/` (`BRIDGE-000013`);
+- per-body экспорт 3D-тел Altium в STEP AP214 и их упаковка в тот же Exchange
+  Package (`BRIDGE-000014`).
 
 Не входит в scope текущего этапа:
 
@@ -212,8 +214,15 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   `models/models.json` (`ecad-mcad-bridge/component-models` 1.0.0) и
   content-addressed `assets/3d/<sha256>.step|.x_t`; capability
   `component-3d-models`; raw IU/mm metadata, потоковое копирование/хеширование
-  assets и полное покрытие manifest/checksums. Извлечение моделей из Altium и
-  SOLIDWORKS Add-in не реализованы (D-018, `BRIDGE-000014`).
+  assets и полное покрытие manifest/checksums (D-018).
+- `BRIDGE-000014`: Altium Add-in экспортирует BoardSnapshot и per-body 3D-тела в
+  тот же пакет. `IPCB_ComponentBody` перечисляются typed iterator, owner
+  разрешается по UniqueId/SourceUniqueId либо однозначному fallback; каждое тело
+  сохраняется отдельно с локальным `bodyOrdinal`. Успешный export даёт STEP AP214
+  и `sdk-export`; missing/empty/stale/failed тело остаётся в каталоге с
+  `not-acquired`. Smoke: multi 152 тела, MiniPC 1 055, cutout 152; исходные PCB
+  SHA не изменились. `T_B_S`, Bottom и SOLIDWORKS placement не реализованы
+  (D-019).
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.
   `BRIDGE-000002` новых Altium API не добавляет.
 - Git-протокол и runtime-обмен разделены: Git не используется для пользовательских PCB, STEP
@@ -226,7 +235,7 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 |---|---|---|---|
 | Q-001 | Загружает ли AD26 in-process сборку `net10.0-windows`? | **Закрыт:** подтверждено оператором (C-65) | TFM InteractiveBom выбирается по версии Altium; TFM Bridge зафиксирован как `net10.0-windows` |
 | Q-002 | Какая точная сборка Altium Designer 26 используется на стенде? | **Уточнён:** `X2.EXE` 26.12.2.9, runtime `net10.0` / 10.0.10 | Изоляция конкретного варианта `Altium.SDK.dll` внутри хоста остаётся открытой (V-13) |
-| Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | Открыт; контракт хранения готов (`BRIDGE-000013`) | Нужно для будущей передачи в SOLIDWORKS, API не проверен; извлечение вынесено в `BRIDGE-000014` |
+| Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | **Закрыт для геометрии** в `BRIDGE-000014` | Per-body STEP AP214 экспортируется и упаковывается; positioning/Bottom остаются открытыми (V-27/V-30) |
 | Q-004 | Какой interop-пакет и API использовать для SOLIDWORKS 2026? | Открыт | Не проверено; в реестр не вносится до проверки |
 | Q-005 | Какой UI-стек использовать в Add-in (WPF/WinForms)? | Частично закрыт | Для smoke-команды — хост-диалог, для запуска сервера — минимальная WinForms-панель; полноценные панели ещё не проектировались |
 | Q-006 | Как автоматизировать установку/регистрацию расширения? | Открыт | Известен ручной путь через `ExtensionsRegistry.xml`; автоматизация требует отдельного решения |
