@@ -8,7 +8,7 @@ created: 2026-11-25T20:30:00+03:00
 updated: 2026-11-25T21:50:38+03:00
 base: source
 branch: task/BRIDGE-000016-coordinate-contract
-commit: bf603d6
+commit: b8a11db
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 related:
   - BRIDGE-000009
@@ -632,7 +632,7 @@ SOLIDWORKS backend (после отдельного решения):
 
 ## 20. Commit и PR
 
-- Commit: `bf603d6` (`docs(bridge-000016): add R2 full board STEP reference`).
+- Commit: `b8a11db` (`docs(bridge-000016): record R3 fixture blocker`).
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 - Base: `source`
 - Merge: запрещён.
