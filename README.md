@@ -22,9 +22,9 @@
 | Altium Designer | 26 |
 | Altium SDK | 4.0.1 |
 | .NET SDK | 10 |
-| Target Framework | Altium: `net10.0-windows`; Core/Core.Tests: `net10.0`; SOLIDWORKS: отдельным решением |
+| Target Framework | Altium: `net10.0-windows`; Core/Core.Tests: `net10.0`; SOLIDWORKS backend/tests/smoke: `net10.0-windows`, x64 |
 | Язык | C# |
-| SOLIDWORKS | 2026 |
+| SOLIDWORKS | 2026 SP3.2, interop 34.3.2.3 |
 
 Совместимость Altium Designer 26, Altium SDK 4.0.1 и .NET SDK 10 с `net10.0-windows`
 подтверждена оператором. Целевой TFM нашего Altium Add-in — `net10.0-windows`.
@@ -45,8 +45,9 @@
 Загрузка в Altium — через `.Ins`/`.rcs` и COM-фабрику
 `CSharpPlugin.PluginFactory.InvokePluginFactory(DXP.IClient)`.
 
-SOLIDWORKS 2026 зафиксирован как целевая платформа, но на текущем этапе функциональность обмена
-с ним не реализуется. Изменение стека или TFM — только через `.agent/DECISIONS.md`.
+SOLIDWORKS 2026 backend реализует STEP import/native SLDPRT и Top-прототип
+placement (D-020/D-022). Полноценный Add-in host, Registry и установщик не
+реализуются. Изменение стека или TFM — только через `.agent/DECISIONS.md`.
 
 ## Архитектура (кратко)
 
@@ -119,6 +120,28 @@ dotnet test -c Release
 ```
 
 `dotnet build -c Release` должен пройти с нулём предупреждений (include `TreatWarningsAsErrors=true`).
+
+## Top placed assembly (BRIDGE-000018)
+
+Smoke размещает Top/Top Generic Embedded bodies из Exchange Package в native
+`.SLDASM` с реальными transforms:
+
+```powershell
+$env:ECAD_MCAD_BRIDGE_PACKAGE_ROOT = '<absolute package root>'
+dotnet run --project tools/EcadMcadBridge.SolidWorks.Smoke -c Release -- `
+  --placed-assembly `
+  --package '<package directory>' `
+  --template 'C:\ProgramData\SOLIDWORKS\SOLIDWORKS 2026\templates\gost-assy.asmdot' `
+  --output "$env:TEMP\EcadMcadBridge\BRIDGE-000018\smoke" `
+  --designators 'U101,U102,U103,U104'
+```
+
+`--designators` требует все перечисленные designators. Без него выбираются первые
+`--max-components` (по умолчанию 20) поддержанных component instances в
+детерминированном порядке. Режим `--assembly`/`--sample`/`--only-asset` сохранён.
+Результат — `smoke-result.json` с package ID, mapping, requested/readback matrices,
+residuals, lifecycle и cleanup. Bottom, projection mismatch, Native/External и
+board solid не поддерживаются.
 
 ## Установка Altium Add-in (текущий стенд)
 

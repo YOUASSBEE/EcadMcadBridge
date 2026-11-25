@@ -46,6 +46,14 @@ public sealed class ComponentBodyWriteEntry
     public ModelState State { get; init; } = new();
 
     public double? ModelRotationDegRaw { get; init; }
+
+    public ComponentBodyProjection BodyProjection { get; init; } = ComponentBodyProjection.Unknown;
+
+    public LengthValue StandoffHeight { get; init; } = LengthValue.FromIu(null);
+
+    public LengthValue OverallHeight { get; init; } = LengthValue.FromIu(null);
+
+    public ComponentModelStateSource ModelStateSource { get; init; } = ComponentModelStateSource.Unknown;
 }
 
 /// <summary>An asset file supplied to the writer. The source path is not persisted.</summary>

@@ -156,21 +156,21 @@ public readonly struct ModelStateInput : IEquatable<ModelStateInput>
 public sealed record BoardSurfaceFrame(double TopSurfaceZMm, double BottomSurfaceZMm);
 
 /// <summary>
-/// Measured footprint model-origin offsets used to place a 3D body.
-/// The bottom local offset is expressed in the local bottom frame and converted to the board
-/// frame as <c>(X, -Y)</c>.
+/// Measured footprint model-origin offsets used to place a 3D body. Both offsets are local to
+/// the corresponding component frame; the bottom offset is converted to the board frame as
+/// <c>(X, -Y)</c> for the bottom placement formula.
 /// </summary>
 public sealed class FootprintOriginCalibration
 {
-    /// <summary>Creates calibration data from optional measured offsets.</summary>
-    public FootprintOriginCalibration(Vector2Mm? topModelOriginOffsetBoardMm, Vector2Mm? bottomModelOriginOffsetLocalMm)
+    /// <summary>Creates calibration data from optional measured local offsets.</summary>
+    public FootprintOriginCalibration(Vector2Mm? topModelOriginOffsetLocalMm, Vector2Mm? bottomModelOriginOffsetLocalMm)
     {
-        TopModelOriginOffsetBoardMm = topModelOriginOffsetBoardMm;
+        TopModelOriginOffsetLocalMm = topModelOriginOffsetLocalMm;
         BottomModelOriginOffsetLocalMm = bottomModelOriginOffsetLocalMm;
     }
 
-    /// <summary>Top footprint model-origin offset in board coordinates, or null if not measured.</summary>
-    public Vector2Mm? TopModelOriginOffsetBoardMm { get; }
+    /// <summary>Top footprint model-origin offset in the component-local frame, or null if not measured.</summary>
+    public Vector2Mm? TopModelOriginOffsetLocalMm { get; }
 
     /// <summary>Bottom footprint model-origin offset in the local bottom frame, or null if not measured.</summary>
     public Vector2Mm? BottomModelOriginOffsetLocalMm { get; }
@@ -181,7 +181,7 @@ public sealed class FootprintOriginCalibration
 
     /// <summary>The measured bottom rotation pivot offset relative to the component position.</summary>
     public Vector2Mm? BottomPivotOffsetMm =>
-        BottomModelOriginOffsetBoardMm is { } bottom && TopModelOriginOffsetBoardMm is { } top
+        BottomModelOriginOffsetBoardMm is { } bottom && TopModelOriginOffsetLocalMm is { } top
             ? bottom - top
             : null;
 }

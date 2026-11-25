@@ -167,6 +167,9 @@ internal static class AltiumComponentModelReader
         List<string> warnings,
         AltiumComponentModelDiagnostics diagnostics)
     {
+        var bodyProjection = ReadBodyProjection(body, label, warnings, diagnostics);
+        var standoffHeight = ReadStandoffHeight(body, label, warnings, diagnostics);
+        var overallHeight = ReadOverallHeight(body, label, warnings, diagnostics);
         IPCB_Model? model = null;
         try
         {
@@ -181,7 +184,12 @@ internal static class AltiumComponentModelReader
         {
             diagnostics.ModelsMissing++;
             warnings.Add(label + " has no 3D model; no STEP asset was created.");
-            return NotAcquired(componentId, bodyOrdinal);
+            return NotAcquired(
+                componentId,
+                bodyOrdinal,
+                bodyProjection,
+                standoffHeight,
+                overallHeight);
         }
 
         diagnostics.BodiesWithModel++;
@@ -204,6 +212,7 @@ internal static class AltiumComponentModelReader
         var origin = ReadOrigin(model, label, warnings, diagnostics);
         var state = ReadState(model, label, warnings, diagnostics);
         var rotation = ReadRotation(model, label, warnings, diagnostics);
+        var stateSource = AltiumModelMetadataMapper.MapStateSource(representation, sourceOrigin);
         var empty = ReadIsEmpty(model, label, warnings, diagnostics);
         var stale = ReadIsStale(model, label, warnings, diagnostics);
         var modelState = AltiumModelStateClassifier.Classify(empty, stale);
@@ -239,7 +248,11 @@ internal static class AltiumComponentModelReader
                 state,
                 rotation,
                 ComponentModelAssetAcquisition.NotAcquired,
-                null);
+                null,
+                bodyProjection,
+                standoffHeight,
+                overallHeight,
+                stateSource);
         }
 
         var assetKey = "body-" + globalIndex.ToString("D6", CultureInfo.InvariantCulture);
@@ -256,7 +269,11 @@ internal static class AltiumComponentModelReader
                 state,
                 rotation,
                 ComponentModelAssetAcquisition.NotAcquired,
-                null);
+                null,
+                bodyProjection,
+                standoffHeight,
+                overallHeight,
+                stateSource);
         }
 
         diagnostics.StepExportsSucceeded++;
@@ -275,7 +292,11 @@ internal static class AltiumComponentModelReader
             state,
             rotation,
             ComponentModelAssetAcquisition.SdkExport,
-            assetKey);
+            assetKey,
+            bodyProjection,
+            standoffHeight,
+            overallHeight,
+            stateSource);
     }
 
     private static bool TryExport(
@@ -369,7 +390,12 @@ internal static class AltiumComponentModelReader
         }
     }
 
-    private static AltiumBodyInventoryEntry NotAcquired(string componentId, int bodyOrdinal) =>
+    private static AltiumBodyInventoryEntry NotAcquired(
+        string componentId,
+        int bodyOrdinal,
+        ComponentBodyProjection bodyProjection,
+        LengthValue standoffHeight,
+        LengthValue overallHeight) =>
         new(
             componentId,
             bodyOrdinal,
@@ -379,7 +405,62 @@ internal static class AltiumComponentModelReader
             new ModelState(),
             null,
             ComponentModelAssetAcquisition.NotAcquired,
-            null);
+            null,
+            bodyProjection,
+            standoffHeight,
+            overallHeight,
+            ComponentModelStateSource.Unknown);
+
+    private static ComponentBodyProjection ReadBodyProjection(
+        IPCB_ComponentBody body,
+        string label,
+        List<string> warnings,
+        AltiumComponentModelDiagnostics diagnostics)
+    {
+        try
+        {
+            return AltiumModelMetadataMapper.MapBodyProjection(body.GetBodyProjection());
+        }
+        catch (Exception ex)
+        {
+            AddMetadataWarning(diagnostics, warnings, label, "bodyProjection", ex);
+            return ComponentBodyProjection.Unknown;
+        }
+    }
+
+    private static LengthValue ReadStandoffHeight(
+        IPCB_ComponentBody body,
+        string label,
+        List<string> warnings,
+        AltiumComponentModelDiagnostics diagnostics)
+    {
+        try
+        {
+            return AltiumModelMetadataMapper.MapLength(body.GetStandoffHeight());
+        }
+        catch (Exception ex)
+        {
+            AddMetadataWarning(diagnostics, warnings, label, "standoffHeight", ex);
+            return LengthValue.FromIu(null);
+        }
+    }
+
+    private static LengthValue ReadOverallHeight(
+        IPCB_ComponentBody body,
+        string label,
+        List<string> warnings,
+        AltiumComponentModelDiagnostics diagnostics)
+    {
+        try
+        {
+            return AltiumModelMetadataMapper.MapLength(body.GetOverallHeight());
+        }
+        catch (Exception ex)
+        {
+            AddMetadataWarning(diagnostics, warnings, label, "overallHeight", ex);
+            return LengthValue.FromIu(null);
+        }
+    }
 
     private static T3DModelType? ReadModelType(
         IPCB_Model model,

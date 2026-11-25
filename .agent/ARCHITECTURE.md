@@ -612,7 +612,7 @@ active PCB / IPCB_Board
   проверяются до/после.
 - Если после export документ изменён, owner не разрешён или Reader не подтвердил
   пакет — публикация отменяется. Частичный 3D inventory показывается как Warning.
-- Add-in/Tool version — `0.4.0`; SOLIDWORKS importer/placement — следующий этап.
+- Add-in/Tool version — `0.4.0`; SOLIDWORKS import — раздел 6.5, Top placement — 6.6.
 
 ### 6.5 SOLIDWORKS STEP import backend (BRIDGE-000015)
 
@@ -672,6 +672,87 @@ active PCB / IPCB_Board
   и `baselinePreserved`.
 - `T_B_S`, Z/Bottom, Euler composition, ECAD placement, Add-in registration,
   Registry и установщик остаются вне scope.
+
+### 6.6 First placed PCB assembly (BRIDGE-000018)
+
+Pipeline размещения Top-прототипа:
+
+```text
+Exchange Package (snapshot + models 1.1.0 + STEP assets)
+  → SolidWorksImportPlan (one native SLDPRT per unique asset)
+  → SolidWorksPlacementRequestBuilder
+       component placement + model origin → local offset
+       board outline XY origin + board mid-plane Z
+  → Core PlacementTransformBuilder (Matrix4x4D, column vectors, mm)
+  → MathTransform ArrayData (R^T row-major, translation in metres)
+  → Component2.SetTransformAndSolve3 / GetTotalTransform
+  → save .SLDASM, close, reopen, verify transforms
+```
+
+Catalog 1.1.0 добавляет к `ComponentBodyEntry`:
+
+- `bodyProjection` — `unknown` / `top` / `bottom`;
+- `standoffHeight`, `overallHeight` — пары IU/mm, допускается `null`;
+- `modelStateSource` — `unknown` / `source-footprint` / `placed-body-effective`.
+
+Каталог 1.0.0 читается без изменений: отсутствующие поля становятся `Unknown`/`null`.
+Writer всегда пишет 1.1.0. Validator проверяет enum, finite values, пары IU/мм и
+согласованность `LengthValue`.
+
+Placement request:
+
+- `ComponentPositionBoardMm` — позиция из snapshot, переведённая в board-local
+  frame по минимуму контура платы;
+- `deltaBoard = ModelOrigin - ComponentPosition`;
+- `deltaLocal = Rz(-ComponentRotationDeg) * deltaBoard`; в
+  `FootprintOriginCalibration.TopModelOriginOffsetLocalMm` передаётся именно
+  локальный offset, не board offset;
+- `AssetOriginLocalMm = 0` (STEP asset не содержит placement/rotation);
+- `BoardSurfaceFrame = (+T/2, -T/2)`, где T — только
+  `BoardSnapshot.Properties.Thickness`; значения по умолчанию не подставляются;
+- `StandoffHeightMm` берётся из `GetStandoffHeight()`.
+
+Поддерживаемые режимы первой версии:
+
+| Режим | Статус |
+|---|---|
+| Top component + Top BodyProjection, Generic Embedded, STEP AP214, SdkExport, PlacedBodyEffective | Supported |
+| Top compound model state + component rotation | Supported через PlacementTransformBuilder |
+| Bottom, projection mismatch, Native, External, NotAcquired, Unknown | Unsupported с диагностикой |
+| Отсутствующая толщина/позиция/origin/state/калибровка | Unsupported, матрица не строится |
+
+SOLIDWORKS transform:
+
+```text
+ArrayData[0..8]  = row-major R^T
+ArrayData[9..11] = translation mm / 1000
+ArrayData[12]    = 1
+ArrayData[13..15] = 0
+```
+
+Перед установкой проверяются finite, determinant +1, rigid inverse и отсутствие
+scale/reflection. После `SetTransformAndSolve3` transform читается обратно;
+допуски: translation ≤ 0.001 mm, rotation basis ≤ 1e-8.
+
+Save/reopen: сборка сохраняется через `SaveAs3`, созданные документы закрываются
+только при `Bridge-owned` ownership, затем сборка открывается повторно, проверяются
+количество occurrences, путь native part и transforms. Пользовательские документы
+baseline не закрываются; no-overwrite guard сохраняется. Успех возможен только при
+`CleanupStatus = Verified`.
+
+Smoke:
+
+```text
+dotnet run --project tools/EcadMcadBridge.SolidWorks.Smoke -c Release -- \
+  --placed-assembly --package <dir> --template <asmdot> --output <dir> \
+  [--designators C1,C2,...] [--max-components 20]
+```
+
+`--designators` требует все запрошенные designators; отсутствующие не заменяются.
+Без списка выбираются первые `max-components` поддержанных component instances в
+детерминированном порядке. JSON содержит package ID, версии, выбранные designators,
+asset/native/SLDPRT mapping, requested/readback matrices, residuals, lifecycle и
+cleanup status.
 
 ## 7. Обработка ошибок и логирование
 

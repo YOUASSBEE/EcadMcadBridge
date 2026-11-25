@@ -17,6 +17,22 @@ public enum ComponentModelSourceOrigin
     Linked,
 }
 
+/// <summary>The board side selected by the 3D body projection property.</summary>
+public enum ComponentBodyProjection
+{
+    Unknown,
+    Top,
+    Bottom,
+}
+
+/// <summary>Whether the stored model state already contains component rotation.</summary>
+public enum ComponentModelStateSource
+{
+    Unknown,
+    SourceFootprint,
+    PlacedBodyEffective,
+}
+
 /// <summary>How an asset file in the package was obtained.</summary>
 public enum ComponentModelAssetAcquisition
 {
@@ -41,7 +57,7 @@ public sealed class ComponentModelCatalog
 {
     public const string SchemaName = "ecad-mcad-bridge/component-models";
 
-    public const string SchemaVersionValue = "1.0.0";
+    public const string SchemaVersionValue = "1.1.0";
 
     public const string FileRelativePath = "models/models.json";
 
@@ -87,6 +103,18 @@ public sealed class ComponentBodyEntry
 
     /// <summary>Raw model rotation from the API; null when unavailable. Not a board transform.</summary>
     public double? ModelRotationDegRaw { get; init; }
+
+    /// <summary>Projection side of the 3D body; Unknown when the SDK value is unavailable.</summary>
+    public ComponentBodyProjection BodyProjection { get; init; } = ComponentBodyProjection.Unknown;
+
+    /// <summary>Body standoff height. Both IU and millimetres stay null when unavailable.</summary>
+    public LengthValue StandoffHeight { get; init; } = LengthValue.FromIu(null);
+
+    /// <summary>Overall body height. Both IU and millimetres stay null when unavailable.</summary>
+    public LengthValue OverallHeight { get; init; } = LengthValue.FromIu(null);
+
+    /// <summary>Whether <see cref="ModelState"/> already contains component rotation.</summary>
+    public ComponentModelStateSource ModelStateSource { get; init; } = ComponentModelStateSource.Unknown;
 }
 
 /// <summary>Raw source-model origin. Each axis is an IU/mm pair or both null.</summary>

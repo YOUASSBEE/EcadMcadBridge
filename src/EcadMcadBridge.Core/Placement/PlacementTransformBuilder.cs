@@ -108,7 +108,7 @@ public static class PlacementTransformBuilder
         PlacementTransformRequest request,
         ModelStateInput state)
     {
-        var offset = request.FootprintCalibration?.TopModelOriginOffsetBoardMm;
+        var offset = request.FootprintCalibration?.TopModelOriginOffsetLocalMm;
         if (offset is null)
             return MissingCalibration(state, "Top model-origin calibration is required.");
 
@@ -152,7 +152,7 @@ public static class PlacementTransformBuilder
         }
 
         var bottomLocal = request.FootprintCalibration?.BottomModelOriginOffsetLocalMm;
-        var topOffset = request.FootprintCalibration?.TopModelOriginOffsetBoardMm;
+        var topOffset = request.FootprintCalibration?.TopModelOriginOffsetLocalMm;
         var bottomBoard = request.FootprintCalibration?.BottomModelOriginOffsetBoardMm;
         var pivotOffset = request.FootprintCalibration?.BottomPivotOffsetMm;
         if (bottomLocal is null || topOffset is null || bottomBoard is null || pivotOffset is null)
@@ -205,7 +205,7 @@ public static class PlacementTransformBuilder
         }
 
         var offset = request.ComponentSide == ComponentSide.Top
-            ? request.FootprintCalibration?.TopModelOriginOffsetBoardMm
+            ? request.FootprintCalibration?.TopModelOriginOffsetLocalMm
             : request.FootprintCalibration?.BottomModelOriginOffsetBoardMm;
         if (offset is null)
             return MissingCalibration(state, "The model-origin offset for the component side is required.");

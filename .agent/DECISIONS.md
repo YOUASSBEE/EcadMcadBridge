@@ -29,6 +29,8 @@
 | D-018 | Необязательный каталог 3D-моделей и content-addressed assets в Exchange Package | Accepted | 2026-11-25 |
 | D-019 | Altium 3D body export: per-body STEP AP214, SdkExport, без объединения тел и без неподтверждённой матрицы | Accepted | 2026-11-25 |
 | D-020 | SOLIDWORKS backend: local interop, per-asset STEP import в native SLDPRT, без Add-in registration и placement | Accepted | 2026-11-25 |
+| D-021 | Component Model Catalog 1.1.0: BodyProjection, Standoff/Overall heights, ModelStateSource; совместимость с 1.0.0 | Accepted | 2026-11-26 |
+| D-022 | Первый Top placed assembly: Core transform → SOLIDWORKS occurrence, board-local XY, ±T/2, save/reopen verification | Accepted | 2026-11-26 |
 
 ---
 
@@ -517,6 +519,72 @@ D-020 — независимый SOLIDWORKS backend.
 - Успешный STEP import не доказывает корректность placement.
 - Proprietary interop и CAD-бинарники остаются вне Git.
 - Q-004 закрыт для прототипа; полноценный Add-in остаётся отдельной задачей.
+
+---
+
+## D-021 — Component Model Catalog 1.1.0 placement metadata
+
+**Статус:** Accepted (`BRIDGE-000018`).
+
+**Контекст.** Placement Engine BRIDGE-000017 требует projection side, высоты тела
+и признак того, содержит ли `GetState.rotZ` поворот компонента. Catalog 1.0.0
+хранил только representation/source/asset/origin/state/modelRotation и не позволял
+отличить `SourceFootprint` от `PlacedBodyEffective`.
+
+**Решение.**
+
+- В `ComponentBodyEntry` добавляются `BodyProjection` (`Unknown/Top/Bottom`),
+  `StandoffHeight`/`OverallHeight` как `LengthValue` и `ModelStateSource`
+  (`Unknown/SourceFootprint/PlacedBodyEffective`).
+- JSON 1.1.0 добавляет `bodyProjection`, `standoffHeight`, `overallHeight`,
+  `modelStateSource`; IU/мм хранятся парой, отсутствующие значения — `null/Unknown`.
+- Reader принимает 1.0.0 и 1.1.0; writer всегда пишет 1.1.0. Validator проверяет
+  enum, finite values, пары IU/мм и согласованность `LengthValue`.
+- Altium adapter читает `GetBodyProjection`, `GetStandoffHeight`,
+  `GetOverallHeight`; `PlacedBodyEffective` выставляется только для Generic
+  Embedded, где семантика подтверждена R3/R4. `GetRotation()` остаётся отдельным
+  `ModelRotationDegRaw` и не считается эквивалентом `GetState.rotZ`.
+
+**Последствия.**
+
+- Пакеты 1.0.0 остаются читаемыми; новые поля становятся Unknown/null.
+- Placement получает явные данные, а не догадки.
+- Для Native/неподтверждённых типов `ModelStateSource` остаётся Unknown и
+  placement отклоняется.
+
+---
+
+## D-022 — Первый Top placed assembly
+
+**Статус:** Accepted (`BRIDGE-000018`).
+
+**Контекст.** R0–R4 подтвердили Top/Bottom transforms; BRIDGE-000017 реализовал
+Core `PlacementTransformBuilder`. Нужен первый production-oriented runtime,
+который создаёт реальную `.SLDASM`, а не API smoke в `0,0,0`.
+
+**Решение.**
+
+- Первый prototype поддерживает только Top component + Top BodyProjection +
+  Generic Embedded + STEP AP214 + SdkExport + PlacedBodyEffective.
+- Component position переводится в board-local frame по минимуму outline;
+  Z surfaces — только `BoardSnapshot.Properties.Thickness` (`±T/2`).
+- Model-origin offset передаётся в Core как локальный
+  `Rz(-ComponentRotationDeg) * deltaBoard`; asset origin = 0.
+- `ModelRotationDegRaw` обязателен и должен быть 0; иначе Unsupported.
+- Core matrix конвертируется в `MathTransform.ArrayData` (row-major `R^T`,
+  translation в метрах); перед установкой проверяется rigidity/determinant,
+  после — readback residual.
+- Один native SLDPRT используется повторно для нескольких occurrences.
+- Save/reopen проверяет count/mapping/transforms; cleanup только Bridge-owned
+  документов, no-overwrite guard, успех только при `CleanupStatus=Verified`.
+- Bottom, projection mismatch, Native/External и неполные данные дают
+  диагностику Unsupported; нулевая матрица не подставляется.
+
+**Последствия.**
+
+- Получен первый реальный Top assembly (20 occurrences, R3 U101–U104 4/4).
+- Bottom/Native/External, board solid и reverse sync остаются следующими этапами.
+- Add-in registration, Registry, installer и UI не затрагиваются.
 
 ---
 

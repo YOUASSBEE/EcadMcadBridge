@@ -20,7 +20,7 @@
 - Не использовать DelphiScript.
 - Не использовать Legacy API Altium.
 - Не менять архитектуру без решения в `DECISIONS.md`.
-- SOLIDWORKS backend реализуется в рамках D-020; полноценный Add-in, Registry, установщик и placement требуют отдельного решения.
+- SOLIDWORKS backend реализуется в рамках D-020; Top-прототип placement — D-022. Полноценный Add-in, Registry и установщик требуют отдельного решения; Bottom/Native/External placement вне scope.
 - Не добавлять API в категорию «подтверждено» без доказательства.
 - Не изменять ветку `source` напрямую.
 - Не коммитить проприетарные DLL, лицензии, секреты и данные заказчиков.
@@ -39,7 +39,7 @@
 - Target Framework: Altium — `net10.0-windows`; Core/Core.Tests — `net10.0`;
   SOLIDWORKS backend/tests/smoke — `net10.0-windows`, x64 (D-020)
 - C#
-- SOLIDWORKS 2026 SP3.2 / interop 34.3.2.3 — backend/STEP import (D-020); Add-in host отдельно
+- SOLIDWORKS 2026 SP3.2 / interop 34.3.2.3 — backend/STEP import/placement (D-020/D-022); Add-in host отдельно
 
 Совместимость AD26 + SDK 4.0.1 + .NET 10 с `net10.0-windows` подтверждена оператором (C-65).
 Исходный InteractiveBom из `InteractiveBom.zip` выбирает TFM по версии Altium
@@ -185,9 +185,9 @@ tests/
 
 ## 13. Текущий этап
 
-`BRIDGE-000015-R1` — SOLIDWORKS STEP import backend: Core Exchange Package →
-unique STEP assets → native `.SLDPRT`, плюс assembly API smoke. D-020.
-R1 добавляет baseline-отслеживание документов, защиту пользовательских документов,
-assembly→part через временную настройку, no-overwrite guard и декодирование warnings.
-Altium 3D export (`BRIDGE-000014`) остаётся в открытом PR #13; полный placement
-в SOLIDWORKS не реализуется до подтверждения системы координат.
+`BRIDGE-000018` — первый Top placed assembly. PR #13–#16 интегрированы в `source`.
+Component Model Catalog 1.1.0 хранит BodyProjection, Standoff/Overall heights и
+ModelStateSource. Top/Top Generic Embedded bodies размещаются в native `.SLDASM`
+через Core Placement Engine, save/reopen verification и cleanup `Verified`.
+Bottom, projection mismatch, Native/External, board solid и reverse sync не входят
+в этот этап (D-021/D-022).

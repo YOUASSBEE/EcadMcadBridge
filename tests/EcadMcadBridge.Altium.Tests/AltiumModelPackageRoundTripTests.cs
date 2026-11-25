@@ -50,7 +50,11 @@ public sealed class AltiumModelPackageRoundTripTests
                 },
                 0,
                 ComponentModelAssetAcquisition.SdkExport,
-                "body-1"),
+                "body-1",
+                ComponentBodyProjection.Top,
+                LengthValue.FromIu(0),
+                LengthValue.FromIu(1_181_102),
+                ComponentModelStateSource.PlacedBodyEffective),
             new AltiumBodyInventoryEntry(
                 "component-1",
                 1,
@@ -60,7 +64,11 @@ public sealed class AltiumModelPackageRoundTripTests
                 new ModelState(),
                 null,
                 ComponentModelAssetAcquisition.NotAcquired,
-                null),
+                null,
+                ComponentBodyProjection.Bottom,
+                LengthValue.FromIu(null),
+                LengthValue.FromIu(null),
+                ComponentModelStateSource.Unknown),
             new AltiumBodyInventoryEntry(
                 "component-3",
                 0,
@@ -70,7 +78,11 @@ public sealed class AltiumModelPackageRoundTripTests
                 new ModelState(),
                 null,
                 ComponentModelAssetAcquisition.SdkExport,
-                "body-2"),
+                "body-2",
+                ComponentBodyProjection.Top,
+                LengthValue.FromIu(0),
+                LengthValue.FromIu(500_000),
+                ComponentModelStateSource.PlacedBodyEffective),
         };
         var assets = new[]
         {

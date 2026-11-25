@@ -13,7 +13,11 @@ internal sealed record AltiumBodyInventoryEntry(
     ModelState State,
     double? ModelRotationDegRaw,
     ComponentModelAssetAcquisition AssetAcquisition,
-    string? AssetKey);
+    string? AssetKey,
+    ComponentBodyProjection BodyProjection,
+    LengthValue StandoffHeight,
+    LengthValue OverallHeight,
+    ComponentModelStateSource ModelStateSource);
 
 /// <summary>Builds the Core write request from snapshot components and body inventory.</summary>
 internal static class AltiumComponentModelRequestBuilder
@@ -69,6 +73,10 @@ internal static class AltiumComponentModelRequestBuilder
                     Origin = body.Origin ?? new ModelOrigin(),
                     State = body.State ?? new ModelState(),
                     ModelRotationDegRaw = body.ModelRotationDegRaw,
+                    BodyProjection = body.BodyProjection,
+                    StandoffHeight = body.StandoffHeight,
+                    OverallHeight = body.OverallHeight,
+                    ModelStateSource = body.ModelStateSource,
                 });
             }
 

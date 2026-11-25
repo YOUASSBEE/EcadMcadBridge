@@ -7,7 +7,7 @@
 1. Не использовать DelphiScript.
 2. Не использовать Legacy API Altium.
 3. Не менять архитектуру без решения в `DECISIONS.md`.
-4. SOLIDWORKS backend реализуется только в рамках D-020; полноценный Add-in, установщик и placement требуют отдельного решения.
+4. SOLIDWORKS backend реализуется в рамках D-020; Top-прототип placement — D-022. Полноценный Add-in, Registry и установщик требуют отдельного решения; Bottom/Native/External placement вне scope.
 5. Не добавлять API в категорию «подтверждено» без доказательства.
 6. Не изменять ветку `source` напрямую; только через Pull Request.
 7. Не коммитить проприетарные сборки Altium/SOLIDWORKS, лицензии и данные заказчиков.
@@ -91,8 +91,35 @@ tests/
 - Smoke-документы и временные копии сохраняются только в `%TEMP%`; CAD-бинарники
   в Git не добавляются.
 - Add-in registration, Registry, установщик и UI — вне scope D-020.
-- `AddComponent5(0,0,0)` — только API smoke, не ECAD placement. `T_B_S`, Bottom,
-  Euler composition не вычисляются до подтверждённой системы координат.
+- `AddComponent5(0,0,0)` — только API smoke. Для placement использовать
+  рассчитанный Core transform и `SetTransformAndSolve3`/`GetTotalTransform`.
+  Top-прототип `BRIDGE-000018` не доказывает Bottom/Native/External placement.
+
+### 4.2 Placement rules (BRIDGE-000018)
+
+- Запросы размещения строятся только из Exchange Package и Core
+  `PlacementTransformBuilder`; production-код не содержит fixture designators,
+  координат и footprint offsets.
+- `ComponentPositionBoardMm` переводится в board-local frame по минимуму контура
+  платы. Model-origin offset передаётся как локальный
+  `Rz(-ComponentRotationDeg) * deltaBoard`, не как board offset.
+- `BoardSurfaceFrame` берётся только из `BoardSnapshot.Properties.Thickness`
+  (`±T/2`); нельзя подставлять 1.6 мм, толщину STEP board solid или любое
+  значение по умолчанию.
+- `AssetOriginLocalMm = 0` для текущего STEP AP214 contract; placement/rotation
+  не должны запекаться в asset повторно.
+- `ModelStateSource = PlacedBodyEffective` нормализуется Core builder-ом;
+  `ComponentRotationDeg` нельзя применять второй раз.
+- `ModelRotationDegRaw` не игнорируется: отсутствие или ненулевое значение —
+  диагностика Unsupported.
+- Неподдерживаемые режимы (Bottom, projection mismatch, Native, External,
+  NotAcquired, Unknown, неполные данные) не получают нулевую матрицу; они
+  получают явную диагностику.
+- SOLIDWORKS translation передаётся в метрах, rotation — в `ArrayData` как
+  row-major `R^T`; Core 4×4 нельзя передавать напрямую.
+- После установки transform читается обратно; translation residual ≤ 0.001 mm,
+  rotation basis residual ≤ 1e-8. Save/reopen проверяет количество occurrences
+  и transforms. Успех — только при `CleanupStatus = Verified`.
 
 ## 5. Работа с API и данными
 
