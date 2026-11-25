@@ -8,8 +8,8 @@ created: 2026-11-25T11:45:00+03:00
 updated: 2026-11-25T11:45:00+03:00
 base: source
 branch: agent/BRIDGE-000012-board-step-reference
-commit: pending
-pr: pending
+commit: e171b00
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/11
 related: [BRIDGE-000010, BRIDGE-000011, PR-9, PR-10, V-27, V-29, V-30, V-33]
 ---
 
@@ -264,6 +264,6 @@ Linear components:
 
 ## 15. Commit и PR
 
-- Commit: `pending`.
-- PR: `pending`, ветка `agent/BRIDGE-000012-board-step-reference`, base `source`,
-  merge запрещён.
+- Commit: `e171b00` (`docs(bridge-000012): add board STEP transform research`).
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/11, ветка
+  `agent/BRIDGE-000012-board-step-reference`, base `source`, merge запрещён.
