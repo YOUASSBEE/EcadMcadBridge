@@ -8,7 +8,7 @@ created: 2026-11-25T20:30:00+03:00
 updated: 2026-11-25T22:13:45+03:00
 base: source
 branch: task/BRIDGE-000016-coordinate-contract
-commit: b8a11db
+commit: 9b880e7
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 related:
   - BRIDGE-000009
@@ -666,7 +666,7 @@ SOLIDWORKS backend (после отдельного решения):
 
 ## 20. Commit и PR
 
-- Commit: `b8a11db` (`docs(bridge-000016): record R3 fixture blocker`).
+- Commit: `9b880e7` (`docs(bridge-000016): record R3 fixture partial creation`).
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/15
 - Base: `source`
 - Merge: запрещён.
