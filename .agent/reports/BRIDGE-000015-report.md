@@ -8,7 +8,7 @@ created: 2026-11-25T16:30:00+03:00
 updated: 2026-11-25T20:04:00+03:00
 base: source
 branch: agent/BRIDGE-000015-solidworks-step-import
-commit: 9055bba
+commit: 5bb4461
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/14
 related:
   - BRIDGE-000004
@@ -322,9 +322,12 @@ no-overwrite guard, save-result guard, cleanup statuses (`Verified`/`Unavailable
 
 ## 12. Commit и PR
 
-- Commit: `9055bba` (`fix(solidworks): harden document lifecycle and native save guards`).
+- Code commit: `5bb4461` (`fix(solidworks): fail closed document lifecycle verification`).
+- Предшествующий R1 commit: `9055bba`.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/14, ветка
   `agent/BRIDGE-000015-solidworks-step-import`, base `source`, merge запрещён.
+- PR description обновлён под R1/R1-FIX-001: 245 тестов, representative
+  `smoke-r33-fix`, раздельные r26/r29/r30.
 - PR #13/#9/#10/#11 не изменялись.
 
 ## 13. История изменений
