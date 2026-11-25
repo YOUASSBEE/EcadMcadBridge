@@ -107,6 +107,12 @@ body и заменены модели. Компоненты размещены �
 `Body bbox` в таблице — размеры относительно model origin; `0…4724409 IU = 0…12 mm`,
 `0…2755906 IU = 0…7 mm`. Для всех восьми component rotations bbox остался
 **локальным 12×7**, то есть component rotation не применяется в body projection.
+
+Raw `GetState rotZ=360` у C63/C59/C61 — значение, которое Altium вернул после
+сохранения/перечитывания; по ориентации оно эквивалентно `0°` (нормализованное
+значение — `0°`), но в таблице сохранено raw-значение. Это не два разных
+ориентационных состояния.
+
 `GetState_FlippedOnLayer` для Bottom — `false`; side определяется layer 32
 (component) / body layer 70.
 
@@ -145,24 +151,31 @@ Dz control (state 0, до замены combined):
 - `dz=0` → standoff `0`, overall `1181102 IU = 3.000 mm`.
 
 Это подтверждает `dz` в IU (393700 IU/mm) для state 0 и сдвиг Z.
-Для combined rotations standoff/overall — уже трансформированные extents; порядок
-Euler не подтверждён.
+Одиночные 90° подтверждают величину угла и изменение extents body projection, но
+**не** знак/направление вращения и не handedness. Для combined rotations
+standoff/overall — уже трансформированные extents; порядок Euler не подтверждён.
 
 ## 5. `GetState`, `GetRotation`, `GetOrigin`
 
-- `GetState(out rotX,out rotY,out rotZ,out dz)` для Generic: значения в градусах
-  (single-axis 90° меняет body projection как X/Y/Z-поворот), `dz` — IU.
+- `GetState(out rotX,out rotY,out rotZ,out dz)` для Generic: single-axis 90°
+  меняет extents body projection, что подтверждает угловую шкалу в градусах и
+  величину 90°; **знак вращения и handedness не подтверждены**.
+- `dz` — IU: при state 0 `dz=±393700` даёт ±1 mm standoff/overall.
 - `GetRotation()` на всех проверенных моделях вернул `0` и не совпал с `GetState`
   rotZ (C63/C543 и др.); использовать `GetRotation` для 3D-ориентации нельзя.
-- `GetOrigin()`:
+- `GetOrigin()` предоставляет только X/Y:
   - Generic control: component X/Y (проверено на всех 8 + state instances);
   - Native control: центр body bbox/модели, не нижний угол профиля.
+  Z-координата origin в системе платы, поверхность платы и положение по толщине
+  этим API не установлены.
 - Body projection Generic после `SetModel`/reload: локальный bbox 12×7, origin =
   component; body projection Native: центрированный L-bbox.
 - Component rotation 0/90/180/270 не изменяет экспортированный STEP и body bbox
-  размеры; это отдельное преобразование C→B.
+  размеры; это отдельное преобразование, знак/направление которого не проверен
+  сравнением характерных точек с Altium 3D Layout.
 - `GetState_FlippedOnLayer()` для Bottom layer 32 вернул `false`; side нужно
-  брать из layer ID, не из flip-флага.
+  брать из layer ID, не из flip-флага. Пространственный Bottom transform не
+  установлен.
 
 ## 6. Матрицы преобразования
 
@@ -171,59 +184,65 @@ Euler не подтверждён.
 `R_s` — model state rotation, `S` — локальная STEP-геометрия, `dz` — Z-сдвиг в IU,
 `1/393700` mm/IU.
 
-### 6.1 Generic, state = 0 (подтверждено)
+### 6.1 Generic, state = 0 — candidate XY transform
 
 ```text
-T_B_S = T(O_G) · Rz(θc) · S_G
+T_XY,candidate = T_xy(O_G) · Rz(θc) · S_G,xy
 ```
 
-- `S_G`: bbox `0…12 × 0…7 × 0…3 mm`, origin в нижнем углу.
-- `O_G`: component X/Y (из `GetOrigin`).
-- `θc`: component rotation; в экспортированном файле отсутствует, должна быть
-  применена потребителем.
-- `Rz` знак принят right-handed CCW; независимо визуально не проверен (V-27).
+Это **не** полная 3D-матрица board-space. Доказано только:
 
-Подтверждение: все 8 Generic instances Top/Bottom × 0/90/180/270 дали
-`ExportToStep`/`SaveModelToFile` с bbox 12×7×3 и volume 95.2146 mm³; component
-rotation не меняет файл/body bbox.
+- `S_G`: локальная STEP-геометрия, bbox `0…12 × 0…7 × 0…3 mm`, origin в нижнем
+  углу; STEP/X_T сохраняют эту локальную геометрию;
+- `O_G`: X/Y из `GetOrigin`; Z-origin/положение относительно поверхности и
+  толщины платы не измерены;
+- component rotation отсутствует в экспортированном файле и в body projection;
+- все 8 Generic instances Top/Bottom × 0/90/180/270 дали bbox 12×7×3 и volume
+  95.2146 mm³.
 
-### 6.2 Generic, state ≠ 0 (частично)
+**Не доказано:** знак/направление `Rz`, handedness board coordinates, Z-transform,
+полная 4×4 matrix. `T_XY,candidate` — рабочая XY-композиция для планирования
+следующего эксперимента, а не подтверждённая 3D-формула. V-27 остаётся
+`Partially closed`.
+
+### 6.2 Generic, state ≠ 0 — candidate state XY
 
 ```text
-T_B_S ≈ T(O_G) · Rz(θc) · R_s(rx,ry,rz) · T_z(dz) · S_G
+T_XY,candidate ≈ T_xy(O_G) · Rz(θc) · R_s,xy(rx,ry,rz) · T_z(dz) · S_G,xy
 ```
 
-- `R_s` для одиночных 90° подтверждён по body projection (12×3, 3×7, 7×12).
+- `R_s,xy` для одиночных 90° подтверждён по изменению extents body projection
+  (12×3, 3×7, 7×12), но знак вращения не установлен.
 - `T_z(dz)` подтверждён при state 0 (`dz` = IU).
 - Порядок combined X/Y/Z для 30/45/60 **не подтверждён**: body projection
   (4-точечный контур ~12.948×14.864 mm) не совпал с простыми right-handed
   Euler-порядками; STEP-файл состояния не содержит (все экспортируемые файлы
-  остались 12×7×3), поэтому matrix state нужно применять отдельно.
+  остались 12×7×3). Формула — candidate, не доказанная 3D-матрица.
 
-### 6.3 Native Extruded, state = 0 (подтверждено)
+### 6.3 Native Extruded, state = 0 — candidate XY transform
 
 ```text
-T_B_S = T(O_N) · Rz(θc) · S_N_centered
+T_XY,candidate = T_xy(O_N) · Rz(θc) · S_N_centered,xy
 ```
 
 - `S_N_centered`: `[-6,6] × [-3.5,3.5] × [0,3] mm` (STEP/X_T после
   `ExportToStep`/`SaveModelToFile`).
-- `O_N`: центр bbox, полученный `GetOrigin`.
-- `θc` не входит в файл/body; применять отдельно.
+- `O_N`: центр bbox, полученный `GetOrigin` (X/Y); Z-origin не измерен.
+- `θc` не входит в файл/body; знак/направление не проверены.
 - `GetState=0`, standoff 0, overall 3 mm; dz 0.
 
 Подтверждение: 8 Native instances Top/Bottom × 0/90/180/270, все
 `model.step`/`body.step`/`body.x_t` дали bbox 12×7×3 и volume 146.999 mm³.
+Это подтверждает локальную геометрию/XY-кандидат, но не полную 3D-матрицу.
 
 ### 6.4 Bottom-side
 
 Bottom-компоненты (layer 32) имеют `GetState_FlippedOnLayer=false`; body projection
-и STEP/X_T совпадают с Top (no reflection); `GetOrigin` не меняет знак. Следовательно:
-
-- экспорт **не содержит** Bottom reflection;
-- reflection должен выполняться MCAD-импортером;
-- ось/матрица отражения не доказана (кандидат — `diag(1,1,-1)` в board Z, но это
-  гипотеза, не результат). V-30 остаётся `Open`.
+и STEP/X_T совпадают с Top. **Установленного Bottom reflection в экспортируемой
+геометрии нет.** Из этого не следует, что reflection обязательно должен выполнять
+MCAD-импортер: необходимость, ось и конкретная операция на стороне MCAD остаются
+неподтверждёнными до сравнения с Altium 3D Layout. Кандидат `diag(1,1,-1)` в
+board Z — гипотеза, не результат. V-30 остаётся `Open`.
 
 ## 7. Экспорт и SOLIDWORKS 2026
 
