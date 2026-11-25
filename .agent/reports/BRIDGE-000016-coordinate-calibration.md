@@ -490,7 +490,7 @@ C524/C516 state translation and Z boundaries matched full board, but component r
 | BodyProjection mismatch | Not exercised; blocked |
 | Full board cutout landmarks | Not extracted; Unknown |
 
-**R2 status: blocked for full Top placement sign-off.** The independent golden reference is valid for board frame, model origin, state rotation, dz, and Bottom rot0, but not for component RotationDeg; production placement cannot start until a valid rotation-bearing fixture/reference is produced.
+**R2 status: blocked for full Top placement sign-off.** The independent golden reference is valid for board frame, model origin, state rotation, dz, and Bottom rot0, but not for component RotationDeg; production placement cannot start until a valid rotation-bearing fixture/reference is produced. Этот статус относится только к R2; R3-FIX-003 (раздел 13.5) снял Top-blocker на library-relative Generic-теле.
 
 ## 13.2. R3 library-relative fixture attempt
 
