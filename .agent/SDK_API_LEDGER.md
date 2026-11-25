@@ -179,6 +179,8 @@ TFM InteractiveBom зависит от версии Altium: `Directory.Build.pro
 | C-91 | `TObjectId.eViaObject`; `IPCB_Via.GetState_XLocation/YLocation/Size/HoleSize`; `IPCB_ViaHelper.GetState_StartLayer/StopLayer`; `IPCB_PrimitiveHelper.GetState_Layer/GetState_Net`; `IPCB_Primitive.GetState_UniqueId` | Vias на всех трёх платах; 4 025 / 173 / 173; `GetState_UniqueId` пустой, fallback по индексу | `Via` |
 | C-92 | `IPCB_Region.GetState_Kind/Name/Area/HoleCount/GetGeometricPolygon/GetMainContour/GetHole`; `IPCB_Primitive.GetState_Layer/GetState_Net/GetState_IsKeepout/GetState_UniqueId`; `TRegionKind` C-85 | Regions на всех трёх платах; 381 / 12 / 12 core regions, 1 / 3 / 5 Board Cutout; `GetState_UniqueId` пустой | `Region`; Board Cutout остаётся в outline |
 | C-93 | `TObjectId.eTextObject`; `IPCB_Text.GetState_Text/Size/Width/Bold/Italic/IsDesignator/IsComment`; `IPCB_TextHelper.GetState_TextKind`; `IPCB_RectangularPrimitive.GetState_XLocation/YLocation/Rotation`; `IPCB_PrimitiveHelper.GetState_Layer/GetState_Component`; `IPCB_Primitive.GetState_UniqueId` | Texts на всех трёх платах; экспортировано 34 / 87 / 87; пропущено designator/comment 146 (2×73), 2 093 (2×1046 + 1 barcode); `GetState_UniqueId` пустой | `TextItem` |
+| C-104 | `IPCB_ComponentBody.GetStandoffHeight/GetOverallHeight`; `IPCB_ComponentBody.GetBodyProjection`; `TBoardSide.eBoardSide_Top=0` / `eBoardSide_Bottom=1` | BRIDGE-000016-R0 controlled fixture: body projection 0/1 for Top/Bottom; Standoff/Overall in IU; Generic state variants and combined C524/C516 matched Z bounds after `Rz·Ry·Rx` + dz with error ≤ 0.000004 mm. Docs: heights measured outward from board surface on projection side | Raw body metadata for coordinate calibration; not added to Core schema in R0 |
+| C-105 | `IPCB_ComponentBody.GetState_SnapCount`; `IPCB_ComponentBody.GetState_SnapPoint(int)`; `ICoordPoint3D` | Metadata/docs only; BRIDGE-000016-R0 fixture values not read; not used for placement | Requires runtime verification before use |
 
 Подтверждено smoke-тестом на `MiniPC.PcbDoc`: 31 слой, 1046 компонентов, 6004 пада,
 837 сетей, 245 multi-layer PadStack с 16 shapes, 9669 форм; `rotations` включают
@@ -268,7 +270,7 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | V-11 | Автоматизация установки расширения и правки `ExtensionsRegistry.xml` | Известен только ручной путь | Отдельная задача; учесть права администратора и блокировку файла |
 | V-12 | Лицензирование и допустимость поставки SDK-сборок Altium вместе с Add-in | Требуется проверка лицензии; в репозиторий DLL не коммитятся | Юридическая/техническая проверка, решение в `DECISIONS.md` |
 | V-13 | Точный build AD26 и runtime на целевом стенде | Частично закрыт в `BRIDGE-000001`: `X2.EXE` 26.12.2.9, `X2.runtimeconfig.json` → `tfm=net10.0`, `Microsoft.NETCore.App`/`Microsoft.WindowsDesktop.App` 10.0.10, CLR в логе Add-in — 10.0.10. Конкретный вариант `Altium.SDK.dll` внутри хоста по-прежнему не изолирован | Зафиксированы версия файла, runtimeconfig и лог загрузки; изоляция сборки — отдельная задача |
-| V-14 | API SOLIDWORKS 2026 (interop, версия, загрузка Add-in) | Ничего не проверено; в проекте нет кода | Отдельная задача MCAD-фазы |
+| V-14 | API SOLIDWORKS 2026 (interop, версия, загрузка Add-in) | R0 подтвердил `GetMathUtility`, `CreateTransform`, `ComposeTransform`, `MathTransform.ArrayData`, `Component2.Transform2`, `SetTransformAndSolve3`, `GetTotalTransform`, `AddComponent5` на локальном probe; Add-in loading/registration не проверялись | Transform/occurrence часть закрыта для R0; Add-in host остаётся отдельным этапом |
 | V-15 | Поддержка WPF/WinForms внутри AD26 и тема оформления | Частично закрыт в `BRIDGE-000001`: хост-диалог `DXP.Utils.ShowInfo` (C-69) и минимальная WinForms-панель (C-72) работают в AD26; полноценные панели не создавались | Отдельный smoke-тест полноценной панели; для текущей команды кастомный UI не нужен |
 | V-16 | Требования к потоку и COM-апартаменту для вызовов PCB API | Не проверено; возможны UI-thread-only ограничения | Smoke-тест с фоновым потоком и без него |
 | V-17 | Поведение `TIterationMethod.eProcessAll` на всех типах объектов | Значение известно, полный набор объектов не проверен | Сравнить счётчики с UI/отчётом Altium |
@@ -295,11 +297,17 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 
 ## 5. SOLIDWORKS 2026
 
-Раздел намеренно пуст в категории «Подтверждено».
+### 5.1. Подтверждено в R0 (локальный probe, не production backend)
+
+| ID | Сигнатура | Доказательство | Использование |
+|---|---|---|---|
+| S-016 | `ISldWorks.GetMathUtility()` → `IMathUtility`; `IMathUtility.CreateTransform(object)`; `IMathUtility.ComposeTransform(MathVector XVec, MathVector YVec, MathVector ZVec, MathVector TransVec, double Scale)`; `MathTransform.ArrayData` | SOLIDWORKS 2026 SP3.2 probe `SwTransformProbe`: identity/translation/basis vectors; 16-element layout: 3×3 block 0–8, translation 9–11, scale 12, zeros 13–15; translation in meters | Calibration of `MathTransform`; no production code in R0 |
+| S-017 | `IComponent2.Transform2` (get/set); `IComponent2.SetTransformAndSolve3(MathTransform, bool)`; `IComponent2.GetTotalTransform(bool)`; `IAssemblyDoc.AddComponent5(...)` | Probe: `AddComponent5(...,0,0,0)` then `Transform2`/`SetTransformAndSolve3`; readback and `GetTotalTransform` identical; origin `(0.01,0.02,0.03) m`, x basis `(0.01,-0.98,0.03) m` | Exact occurrence transform calibration; `AddComponent5` X/Y/Z is only approximate bbox placement |
+
+`MathTransform.ArrayData` first 9 values are the transpose of the column-vector rotation matrix: `ArrayData[0..8] = R^T` row-major. This is confirmed by basis-vector mapping; do not pass a user 4×4 row-major matrix directly.
 
 Планируемые к проверке вопросы (без фиксации сигнатур):
 
-- какой interop использовать для SOLIDWORKS 2026;
 - как загружается Add-in и как регистрируется;
 - как получить сборку/деталь и дерево компонентов;
 - как создавать/обновлять геометрию без разрушения пользовательской модели;
@@ -327,3 +335,4 @@ Reflection и `dynamic` в каркасе не используются. Пря�
 | 2026-11-24 | BRIDGE-000003-FIX-007: scale-independent matched-centroid dedup для дуговых Hole | local-agent |
 | 2026-11-24 | BRIDGE-000007: C-89 document path/modified API; V-05 закрыт, Altium Package Export | local-agent |
 | 2026-11-24 | BRIDGE-000009: C-90…C-93 tracks/vias/regions/texts; Q-010 частично открыт (region arc fallback) | local-agent |
+| 2026-11-25 | BRIDGE-000016-R0: C-104 body projection/heights, C-105 snap API (metadata only); S-016/S-017 SOLIDWORKS transform probe; V-14 transform part partially closed | local-agent |
