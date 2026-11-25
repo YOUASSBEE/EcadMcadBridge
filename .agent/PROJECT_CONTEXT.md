@@ -5,9 +5,9 @@
 | Проект | ECAD-MCAD Bridge |
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
-| Текущая ветка | `agent/BRIDGE-000009-complete-altium-snapshot` |
-| Статус | `BRIDGE-000007` слит; `BRIDGE-000009` дополняет BoardSnapshot tracks/vias/regions/texts |
-| Дата фиксации | 2026-11-24 |
+| Текущая ветка | `agent/BRIDGE-000013-core-3d-assets` |
+| Статус | `BRIDGE-000013` добавляет опциональный каталог 3D-моделей и assets в Core Exchange Package |
+| Дата фиксации | 2026-11-25 |
 | Владелец продукта | Оператор проекта (человек) |
 
 ## 1. Назначение
@@ -47,7 +47,9 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 - read-only Altium adapter для слоёв, компонентов, падов/PadStacks, nets и контура платы,
   команда `Export Board Snapshot` и smoke-проверка на vendor-платах AD26;
 - Core Exchange Package: deterministic manifest, snapshot, checksums, atomic writer,
-  validating reader и безопасные относительные пути (`BRIDGE-000004`).
+  validating reader и безопасные относительные пути (`BRIDGE-000004`);
+- опциональный каталог 3D-моделей компонентов `models/models.json` и
+  content-addressed STEP/X_T assets в `assets/3d/` (`BRIDGE-000013`).
 
 Не входит в scope текущего этапа:
 
@@ -204,8 +206,14 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   отклоняет несохранённые документы; package root задаётся env/`LOCALAPPDATA`.
   `BRIDGE-000009`: adapter заполняет Tracks, Vias, Regions и Texts; region geometry
   использует geometric polygon line fallback с явным warning (Q-010 частично открыт).
-  Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
-  и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.
+  Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов и stack order;
+  эти ограничения зафиксированы в ledger V-18…V-25.
+- `BRIDGE-000013`: Exchange Package 1.0.0 получил опциональный
+  `models/models.json` (`ecad-mcad-bridge/component-models` 1.0.0) и
+  content-addressed `assets/3d/<sha256>.step|.x_t`; capability
+  `component-3d-models`; raw IU/mm metadata, потоковое копирование/хеширование
+  assets и полное покрытие manifest/checksums. Извлечение моделей из Altium и
+  SOLIDWORKS Add-in не реализованы (D-018, `BRIDGE-000014`).
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.
   `BRIDGE-000002` новых Altium API не добавляет.
 - Git-протокол и runtime-обмен разделены: Git не используется для пользовательских PCB, STEP
@@ -218,7 +226,7 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 |---|---|---|---|
 | Q-001 | Загружает ли AD26 in-process сборку `net10.0-windows`? | **Закрыт:** подтверждено оператором (C-65) | TFM InteractiveBom выбирается по версии Altium; TFM Bridge зафиксирован как `net10.0-windows` |
 | Q-002 | Какая точная сборка Altium Designer 26 используется на стенде? | **Уточнён:** `X2.EXE` 26.12.2.9, runtime `net10.0` / 10.0.10 | Изоляция конкретного варианта `Altium.SDK.dll` внутри хоста остаётся открытой (V-13) |
-| Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | Открыт | Нужно для будущей передачи в SOLIDWORKS, API не проверен |
+| Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | Открыт; контракт хранения готов (`BRIDGE-000013`) | Нужно для будущей передачи в SOLIDWORKS, API не проверен; извлечение вынесено в `BRIDGE-000014` |
 | Q-004 | Какой interop-пакет и API использовать для SOLIDWORKS 2026? | Открыт | Не проверено; в реестр не вносится до проверки |
 | Q-005 | Какой UI-стек использовать в Add-in (WPF/WinForms)? | Частично закрыт | Для smoke-команды — хост-диалог, для запуска сервера — минимальная WinForms-панель; полноценные панели ещё не проектировались |
 | Q-006 | Как автоматизировать установку/регистрацию расширения? | Открыт | Известен ручной путь через `ExtensionsRegistry.xml`; автоматизация требует отдельного решения |
@@ -243,6 +251,8 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 | Core | Общая библиотека домена и формата обмена без ссылок на CAD SDK |
 | Snapshot | Снимок состояния платы в нейтральной модели Core |
 | Package | Каталог/архив с `manifest.json`, snapshot-файлами и контрольными суммами |
+| Model catalog | Опциональный `models/models.json` с метаданными 3D-тел и ссылками на assets |
+| Content-addressed asset | Файл STEP/X_T с именем `<lowercase-sha256>.<ext>` в `assets/3d/` |
 | IU | Internal Units — целочисленные единицы Altium; исходное представление линейных величин без потери точности, 1 IU = 0.00000254 mm |
 | Runtime exchange | Передача Exchange Package и рабочих файлов между CAD-системами через локальный каталог вне Git |
 | Local Agent | Локальный процесс на CAD-стенде (человек или автоматизация), обменивающийся задачами через Git |

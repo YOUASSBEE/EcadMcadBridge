@@ -1,4 +1,4 @@
-using System.Text;
+using System.Security.Cryptography;
 using EcadMcadBridge.Core.Model;
 using EcadMcadBridge.Core.Serialization;
 using EcadMcadBridge.Core.Validation;
@@ -8,10 +8,19 @@ namespace EcadMcadBridge.Core.Packaging;
 /// <summary>Writes a complete Exchange Package into a new package directory.</summary>
 public static class ExchangePackageWriter
 {
+    private const int CopyBufferSize = 81920;
+
     public static PackageWriteResult Write(
         string outputRoot,
         BoardSnapshot snapshot,
-        PackageWriteOptions options)
+        PackageWriteOptions options) =>
+        Write(outputRoot, snapshot, options, models: null);
+
+    public static PackageWriteResult Write(
+        string outputRoot,
+        BoardSnapshot snapshot,
+        PackageWriteOptions options,
+        ComponentModelsWriteRequest? models)
     {
         var diagnostics = new List<PackageDiagnostic>();
         if (string.IsNullOrWhiteSpace(outputRoot))
@@ -34,46 +43,16 @@ public static class ExchangePackageWriter
         if (metadata.Any(item => item.Severity == PackageDiagnosticSeverity.Error))
             return PackageWriteResult.Failure(diagnostics);
 
-        var snapshotBytes = BoardSnapshotJson.SerializeToUtf8(snapshot);
-        var snapshotSha = PackageChecksums.ComputeSha256(snapshotBytes);
-        var capabilities = (options.Capabilities ?? Array.Empty<string>())
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(item => item, StringComparer.Ordinal)
-            .ToArray();
-        var manifest = new PackageManifest
+        var modelsRequested = models is not null;
+        var requestedCapabilities = options.Capabilities ?? Array.Empty<string>();
+        if (!modelsRequested
+            && requestedCapabilities.Contains(ComponentModelCatalog.Capability, StringComparer.Ordinal))
         {
-            PackageId = options.PackageId,
-            CreatedAtUtc = options.CreatedAtUtc,
-            Producer = options.Producer,
-            Source = options.Source,
-            SourceUnits = "altium-iu",
-            Units = "mm",
-            Files = new[]
-            {
-                new PackageFileEntry
-                {
-                    Path = PackageManifest.SnapshotFileName,
-                    Sha256 = snapshotSha,
-                    Size = snapshotBytes.LongLength,
-                },
-            },
-            Capabilities = capabilities,
-        };
-
-        var manifestValidation = ExchangePackageValidator.ValidateManifest(manifest);
-        diagnostics.AddRange(manifestValidation);
-        if (manifestValidation.Any(item => item.Severity == PackageDiagnosticSeverity.Error))
-            return PackageWriteResult.Failure(diagnostics);
-
-        var manifestBytes = PackageManifestJson.SerializeToUtf8(manifest);
-        var checksums = new[]
-        {
-            new PackageChecksumEntry(
-                PackageManifest.ManifestFileName,
-                PackageChecksums.ComputeSha256(manifestBytes)),
-            new PackageChecksumEntry(PackageManifest.SnapshotFileName, snapshotSha),
-        };
-        var checksumBytes = PackageChecksums.Serialize(checksums);
+            return Fail(
+                PackageDiagnosticCodes.InvalidMetadata,
+                "capabilities",
+                "The component-3d-models capability requires a component model catalog.");
+        }
 
         string root;
         try
@@ -89,16 +68,153 @@ public static class ExchangePackageWriter
         if (Directory.Exists(packageDirectory) || File.Exists(packageDirectory))
             return Fail(PackageDiagnosticCodes.ExistingPackage, packageDirectory, "Package id already exists; refusing to overwrite.");
 
+        var snapshotBytes = BoardSnapshotJson.SerializeToUtf8(snapshot);
+        var snapshotSha = PackageChecksums.ComputeSha256(snapshotBytes);
         var tempDirectory = Path.Combine(
             root,
             ".tmp-" + options.PackageId.ToString("N") + "-" + Guid.NewGuid().ToString("N"));
+
+        PackageManifest? manifest = null;
         try
         {
             Directory.CreateDirectory(root);
             Directory.CreateDirectory(tempDirectory);
+
+            var stagedAssets = new Dictionary<string, StagedAsset>(StringComparer.Ordinal);
+            if (modelsRequested)
+            {
+                if (!TryStageAssets(models!, tempDirectory, diagnostics, stagedAssets))
+                    return PackageWriteResult.Failure(diagnostics);
+                TryDelete(Path.Combine(tempDirectory, ".staging"));
+            }
+
+            ComponentModelCatalog? catalog = null;
+            byte[]? catalogBytes = null;
+            if (modelsRequested)
+            {
+                catalog = ResolveCatalog(models!, stagedAssets, diagnostics);
+                var catalogValidation = ComponentModelsValidator.ValidateStructure(catalog, snapshot);
+                diagnostics.AddRange(catalogValidation);
+                if (diagnostics.Any(item => item.Severity == PackageDiagnosticSeverity.Error))
+                    return PackageWriteResult.Failure(diagnostics);
+
+                var referencedAssets = catalog.Components
+                    .SelectMany(component => component.Bodies)
+                    .Where(body => !string.IsNullOrEmpty(body.AssetPath))
+                    .Select(body => body.AssetPath!)
+                    .ToHashSet(StringComparer.Ordinal);
+                foreach (var staged in stagedAssets.Values)
+                {
+                    if (!referencedAssets.Contains(staged.RelativePath))
+                    {
+                        diagnostics.Add(Error(
+                            PackageDiagnosticCodes.InvalidModelAsset,
+                            "models.assets",
+                            "An asset input is not referenced by any catalog body."));
+                    }
+                }
+
+                if (diagnostics.Any(item => item.Severity == PackageDiagnosticSeverity.Error))
+                    return PackageWriteResult.Failure(diagnostics);
+
+                catalogBytes = ComponentModelsJson.SerializeToUtf8(catalog);
+            }
+
+            var files = new List<PackageFileEntry>
+            {
+                new()
+                {
+                    Path = PackageManifest.SnapshotFileName,
+                    Sha256 = snapshotSha,
+                    Size = snapshotBytes.LongLength,
+                },
+            };
+
+            var uniqueAssets = stagedAssets.Values
+                .GroupBy(item => item.RelativePath, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .OrderBy(item => item.RelativePath, StringComparer.Ordinal)
+                .ToArray();
+
+            if (catalog is not null && catalogBytes is not null)
+            {
+                files.Add(new PackageFileEntry
+                {
+                    Path = PackageManifest.ComponentModelsFileName,
+                    Sha256 = PackageChecksums.ComputeSha256(catalogBytes),
+                    Size = catalogBytes.LongLength,
+                });
+
+                foreach (var asset in uniqueAssets)
+                {
+                    files.Add(new PackageFileEntry
+                    {
+                        Path = asset.RelativePath,
+                        Sha256 = asset.Sha256,
+                        Size = asset.Size,
+                    });
+                }
+            }
+
+            var capabilities = requestedCapabilities
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (modelsRequested)
+                capabilities.Add(ComponentModelCatalog.Capability);
+
+            manifest = new PackageManifest
+            {
+                PackageId = options.PackageId,
+                CreatedAtUtc = options.CreatedAtUtc,
+                Producer = options.Producer,
+                Source = options.Source,
+                SourceUnits = "altium-iu",
+                Units = "mm",
+                Files = files,
+                Capabilities = capabilities
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(item => item, StringComparer.Ordinal)
+                    .ToArray(),
+            };
+
+            var manifestValidation = ExchangePackageValidator.ValidateManifest(manifest);
+            diagnostics.AddRange(manifestValidation);
+            if (manifestValidation.Any(item => item.Severity == PackageDiagnosticSeverity.Error))
+                return PackageWriteResult.Failure(diagnostics);
+
+            var manifestBytes = PackageManifestJson.SerializeToUtf8(manifest);
+            var checksums = new List<PackageChecksumEntry>
+            {
+                new(
+                    PackageManifest.ManifestFileName,
+                    PackageChecksums.ComputeSha256(manifestBytes)),
+                new(PackageManifest.SnapshotFileName, snapshotSha),
+            };
+
+            if (catalogBytes is not null)
+            {
+                checksums.Add(new PackageChecksumEntry(
+                    PackageManifest.ComponentModelsFileName,
+                    PackageChecksums.ComputeSha256(catalogBytes)));
+
+                foreach (var asset in uniqueAssets)
+                    checksums.Add(new PackageChecksumEntry(asset.RelativePath, asset.Sha256));
+            }
+
+            var checksumBytes = PackageChecksums.Serialize(checksums);
+
             File.WriteAllBytes(
                 Path.Combine(tempDirectory, PackageManifest.SnapshotFileName),
                 snapshotBytes);
+            if (catalogBytes is not null)
+            {
+                var catalogPath = Path.Combine(
+                    tempDirectory,
+                    PackageManifest.ComponentModelsFileName.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(catalogPath)!);
+                File.WriteAllBytes(catalogPath, catalogBytes);
+            }
+
             File.WriteAllBytes(
                 Path.Combine(tempDirectory, PackageManifest.ManifestFileName),
                 manifestBytes);
@@ -106,12 +222,18 @@ public static class ExchangePackageWriter
                 Path.Combine(tempDirectory, PackageManifest.ChecksumsFileName),
                 checksumBytes);
 
-            VerifyWrittenFiles(tempDirectory, manifestBytes, snapshotBytes, checksumBytes, snapshotSha);
+            VerifyWrittenFiles(
+                tempDirectory,
+                manifestBytes,
+                snapshotBytes,
+                checksumBytes,
+                snapshotSha,
+                catalogBytes,
+                uniqueAssets);
             Directory.Move(tempDirectory, packageDirectory);
         }
         catch (Exception ex)
         {
-            TryDelete(tempDirectory);
             if (Directory.Exists(packageDirectory) || File.Exists(packageDirectory))
                 return Fail(PackageDiagnosticCodes.ExistingPackage, packageDirectory, "Package id already exists; refusing to overwrite.");
             return Fail(
@@ -119,8 +241,221 @@ public static class ExchangePackageWriter
                 "package",
                 "Package write failed: " + ex.GetType().Name);
         }
+        finally
+        {
+            TryDelete(tempDirectory);
+        }
 
-        return PackageWriteResult.Success(packageDirectory, manifest, diagnostics);
+        return manifest is null
+            ? Fail(PackageDiagnosticCodes.WriteFailed, "package", "Package manifest was not produced.")
+            : PackageWriteResult.Success(packageDirectory, manifest, diagnostics);
+    }
+
+    private static bool TryStageAssets(
+        ComponentModelsWriteRequest models,
+        string tempDirectory,
+        List<PackageDiagnostic> diagnostics,
+        Dictionary<string, StagedAsset> stagedAssets)
+    {
+        var assets = models.Assets ?? Array.Empty<ComponentModelAssetSource>();
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var asset in assets)
+        {
+            if (asset is null)
+            {
+                diagnostics.Add(Error(PackageDiagnosticCodes.InvalidMetadata, "models.assets", "Asset entry is null."));
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(asset.AssetKey))
+            {
+                diagnostics.Add(Error(PackageDiagnosticCodes.InvalidMetadata, "models.assets", "Asset key is required."));
+                continue;
+            }
+
+            if (!keys.Add(asset.AssetKey))
+            {
+                diagnostics.Add(Error(PackageDiagnosticCodes.InvalidMetadata, "models.assets", $"Duplicate asset key '{asset.AssetKey}'."));
+                continue;
+            }
+
+            if (!Enum.IsDefined(asset.Format))
+                diagnostics.Add(Error(PackageDiagnosticCodes.InvalidModelAsset, "models.assets", "Unknown asset format."));
+
+            if (string.IsNullOrWhiteSpace(asset.SourcePath))
+            {
+                diagnostics.Add(Error(PackageDiagnosticCodes.InvalidModelAsset, "models.assets", "Asset source path is required."));
+                continue;
+            }
+
+            if (!File.Exists(asset.SourcePath))
+            {
+                diagnostics.Add(Error(PackageDiagnosticCodes.InvalidModelAsset, "models.assets", "An asset source file is missing or unreadable."));
+                continue;
+            }
+
+            try
+            {
+                stagedAssets[asset.AssetKey] = StageAsset(asset, tempDirectory);
+            }
+            catch (AssetSourceChangedException)
+            {
+                diagnostics.Add(Error(
+                    PackageDiagnosticCodes.InvalidModelAsset,
+                    "models.assets",
+                    "An asset source file changed while it was being copied."));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                diagnostics.Add(Error(
+                    PackageDiagnosticCodes.InvalidModelAsset,
+                    "models.assets",
+                    "An asset source file could not be read: " + ex.GetType().Name));
+            }
+        }
+
+        return !diagnostics.Any(item => item.Severity == PackageDiagnosticSeverity.Error);
+    }
+
+    private static StagedAsset StageAsset(ComponentModelAssetSource asset, string tempDirectory)
+    {
+        var before = new FileInfo(asset.SourcePath);
+        if (!before.Exists || (before.Attributes & FileAttributes.Directory) != 0)
+            throw new AssetSourceChangedException();
+
+        var stagingDirectory = Path.Combine(tempDirectory, ".staging");
+        Directory.CreateDirectory(stagingDirectory);
+        var partialPath = Path.Combine(stagingDirectory, Guid.NewGuid().ToString("N") + ".tmp");
+        string sha;
+        long size;
+        try
+        {
+            using (var input = new FileStream(
+                       asset.SourcePath,
+                       FileMode.Open,
+                       FileAccess.Read,
+                       FileShare.ReadWrite | FileShare.Delete,
+                       CopyBufferSize,
+                       FileOptions.SequentialScan))
+            using (var output = new FileStream(
+                       partialPath,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None,
+                       CopyBufferSize,
+                       FileOptions.SequentialScan))
+            using (var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+            {
+                var buffer = new byte[CopyBufferSize];
+                size = 0;
+                int read;
+                while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    output.Write(buffer, 0, read);
+                    hash.AppendData(buffer, 0, read);
+                    size += read;
+                }
+
+                output.Flush(flushToDisk: true);
+                sha = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            }
+
+            var after = new FileInfo(asset.SourcePath);
+            if (!after.Exists
+                || after.Length != before.Length
+                || after.LastWriteTimeUtc != before.LastWriteTimeUtc
+                || size != before.Length)
+            {
+                throw new AssetSourceChangedException();
+            }
+
+            var extension = asset.Format == ComponentModelAssetFormat.ParasolidXT ? "x_t" : "step";
+            var fileName = sha + "." + extension;
+            var relativePath = ComponentModelCatalog.AssetDirectory + "/" + fileName;
+            var finalPath = Path.Combine(tempDirectory, ComponentModelCatalog.AssetDirectory.Replace('/', Path.DirectorySeparatorChar), fileName);
+            Directory.CreateDirectory(Path.GetDirectoryName(finalPath)!);
+
+            if (File.Exists(finalPath))
+            {
+                File.Delete(partialPath);
+                if (new FileInfo(finalPath).Length != size
+                    || !string.Equals(PackageChecksums.ComputeFileSha256(finalPath), sha, StringComparison.Ordinal))
+                {
+                    throw new AssetSourceChangedException();
+                }
+            }
+            else
+            {
+                File.Move(partialPath, finalPath);
+            }
+
+            return new StagedAsset(relativePath, sha, size, asset.Format);
+        }
+        finally
+        {
+            if (File.Exists(partialPath))
+                TryDeleteFile(partialPath);
+        }
+    }
+
+    private static ComponentModelCatalog ResolveCatalog(
+        ComponentModelsWriteRequest models,
+        IReadOnlyDictionary<string, StagedAsset> stagedAssets,
+        List<PackageDiagnostic> diagnostics)
+    {
+        var components = new List<ComponentModelEntry>();
+        foreach (var component in models.Components ?? Array.Empty<ComponentModelWriteEntry>())
+        {
+            if (component is null)
+                continue;
+
+            var bodies = new List<ComponentBodyEntry>();
+            foreach (var body in component.Bodies ?? Array.Empty<ComponentBodyWriteEntry>())
+            {
+                if (body is null)
+                    continue;
+
+                ComponentModelAssetFormat? format = null;
+                string? assetPath = null;
+                if (!string.IsNullOrEmpty(body.AssetKey))
+                {
+                    if (!stagedAssets.TryGetValue(body.AssetKey, out var staged))
+                    {
+                        diagnostics.Add(Error(
+                            PackageDiagnosticCodes.InvalidModelAsset,
+                            "models.components",
+                            $"Body references an unknown asset key '{body.AssetKey}'."));
+                    }
+                    else
+                    {
+                        format = staged.Format;
+                        assetPath = staged.RelativePath;
+                    }
+                }
+
+                bodies.Add(new ComponentBodyEntry
+                {
+                    BodyOrdinal = body.BodyOrdinal,
+                    Representation = body.Representation,
+                    SourceOrigin = body.SourceOrigin,
+                    AssetAcquisition = body.AssetAcquisition,
+                    AssetFormat = format,
+                    AssetPath = assetPath,
+                    Origin = body.Origin ?? new ModelOrigin(),
+                    State = body.State ?? new ModelState(),
+                    ModelRotationDegRaw = body.ModelRotationDegRaw,
+                });
+            }
+
+            components.Add(new ComponentModelEntry
+            {
+                ComponentId = component.ComponentId ?? string.Empty,
+                Designator = component.Designator ?? string.Empty,
+                Bodies = bodies,
+            });
+        }
+
+        return new ComponentModelCatalog { Components = components };
     }
 
     private static IReadOnlyList<PackageDiagnostic> ValidateOptions(PackageWriteOptions options)
@@ -169,7 +504,9 @@ public static class ExchangePackageWriter
         byte[] manifestBytes,
         byte[] snapshotBytes,
         byte[] checksumBytes,
-        string snapshotSha)
+        string snapshotSha,
+        byte[]? catalogBytes,
+        IReadOnlyList<StagedAsset> assets)
     {
         var manifestPath = Path.Combine(tempDirectory, PackageManifest.ManifestFileName);
         var snapshotPath = Path.Combine(tempDirectory, PackageManifest.SnapshotFileName);
@@ -184,6 +521,26 @@ public static class ExchangePackageWriter
 
         if (!File.ReadAllBytes(checksumPath).SequenceEqual(checksumBytes))
             throw new IOException("checksums verification failed.");
+
+        if (catalogBytes is not null)
+        {
+            var catalogPath = Path.Combine(
+                tempDirectory,
+                PackageManifest.ComponentModelsFileName.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.ReadAllBytes(catalogPath).SequenceEqual(catalogBytes))
+                throw new IOException("component model catalog verification failed.");
+        }
+
+        foreach (var asset in assets)
+        {
+            var fullPath = Path.Combine(
+                tempDirectory,
+                asset.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(fullPath) || new FileInfo(fullPath).Length != asset.Size)
+                throw new IOException("asset size verification failed.");
+            if (!string.Equals(PackageChecksums.ComputeFileSha256(fullPath), asset.Sha256, StringComparison.Ordinal))
+                throw new IOException("asset hash verification failed.");
+        }
     }
 
     private static PackageDiagnostic ToPackageDiagnostic(BoardDiagnostic diagnostic) =>
@@ -212,5 +569,27 @@ public static class ExchangePackageWriter
         {
             // Best effort cleanup; the package itself was never published.
         }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+            // Best effort cleanup of a staging file.
+        }
+    }
+
+    private sealed record StagedAsset(
+        string RelativePath,
+        string Sha256,
+        long Size,
+        ComponentModelAssetFormat Format);
+
+    private sealed class AssetSourceChangedException : Exception
+    {
     }
 }

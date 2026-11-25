@@ -132,6 +132,29 @@ public static class ExchangePackageReader
                     "File listed in the manifest/checksums is missing."));
         }
 
+        var modelsCapability = manifest.Capabilities.Contains(
+            PackageManifest.ComponentModelsCapability,
+            StringComparer.Ordinal);
+        var modelsListed = manifest.Files.Any(
+            file => string.Equals(file.Path, PackageManifest.ComponentModelsFileName, StringComparison.Ordinal));
+        var modelsOnDisk = actualPaths.Contains(PackageManifest.ComponentModelsFileName);
+        if (modelsCapability != modelsListed)
+        {
+            diagnostics.Add(
+                Error(
+                    PackageDiagnosticCodes.ModelCatalogCapabilityMismatch,
+                    PackageManifest.ComponentModelsFileName,
+                    "The component-3d-models capability and models/models.json must be present together."));
+        }
+        else if (!modelsListed && modelsOnDisk)
+        {
+            diagnostics.Add(
+                Error(
+                    PackageDiagnosticCodes.ModelCatalogCapabilityMismatch,
+                    PackageManifest.ComponentModelsFileName,
+                    "models/models.json requires the component-3d-models capability."));
+        }
+
         foreach (var checksum in checksums)
         {
             if (!PackagePath.TryGetFullPath(root, checksum.Path, out var fullPath, out var pathReason))
@@ -202,53 +225,95 @@ public static class ExchangePackageReader
             }
         }
 
-        if (!diagnostics.Any(item => item.Severity == PackageDiagnosticSeverity.Error))
+        if (diagnostics.Any(item => item.Severity == PackageDiagnosticSeverity.Error))
+            return PackageReadResult.Failure(manifest, null, diagnostics);
+
+        var snapshotEntry = manifest.Files.FirstOrDefault(
+            file => string.Equals(file.Path, PackageManifest.SnapshotFileName, StringComparison.Ordinal));
+        if (snapshotEntry is null)
         {
-            var snapshotEntry = manifest.Files.FirstOrDefault(
-                file => string.Equals(file.Path, PackageManifest.SnapshotFileName, StringComparison.Ordinal));
-            if (snapshotEntry is null)
-            {
-                diagnostics.Add(
+            return PackageReadResult.Failure(
+                manifest,
+                null,
+                Add(
+                    diagnostics,
                     Error(
                         PackageDiagnosticCodes.MissingFile,
                         PackageManifest.SnapshotFileName,
-                        "Board snapshot file is missing."));
-            }
-            else if (PackagePath.TryGetFullPath(
-                         root,
-                         snapshotEntry.Path,
-                         out var snapshotPath,
-                         out var snapshotPathReason))
-            {
-                try
-                {
-                    var snapshotBytes = File.ReadAllBytes(snapshotPath);
-                    var snapshot = BoardSnapshotJson.Deserialize(Utf8.GetString(snapshotBytes));
-                    var validation = BoardSnapshotValidator.Validate(snapshot);
-                    diagnostics.AddRange(validation.Diagnostics.Select(ToPackageDiagnostic));
-                    if (!validation.IsValid)
-                    {
-                        return PackageReadResult.Failure(manifest, null, diagnostics);
-                    }
-
-                    return PackageReadResult.Success(manifest, snapshot, diagnostics);
-                }
-                catch (Exception ex) when (ex is JsonException or IOException or DecoderFallbackException)
-                {
-                    diagnostics.Add(
-                        Error(
-                            PackageDiagnosticCodes.CorruptSnapshot,
-                            snapshotEntry.Path,
-                            "Board snapshot is not valid: " + ex.GetType().Name));
-                }
-            }
-            else
-            {
-                diagnostics.Add(Error(PackageDiagnosticCodes.InvalidPath, snapshotEntry.Path, snapshotPathReason));
-            }
+                        "Board snapshot file is missing.")));
         }
 
-        return PackageReadResult.Failure(manifest, null, diagnostics);
+        BoardSnapshot snapshot;
+        if (!PackagePath.TryGetFullPath(root, snapshotEntry.Path, out var snapshotPath, out var snapshotPathReason))
+        {
+            return PackageReadResult.Failure(
+                manifest,
+                null,
+                Add(diagnostics, Error(PackageDiagnosticCodes.InvalidPath, snapshotEntry.Path, snapshotPathReason)));
+        }
+
+        try
+        {
+            var snapshotBytes = File.ReadAllBytes(snapshotPath);
+            snapshot = BoardSnapshotJson.Deserialize(Utf8.GetString(snapshotBytes));
+            var validation = BoardSnapshotValidator.Validate(snapshot);
+            diagnostics.AddRange(validation.Diagnostics.Select(ToPackageDiagnostic));
+            if (!validation.IsValid)
+                return PackageReadResult.Failure(manifest, null, diagnostics);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or DecoderFallbackException)
+        {
+            return PackageReadResult.Failure(
+                manifest,
+                null,
+                Add(
+                    diagnostics,
+                    Error(
+                        PackageDiagnosticCodes.CorruptSnapshot,
+                        snapshotEntry.Path,
+                        "Board snapshot is not valid: " + ex.GetType().Name)));
+        }
+
+        ComponentModelCatalog? models = null;
+        if (modelsListed)
+        {
+            if (!PackagePath.TryGetFullPath(root, PackageManifest.ComponentModelsFileName, out var modelsPath, out var modelsPathReason))
+            {
+                return PackageReadResult.Failure(
+                    manifest,
+                    null,
+                    Add(
+                        diagnostics,
+                        Error(
+                            PackageDiagnosticCodes.InvalidModelAsset,
+                            PackageManifest.ComponentModelsFileName,
+                            modelsPathReason)));
+            }
+
+            try
+            {
+                models = ComponentModelsJson.Deserialize(File.ReadAllText(modelsPath, Utf8));
+            }
+            catch (Exception ex) when (ex is JsonException or IOException or DecoderFallbackException)
+            {
+                return PackageReadResult.Failure(
+                    manifest,
+                    null,
+                    Add(
+                        diagnostics,
+                        Error(
+                            PackageDiagnosticCodes.InvalidModelCatalog,
+                            PackageManifest.ComponentModelsFileName,
+                            "Component model catalog is not valid: " + ex.GetType().Name)));
+            }
+
+            diagnostics.AddRange(ComponentModelsValidator.ValidateStructure(models, snapshot));
+            diagnostics.AddRange(ComponentModelsValidator.ValidateAssetLinks(models, manifest, actualPaths));
+            if (diagnostics.Any(item => item.Severity == PackageDiagnosticSeverity.Error))
+                return PackageReadResult.Failure(manifest, null, diagnostics);
+        }
+
+        return PackageReadResult.Success(manifest, snapshot, models, diagnostics);
     }
 
     private static HashSet<string> CollectRegularFiles(

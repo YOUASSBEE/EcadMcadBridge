@@ -36,4 +36,9 @@ public static class PackageDiagnosticCodes
     public const string ExtraFile = "EMB-PKG-019";
     public const string UnsupportedManifestField = "EMB-PKG-020";
     public const string UnsupportedLink = "EMB-PKG-021";
+    public const string InvalidModelCatalog = "EMB-PKG-022";
+    public const string UnsupportedModelSchema = "EMB-PKG-023";
+    public const string InvalidModelReference = "EMB-PKG-024";
+    public const string InvalidModelAsset = "EMB-PKG-025";
+    public const string ModelCatalogCapabilityMismatch = "EMB-PKG-026";
 }
