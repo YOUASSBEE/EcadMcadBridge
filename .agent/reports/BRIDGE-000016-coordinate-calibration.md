@@ -5,7 +5,7 @@ status: blocked
 from: local-agent
 to: operator
 created: 2026-11-25T20:30:00+03:00
-updated: 2026-11-25T21:50:38+03:00
+updated: 2026-11-25T22:13:45+03:00
 base: source
 branch: task/BRIDGE-000016-coordinate-contract
 commit: b8a11db
@@ -58,7 +58,7 @@ R1 исправил математическую композицию:
 
 R2 получил полный board STEP и подтвердил board frame, `GetOrigin`, `R_state`, `dz`, Bottom `Rx(180°)` для rot0 и C366 feature-level placement. Однако Altium full board STEP **не содержит component RotationDeg** для test bodies: C62/C63/C59/C61/C524/C516/C573/C567/C571 имеют identity/state-only transforms. Поэтому component-rotation 3D placement остаётся **blocked**; R2 не закрывает full Top placement sign-off.
 
-R3 attempted a library-relative fixture, but the allowed UI-only route did not produce a verified footprint/3D body; only a PcbLib shell was saved. R3 remains **blocked for fixture creation**, and no rotation capability is enabled.
+R3-FIX-001 recovered partial native fixture creation: `BRIDGE_ROT_3D` footprint exists with a library-owned Generic/Embedded `control-generic` body; PcbLib changed from SHA `A8DDA92D…` to `5981FB91…`. The footprint still contains two body primitives from repeated placement, and four-component PCB placement/full STEP export are not done; R3 is **not cleanly closed**.
 
 R2/R3 не реализуют production placement, не меняют Core schema и не меняют PR #13/#14. Bottom с rotation и full feature-level sign-off остаются blockers.
 
@@ -513,6 +513,40 @@ Cause is tooling/fixture construction, not a measured contradiction of the R1 fo
 
 R3 status: **blocked for fixture creation**; R2 component-rotation blocker remains open. No Top/Bottom rotation capability is enabled by R3.
 
+## 13.3. R3-FIX-001 native PcbLib fixture attempt
+
+Использован существующий shell:
+
+- initial SHA-256: `A8DDA92D0D616461AA7803C55693194E1BEB4D584CFBFA501CFF52FDA09F4D51`
+- initial size: `105 472` bytes.
+
+Native Altium workflow:
+
+1. Открыт `BRIDGE-000016-R3.PcbLib` в Altium 26.12.2.9.
+2. Открыта панель `View → Panels → PCB Library`; в списке были `PCBCOMPONENT_1` и duplicate-копии.
+3. Через `Tools → New Blank Footprint` / переименование footprint строка переименована в `BRIDGE_ROT_3D`.
+4. Включён режим редактирования footprint (кнопка `Edit` в PCB Library panel).
+5. `Place → 3D Body` → `control-generic.step` → Open.
+6. Модель появилась в workspace; выполнен явный left-click, затем right-click для выхода из placement mode.
+7. Properties подтвердили: `3D Model Type = Generic`, `Source = Embed Model`, `Identifier = control-generic`, `Layer = Mechanical 1`.
+8. PcbLib сохранён штатным `File → Save`.
+
+Postconditions:
+
+| Check | Result |
+|---|---|
+| Footprint name | `BRIDGE_ROT_3D` |
+| Footprint list row | `BRIDGE_ROT_3D; 0; 2` (0 pads, 2 primitives) |
+| Selected 3D Body properties | Generic, Embedded Model, `control-generic`, Mechanical 1 |
+| Component Body Manager | `Component bodies in: BRIDGE_ROT_3D` lists 2 bodies: 49 500 sq mils and 130 200.271 sq mils |
+| Document after Save | no asterisk; saved |
+| Final size | `115 200` bytes |
+| Final SHA-256 | `5981FB919EF582595FAA682D0C5C2A3AA9C40DEB5BE6B28DF8652FB5FF64494A` |
+
+Body ownership is confirmed by the PCB Library panel row + `Component Body Manager for component: BRIDGE_ROT_3D`; the expected Generic/Embed model is present. However the footprint contains **two** 3D body primitives from repeated placement. The duplicate must be removed and the footprint must contain exactly one body before R3 can be treated as a clean fixture. Also component placement on PCB, full STEP export and occurrence-transform comparison were not completed in this task.
+
+R3-FIX-001 therefore achieves partial fixture creation only: PcbLib file changed and a library-owned Generic body exists, but the fixture is not yet clean/ready for four-instance export.
+
 ## 14. Неподтверждённые параметры
 
 | Параметр | Статус | Причина |
@@ -627,7 +661,7 @@ SOLIDWORKS backend (после отдельного решения):
 - Component rotation sign: pad landmark check passed.
 - Board origin: outline/component absolute-frame check passed.
 - Full Altium board STEP: obtained, SHA `7FC3E1…B9894`; block/origin/state/dz/Bottom rot0 checks passed; component RotationDeg not encoded, so rotation-bearing Top/Bottom remains blocked.
-- R3 library fixture: blocked (PcbLib shell saved; no verified footprint/3D body ownership; no R3 export).
+- R3-FIX library fixture: partial (footprint `BRIDGE_ROT_3D` with Generic/Embed body; two body primitives, no PCB placement/full STEP export).
 - Full MiniPC assembly не запускался.
 
 ## 20. Commit и PR
