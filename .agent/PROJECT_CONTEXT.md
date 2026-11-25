@@ -5,9 +5,9 @@
 | Проект | ECAD-MCAD Bridge |
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
-| Текущая ветка | `agent/BRIDGE-000009-complete-altium-snapshot` |
-| Статус | `BRIDGE-000007` слит; `BRIDGE-000009` дополняет BoardSnapshot tracks/vias/regions/texts |
-| Дата фиксации | 2026-11-24 |
+| Текущая ветка | `agent/BRIDGE-000011-controlled-transform-validation` |
+| Статус | `BRIDGE-000007` и `BRIDGE-000009` слиты; `BRIDGE-000010` — research PR #9; текущая задача — `BRIDGE-000011`, controlled 3D transform validation |
+| Дата фиксации | 2026-11-25 |
 | Владелец продукта | Оператор проекта (человек) |
 
 ## 1. Назначение
@@ -204,6 +204,11 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   отклоняет несохранённые документы; package root задаётся env/`LOCALAPPDATA`.
   `BRIDGE-000009`: adapter заполняет Tracks, Vias, Regions и Texts; region geometry
   использует geometric polygon line fallback с явным warning (Q-010 частично открыт).
+  `BRIDGE-000010`: исследование 3D Body/Model API, STEP/X_T экспорта и
+  трансформаций; PR #9 остаётся открытым, production export не реализован.
+  `BRIDGE-000011`: controlled matrix Generic STEP / Native Extruded, Top/Bottom и
+  rotation 0/90/180/270; component rotation не входит в экспорт, `GetState`/`dz`
+  частично подтверждены, Bottom reflection и combined Euler остаются открытыми.
   Core 1.0.0 не содержит pad holes, pin designator, локальных координат падов, stack order
   и признака 3D-модели; эти ограничения зафиксированы в ledger V-18…V-25.
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.
@@ -218,7 +223,7 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 |---|---|---|---|
 | Q-001 | Загружает ли AD26 in-process сборку `net10.0-windows`? | **Закрыт:** подтверждено оператором (C-65) | TFM InteractiveBom выбирается по версии Altium; TFM Bridge зафиксирован как `net10.0-windows` |
 | Q-002 | Какая точная сборка Altium Designer 26 используется на стенде? | **Уточнён:** `X2.EXE` 26.12.2.9, runtime `net10.0` / 10.0.10 | Изоляция конкретного варианта `Altium.SDK.dll` внутри хоста остаётся открытой (V-13) |
-| Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | Открыт | Нужно для будущей передачи в SOLIDWORKS, API не проверен |
+| Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | **Partially closed** | Подтверждены ComponentBody, `IPCB_Model`, STEP/X_T и контрольный импорт в SOLIDWORKS 2026; открыты полная композиция трансформаций, Bottom reflection, production assets contract и перенос в MCAD. См. C-94…C-100, V-26…V-33, отчёты `BRIDGE-000010` и `BRIDGE-000011` |
 | Q-004 | Какой interop-пакет и API использовать для SOLIDWORKS 2026? | Открыт | Не проверено; в реестр не вносится до проверки |
 | Q-005 | Какой UI-стек использовать в Add-in (WPF/WinForms)? | Частично закрыт | Для smoke-команды — хост-диалог, для запуска сервера — минимальная WinForms-панель; полноценные панели ещё не проектировались |
 | Q-006 | Как автоматизировать установку/регистрацию расширения? | Открыт | Известен ручной путь через `ExtensionsRegistry.xml`; автоматизация требует отдельного решения |
