@@ -115,8 +115,13 @@ public static class ComponentModelsValidator
                 ValidateEnum(body.Representation, bodyPath + ".representation", diagnostics);
                 ValidateEnum(body.SourceOrigin, bodyPath + ".sourceOrigin", diagnostics);
                 ValidateEnum(body.AssetAcquisition, bodyPath + ".assetAcquisition", diagnostics);
+                ValidateEnum(body.BodyProjection, bodyPath + ".bodyProjection", diagnostics);
+                ValidateEnum(body.ModelStateSource, bodyPath + ".modelStateSource", diagnostics);
                 if (body.AssetFormat.HasValue)
                     ValidateEnum(body.AssetFormat.Value, bodyPath + ".assetFormat", diagnostics);
+
+                ValidateLength(body.StandoffHeight, bodyPath + ".standoffHeight", diagnostics);
+                ValidateLength(body.OverallHeight, bodyPath + ".overallHeight", diagnostics);
 
                 ValidateFinite(body.Origin.XMm, bodyPath + ".sdkOrigin.xMm", diagnostics);
                 ValidateFinite(body.Origin.YMm, bodyPath + ".sdkOrigin.yMm", diagnostics);
@@ -385,6 +390,35 @@ public static class ComponentModelsValidator
     {
         if (value.HasValue && !double.IsFinite(value.Value))
             Error(PackageDiagnosticCodes.InvalidModelCatalog, path, "Value must be finite.", diagnostics);
+    }
+
+    private static void ValidateLength(
+        LengthValue value,
+        string path,
+        List<PackageDiagnostic> diagnostics)
+    {
+        ValidateFinite(value.Mm, path + ".mm", diagnostics);
+        if (!value.HasValue)
+            return;
+
+        if (!value.Mm.HasValue)
+        {
+            Error(
+                PackageDiagnosticCodes.InvalidModelCatalog,
+                path,
+                "A length with an IU value must also expose a millimetre value.",
+                diagnostics);
+            return;
+        }
+
+        if (!value.HasConsistentMm(UnitToleranceMm))
+        {
+            Error(
+                PackageDiagnosticCodes.InvalidModelCatalog,
+                path,
+                "The millimetre value does not match the IU value within tolerance.",
+                diagnostics);
+        }
     }
 
     private static void ValidatePair(

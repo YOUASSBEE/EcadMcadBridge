@@ -444,6 +444,10 @@ public static class ExchangePackageWriter
                     Origin = body.Origin ?? new ModelOrigin(),
                     State = body.State ?? new ModelState(),
                     ModelRotationDegRaw = body.ModelRotationDegRaw,
+                    BodyProjection = body.BodyProjection,
+                    StandoffHeight = body.StandoffHeight,
+                    OverallHeight = body.OverallHeight,
+                    ModelStateSource = body.ModelStateSource,
                 });
             }
 

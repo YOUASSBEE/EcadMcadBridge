@@ -41,6 +41,10 @@ public static class ComponentModelsJson
                     writer.WriteString("assetAcquisition", FormatAssetAcquisition(body.AssetAcquisition));
                     WriteNullableString(writer, "assetFormat", FormatAssetFormat(body.AssetFormat));
                     WriteNullableString(writer, "assetPath", body.AssetPath);
+                    writer.WriteString("bodyProjection", FormatBodyProjection(body.BodyProjection));
+                    writer.WriteString("modelStateSource", FormatModelStateSource(body.ModelStateSource));
+                    WriteLength(writer, "standoffHeight", body.StandoffHeight);
+                    WriteLength(writer, "overallHeight", body.OverallHeight);
 
                     writer.WriteStartObject("sdkOrigin");
                     WriteNullableNumber(writer, "xIu", body.Origin.XIu);
@@ -135,6 +139,10 @@ public static class ComponentModelsJson
             AssetAcquisition = ParseAssetAcquisition(RequiredString(body, "assetAcquisition")),
             AssetFormat = ParseAssetFormat(RequiredNullableString(body, "assetFormat")),
             AssetPath = RequiredNullableString(body, "assetPath"),
+            BodyProjection = ParseBodyProjection(OptionalString(body, "bodyProjection")),
+            ModelStateSource = ParseModelStateSource(OptionalString(body, "modelStateSource")),
+            StandoffHeight = ReadOptionalLength(body, "standoffHeight"),
+            OverallHeight = ReadOptionalLength(body, "overallHeight"),
             Origin = new ModelOrigin
             {
                 XIu = RequiredNullableInt(origin, "xIu"),
@@ -154,6 +162,14 @@ public static class ComponentModelsJson
             },
             ModelRotationDegRaw = RequiredNullableDouble(body, "modelRotationDegRaw"),
         };
+    }
+
+    private static void WriteLength(Utf8JsonWriter writer, string name, LengthValue value)
+    {
+        writer.WriteStartObject(name);
+        WriteNullableNumber(writer, "iu", value.Iu);
+        WriteNullableNumber(writer, "mm", value.Mm);
+        writer.WriteEndObject();
     }
 
     private static void WriteNullableString(Utf8JsonWriter writer, string name, string? value)
@@ -192,6 +208,45 @@ public static class ComponentModelsJson
         if (!parent.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Object)
             throw new JsonException($"'{name}' must be a JSON object.");
         return value;
+    }
+
+    private static string? OptionalString(JsonElement parent, string name)
+    {
+        if (!parent.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
+            return null;
+        if (value.ValueKind != JsonValueKind.String)
+            throw new JsonException($"'{name}' must be a string or null.");
+        return value.GetString();
+    }
+
+    private static LengthValue ReadOptionalLength(JsonElement parent, string name)
+    {
+        if (!parent.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
+            return LengthValue.FromIu(null);
+        if (value.ValueKind != JsonValueKind.Object)
+            throw new JsonException($"'{name}' must be an object or null.");
+
+        return LengthValue.FromJson(
+            OptionalNullableInt(value, "iu"),
+            OptionalNullableDouble(value, "mm"));
+    }
+
+    private static int? OptionalNullableInt(JsonElement parent, string name)
+    {
+        if (!parent.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
+            return null;
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var result))
+            throw new JsonException($"'{name}' must be a 32-bit integer or null.");
+        return result;
+    }
+
+    private static double? OptionalNullableDouble(JsonElement parent, string name)
+    {
+        if (!parent.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
+            return null;
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var result) || !double.IsFinite(result))
+            throw new JsonException($"'{name}' must be a finite number or null.");
+        return result;
     }
 
     private static string RequiredString(JsonElement parent, string name)
@@ -252,6 +307,40 @@ public static class ComponentModelsJson
         ComponentModelRepresentation.Native => "native",
         ComponentModelRepresentation.Unknown => "unknown",
         _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unsupported representation."),
+    };
+
+    private static string FormatBodyProjection(ComponentBodyProjection value) => value switch
+    {
+        ComponentBodyProjection.Top => "top",
+        ComponentBodyProjection.Bottom => "bottom",
+        ComponentBodyProjection.Unknown => "unknown",
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unsupported body projection."),
+    };
+
+    private static string FormatModelStateSource(ComponentModelStateSource value) => value switch
+    {
+        ComponentModelStateSource.SourceFootprint => "source-footprint",
+        ComponentModelStateSource.PlacedBodyEffective => "placed-body-effective",
+        ComponentModelStateSource.Unknown => "unknown",
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unsupported model-state source."),
+    };
+
+    private static ComponentBodyProjection ParseBodyProjection(string? value) => value switch
+    {
+        null => ComponentBodyProjection.Unknown,
+        "top" => ComponentBodyProjection.Top,
+        "bottom" => ComponentBodyProjection.Bottom,
+        "unknown" => ComponentBodyProjection.Unknown,
+        _ => throw new JsonException($"Unknown bodyProjection '{value}'."),
+    };
+
+    private static ComponentModelStateSource ParseModelStateSource(string? value) => value switch
+    {
+        null => ComponentModelStateSource.Unknown,
+        "source-footprint" => ComponentModelStateSource.SourceFootprint,
+        "placed-body-effective" => ComponentModelStateSource.PlacedBodyEffective,
+        "unknown" => ComponentModelStateSource.Unknown,
+        _ => throw new JsonException($"Unknown modelStateSource '{value}'."),
     };
 
     private static string FormatSourceOrigin(ComponentModelSourceOrigin value) => value switch

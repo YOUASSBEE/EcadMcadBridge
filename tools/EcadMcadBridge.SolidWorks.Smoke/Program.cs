@@ -2,9 +2,11 @@ using System.Diagnostics;
 using System.Text.Json;
 using EcadMcadBridge.Core.Model;
 using EcadMcadBridge.Core.Packaging;
+using EcadMcadBridge.Core.Placement;
 using EcadMcadBridge.SolidWorks.Assemblies;
 using EcadMcadBridge.SolidWorks.Importing;
 using EcadMcadBridge.SolidWorks.Interop;
+using EcadMcadBridge.SolidWorks.Placement;
 using SolidWorks.Interop.sldworks;
 
 namespace EcadMcadBridge.SolidWorks.Smoke;
@@ -83,7 +85,21 @@ internal static class SmokeRunner
             Path.Combine(options.OutputDirectory, "native"));
         var baselineDocuments = ReadOpenDocuments(solidWorks);
         SolidWorksImportPlan selectedPlan = plan;
-        if (options.OnlyAsset is not null)
+        SolidWorksPlacementPlan? placementPlan = null;
+        if (options.PlacedAssembly)
+        {
+            placementPlan = SolidWorksPlacementRequestBuilder.Build(
+                read,
+                plan,
+                options.Designators,
+                options.MaxComponents);
+            var assetPaths = placementPlan.Requests
+                .Select(request => request.AssetPath)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            selectedPlan = plan.SelectAssets(assetPaths);
+        }
+        else if (options.OnlyAsset is not null)
         {
             selectedPlan = plan.SelectAssets(new[] { options.OnlyAsset });
         }
@@ -130,6 +146,23 @@ internal static class SmokeRunner
                 partPaths);
         }
 
+        SolidWorksPlacedAssemblyResult? placedAssembly = null;
+        if (options.PlacedAssembly)
+        {
+            var occurrences = placementPlan?.Requests
+                .Select(request => new SolidWorksPlacedOccurrence(
+                    request.ComponentId,
+                    request.Designator,
+                    request.BodyOrdinal,
+                    request.NativePartPath,
+                    request.Transform))
+                .ToArray() ?? Array.Empty<SolidWorksPlacedOccurrence>();
+            placedAssembly = new SolidWorksPlacedAssemblyService(solidWorks).Create(
+                options.AssemblyTemplate!,
+                Path.Combine(options.OutputDirectory, "assembly", "smoke-placed-assembly.SLDASM"),
+                occurrences);
+        }
+
         total.Stop();
         var remainingDocuments = ReadOpenDocuments(solidWorks);
         var baselineAvailable = baselineDocuments.IsAvailable;
@@ -149,8 +182,10 @@ internal static class SmokeRunner
         }
 
         var diagnostics = plan.Diagnostics
+            .Concat(placementPlan?.Diagnostics ?? Array.Empty<SolidWorksDiagnostic>())
             .Concat(importResult.Diagnostics)
             .Concat(assembly?.Diagnostics ?? Array.Empty<SolidWorksDiagnostic>())
+            .Concat(placedAssembly?.Diagnostics ?? Array.Empty<SolidWorksDiagnostic>())
             .ToArray();
         var importedAll = importResult.Assets.Count == selectedPlan.Assets.Count
             && importResult.Assets.All(asset =>
@@ -160,13 +195,19 @@ internal static class SmokeRunner
                 && asset.ReopenedBodyCount > 0);
         var mappedAll = importResult.BodyParts.Count == selectedPlan.BodyReferences.Count;
         var assemblyOk = assembly is null || (assembly.Saved && assembly.Reopened);
+        var placementOk = !options.PlacedAssembly
+            || (placementPlan is { IsValid: true }
+                && placedAssembly is { Saved: true, Reopened: true, TransformsVerified: true });
         var cleanupVerified = importResult.Lifecycle.CleanupStatus == SolidWorksCleanupStatus.Verified
-            && (assembly is null || assembly.Lifecycle.CleanupStatus == SolidWorksCleanupStatus.Verified);
+            && (assembly is null || assembly.Lifecycle.CleanupStatus == SolidWorksCleanupStatus.Verified)
+            && (placedAssembly is null || placedAssembly.Lifecycle.CleanupStatus == SolidWorksCleanupStatus.Verified);
         var success = plan.IsValid
+            && (placementPlan is null || placementPlan.IsValid)
             && importResult.Assets.Count == selectedPlan.Assets.Count
             && importedAll
             && mappedAll
             && assemblyOk
+            && placementOk
             && baselineAvailable
             && finalAvailable
             && baselinePreserved == true
@@ -177,7 +218,7 @@ internal static class SmokeRunner
         var report = new
         {
             success,
-            mode = options.Sample ? "sample" : "all",
+            mode = options.PlacedAssembly ? "placed" : options.Sample ? "sample" : "all",
             solidWorksRevision = revision,
             solidWorksBuild = build,
             packageId = read.Manifest?.PackageId,
@@ -194,6 +235,20 @@ internal static class SmokeRunner
             assets = importResult.Assets,
             bodyParts = importResult.BodyParts,
             assembly,
+            placement = placementPlan is null
+                ? null
+                : new
+                {
+                    requestedDesignators = placementPlan.RequestedDesignators,
+                    selectedDesignators = placementPlan.SelectedDesignators,
+                    missingDesignators = placementPlan.MissingDesignators,
+                    supportedBodyReferences = placementPlan.SupportedBodyReferences,
+                    unsupportedBodyReferences = placementPlan.UnsupportedBodyReferences,
+                    boardOriginMm = placementPlan.BoardOriginMm,
+                    requests = placementPlan.Requests.Select(PlacementRequestReport).ToArray(),
+                    diagnostics = placementPlan.Diagnostics,
+                },
+            placedAssembly = placedAssembly is null ? null : PlacedAssemblyReport(placedAssembly),
             baselineSnapshot = SnapshotReport(baselineDocuments),
             finalSnapshot = SnapshotReport(remainingDocuments),
             baselineDocuments = baselineAvailable ? baselineDocuments.Identities : null,
@@ -204,12 +259,14 @@ internal static class SmokeRunner
             {
                 import = importResult.Lifecycle.CleanupStatus.ToString(),
                 assembly = assembly?.Lifecycle.CleanupStatus.ToString(),
+                placedAssembly = placedAssembly?.Lifecycle.CleanupStatus.ToString(),
                 verified = cleanupVerified,
             },
             documentLifecycle = new
             {
                 import = importResult.Lifecycle,
                 assembly = assembly?.Lifecycle,
+                placedAssembly = placedAssembly?.Lifecycle,
             },
             diagnostics,
         };
@@ -225,6 +282,14 @@ internal static class SmokeRunner
             Console.WriteLine(diagnostic.Severity + " " + diagnostic.Code + " " + diagnostic.Path + ": " + diagnostic.Message);
         if (assembly is not null)
             Console.WriteLine("assemblyComponents=" + assembly.ComponentCount + " reopened=" + assembly.ReopenedComponentCount);
+        if (placedAssembly is not null)
+        {
+            Console.WriteLine(
+                "placedOccurrences=" + placedAssembly.AddedOccurrences +
+                " reopened=" + placedAssembly.ReopenedOccurrences +
+                " transformsVerified=" + placedAssembly.TransformsVerified);
+        }
+
         Console.WriteLine("success=" + success);
         Console.WriteLine(
             "baseline=" + baselineDocuments.Status + "/" + baselineDocuments.Count +
@@ -232,9 +297,78 @@ internal static class SmokeRunner
             " createdDocumentsRemaining=" + (createdDocumentsRemaining is null ? "unknown" : createdDocumentsRemaining.Length.ToString()) +
             " baselinePreserved=" + (baselinePreserved is null ? "unknown" : baselinePreserved.Value.ToString()) +
             " cleanup=" + importResult.Lifecycle.CleanupStatus +
-            (assembly is null ? string.Empty : "/" + assembly.Lifecycle.CleanupStatus));
+            (assembly is null ? string.Empty : "/" + assembly.Lifecycle.CleanupStatus) +
+            (placedAssembly is null ? string.Empty : "/" + placedAssembly.Lifecycle.CleanupStatus));
         return success ? 0 : 1;
     }
+
+    private static object PlacementRequestReport(SolidWorksPlacementRequest request) =>
+        new
+        {
+            componentId = request.ComponentId,
+            designator = request.Designator,
+            bodyOrdinal = request.BodyOrdinal,
+            assetPath = request.AssetPath,
+            nativePartPath = request.NativePartPath,
+            transform = MatrixArray(request.Transform),
+            modelState = new
+            {
+                rx = request.ModelState.Rx,
+                ry = request.ModelState.Ry,
+                rz = request.ModelState.Rz,
+                dzMm = request.ModelState.DzMm,
+            },
+            modelStateSource = request.ModelStateSource,
+            bodyProjection = request.BodyProjection.ToString(),
+            componentSide = request.ComponentSide.ToString(),
+            standoffHeightMm = request.StandoffHeightMm,
+            overallHeightMm = request.OverallHeightMm,
+            modelRotationDegRaw = request.ModelRotationDegRaw,
+            modelOriginBoardMm = new { x = request.ModelOriginBoardMm.X, y = request.ModelOriginBoardMm.Y },
+            localModelOriginOffsetMm = new
+            {
+                x = request.LocalModelOriginOffsetMm.X,
+                y = request.LocalModelOriginOffsetMm.Y,
+            },
+            boardOriginMm = new { x = request.BoardOriginMm.X, y = request.BoardOriginMm.Y },
+        };
+
+    private static object PlacedAssemblyReport(SolidWorksPlacedAssemblyResult result) =>
+        new
+        {
+            assemblyPath = result.AssemblyPath,
+            requestedOccurrences = result.RequestedOccurrences,
+            addedOccurrences = result.AddedOccurrences,
+            reopenedOccurrences = result.ReopenedOccurrences,
+            saved = result.Saved,
+            reopened = result.Reopened,
+            transformsVerified = result.TransformsVerified,
+            occurrences = result.Occurrences.Select(item => new
+            {
+                componentId = item.ComponentId,
+                designator = item.Designator,
+                bodyOrdinal = item.BodyOrdinal,
+                nativePartPath = item.NativePartPath,
+                occurrenceName = item.OccurrenceName,
+                requestedTransform = MatrixArray(item.RequestedTransform),
+                readbackTransform = MatrixArray(item.ReadbackTransform),
+                translationResidualMm = item.TranslationResidualMm,
+                rotationBasisResidual = item.RotationBasisResidual,
+                determinant = item.Determinant,
+                verified = item.Verified,
+            }).ToArray(),
+            diagnostics = result.Diagnostics,
+            lifecycle = result.Lifecycle,
+        };
+
+    private static double[] MatrixArray(Matrix4x4D matrix) =>
+        new[]
+        {
+            matrix[0, 0], matrix[0, 1], matrix[0, 2], matrix[0, 3],
+            matrix[1, 0], matrix[1, 1], matrix[1, 2], matrix[1, 3],
+            matrix[2, 0], matrix[2, 1], matrix[2, 2], matrix[2, 3],
+            matrix[3, 0], matrix[3, 1], matrix[3, 2], matrix[3, 3],
+        };
 
     private static object SnapshotReport(SolidWorksDocumentSnapshot snapshot) =>
         new
@@ -370,7 +504,10 @@ internal static class SmokeRunner
         string? AssemblyTemplate,
         bool Sample,
         bool Assembly,
+        bool PlacedAssembly,
         string? OnlyAsset,
+        IReadOnlyList<string>? Designators,
+        int MaxComponents,
         string? Error)
     {
         public static SmokeOptions Parse(string[] args)
@@ -379,8 +516,11 @@ internal static class SmokeRunner
             string? output = null;
             string? template = null;
             string? onlyAsset = null;
+            string? designatorsValue = null;
             var sample = false;
             var assembly = false;
+            var placedAssembly = false;
+            var maxComponents = 20;
             for (var i = 0; i < args.Length; i++)
             {
                 switch (args[i])
@@ -395,6 +535,7 @@ internal static class SmokeRunner
                         template = Next(args, ref i);
                         break;
                     case "--asset":
+                    case "--only-asset":
                         onlyAsset = Next(args, ref i);
                         break;
                     case "--sample":
@@ -403,22 +544,59 @@ internal static class SmokeRunner
                     case "--assembly":
                         assembly = true;
                         break;
+                    case "--placed-assembly":
+                        placedAssembly = true;
+                        break;
+                    case "--designators":
+                        designatorsValue = Next(args, ref i);
+                        break;
+                    case "--max-components":
+                        if (!int.TryParse(
+                                Next(args, ref i),
+                                System.Globalization.NumberStyles.None,
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                out maxComponents)
+                            || maxComponents <= 0)
+                        {
+                            return new SmokeOptions("", "", null, false, false, false, null, null, 0,
+                                "--max-components must be a positive integer.");
+                        }
+
+                        break;
                     default:
-                        return new SmokeOptions("", "", null, false, false, null, "Unknown argument: " + args[i]);
+                        return new SmokeOptions("", "", null, false, false, false, null, null, 0,
+                            "Unknown argument: " + args[i]);
                 }
             }
 
             if (string.IsNullOrWhiteSpace(package))
-                return new SmokeOptions("", "", template, sample, assembly, onlyAsset, "--package is required.");
+                return new SmokeOptions("", "", template, sample, assembly, placedAssembly, onlyAsset,
+                    ParseDesignators(designatorsValue), maxComponents, "--package is required.");
             if (!Directory.Exists(package))
-                return new SmokeOptions(package, output ?? "", template, sample, assembly, onlyAsset, "Package directory does not exist.");
+                return new SmokeOptions(package, output ?? "", template, sample, assembly, placedAssembly, onlyAsset,
+                    ParseDesignators(designatorsValue), maxComponents, "Package directory does not exist.");
+            if (placedAssembly && string.IsNullOrWhiteSpace(template))
+                return new SmokeOptions(package, output ?? "", template, sample, assembly, placedAssembly, onlyAsset,
+                    ParseDesignators(designatorsValue), maxComponents, "--placed-assembly requires --template <asmdot>.");
 
             output ??= Path.Combine(
                 Path.GetTempPath(),
                 "EcadMcadBridge",
-                "BRIDGE-000015",
+                placedAssembly ? "BRIDGE-000018" : "BRIDGE-000015",
                 "smoke-" + Guid.NewGuid().ToString("N"));
-            return new SmokeOptions(package, output, template, sample, assembly, onlyAsset, null);
+            return new SmokeOptions(package, output, template, sample, assembly, placedAssembly, onlyAsset,
+                ParseDesignators(designatorsValue), maxComponents, null);
+        }
+
+        private static IReadOnlyList<string>? ParseDesignators(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+            return value
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(item => item, StringComparer.Ordinal)
+                .ToArray();
         }
 
         private static string? Next(string[] args, ref int index)

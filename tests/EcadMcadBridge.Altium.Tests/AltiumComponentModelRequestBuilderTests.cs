@@ -35,6 +35,10 @@ public sealed class AltiumComponentModelRequestBuilderTests
         Assert.Equal(new[] { 0, 1 }, first.Bodies.Select(body => body.BodyOrdinal));
         Assert.Equal("body-1", first.Bodies[0].AssetKey);
         Assert.Equal(ComponentModelAssetAcquisition.SdkExport, first.Bodies[0].AssetAcquisition);
+        Assert.Equal(ComponentBodyProjection.Top, first.Bodies[0].BodyProjection);
+        Assert.Equal(0, first.Bodies[0].StandoffHeight.Iu);
+        Assert.Equal(1_181_102, first.Bodies[0].OverallHeight.Iu);
+        Assert.Equal(ComponentModelStateSource.PlacedBodyEffective, first.Bodies[0].ModelStateSource);
         Assert.Null(first.Bodies[1].AssetKey);
         Assert.Equal(ComponentModelAssetAcquisition.NotAcquired, first.Bodies[1].AssetAcquisition);
 
@@ -132,5 +136,9 @@ public sealed class AltiumComponentModelRequestBuilderTests
             new ModelState(),
             null,
             acquisition,
-            assetKey);
+            assetKey,
+            ComponentBodyProjection.Top,
+            LengthValue.FromIu(0),
+            LengthValue.FromIu(1_181_102),
+            ComponentModelStateSource.PlacedBodyEffective);
 }

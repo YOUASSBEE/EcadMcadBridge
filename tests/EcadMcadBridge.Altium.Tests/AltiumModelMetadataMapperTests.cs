@@ -1,5 +1,7 @@
 using EcadMcadBridge.Altium.Adapter;
 using EcadMcadBridge.Core.Diagnostics;
+using EcadMcadBridge.Core.Model;
+using PCB;
 using Xunit;
 
 namespace EcadMcadBridge.Altium.Tests;
@@ -62,5 +64,40 @@ public sealed class AltiumModelMetadataMapperTests
         Assert.Equal(90, AltiumModelMetadataMapper.MapRotation(90));
         Assert.Null(AltiumModelMetadataMapper.MapRotation(double.NaN));
         Assert.Null(AltiumModelMetadataMapper.MapRotation(double.PositiveInfinity));
+    }
+
+    [Fact]
+    public void MapsBodyProjectionAndLengthPairs()
+    {
+        Assert.Equal(
+            ComponentBodyProjection.Top,
+            AltiumModelMetadataMapper.MapBodyProjection(TBoardSide.eBoardSide_Top));
+        Assert.Equal(
+            ComponentBodyProjection.Bottom,
+            AltiumModelMetadataMapper.MapBodyProjection(TBoardSide.eBoardSide_Bottom));
+
+        var length = AltiumModelMetadataMapper.MapLength(1_181_102);
+        Assert.Equal(1_181_102, length.Iu);
+        Assert.Equal(AltiumUnits.IuToMm(1_181_102), length.Mm);
+    }
+
+    [Fact]
+    public void MapsSupportedModelStateSourceOnlyForGenericEmbedded()
+    {
+        Assert.Equal(
+            ComponentModelStateSource.PlacedBodyEffective,
+            AltiumModelMetadataMapper.MapStateSource(
+                ComponentModelRepresentation.Generic,
+                ComponentModelSourceOrigin.Embedded));
+        Assert.Equal(
+            ComponentModelStateSource.Unknown,
+            AltiumModelMetadataMapper.MapStateSource(
+                ComponentModelRepresentation.Native,
+                ComponentModelSourceOrigin.Embedded));
+        Assert.Equal(
+            ComponentModelStateSource.Unknown,
+            AltiumModelMetadataMapper.MapStateSource(
+                ComponentModelRepresentation.Generic,
+                ComponentModelSourceOrigin.Linked));
     }
 }

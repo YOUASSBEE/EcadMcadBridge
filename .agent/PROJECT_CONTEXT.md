@@ -5,8 +5,8 @@
 | Проект | ECAD-MCAD Bridge |
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
-| Текущая ветка | `source` |
-| Статус | `BRIDGE-000014` per-body 3D export + `BRIDGE-000015-R1` SOLIDWORKS STEP import backend |
+| Текущая ветка | `agent/BRIDGE-000018-first-placed-pcb-assembly` |
+| Статус | `BRIDGE-000018`: первый Top-прототип размещения в `.SLDASM`; PR #13–#16 интегрированы |
 
 | Дата фиксации | 2026-11-25 |
 | Владелец продукта | Оператор проекта (человек) |
@@ -55,12 +55,15 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   Package (`BRIDGE-000014`);
 - SOLIDWORKS STEP import backend: чтение Exchange Package, per-asset STEP AP214,
   native `.SLDPRT`, content-addressed dedup и assembly API smoke
-  (`BRIDGE-000015`).
+  (`BRIDGE-000015`);
+- первый Top-прототип размещения: Component Model Catalog 1.1.0, Core placement,
+  Top/Top Generic Embedded occurrences, save/reopen transform verification
+  (`BRIDGE-000018`).
 
 Не входит в scope текущего этапа:
 
 - полноценный SOLIDWORKS Add-in, регистрация `ISwAddin` и UI;
-- реальное размещение ECAD-компонентов в SOLIDWORKS (`T_B_S`, Bottom, Euler);
+- Bottom, projection mismatch, Native/External placement и board solid/outline;
 - ECO, обратная аннотация, синхронизация изменений;
 - установщик, CI/CD, подпись сборок, публикация расширения;
 - изменение архитектуры без отдельного согласования.
@@ -239,12 +242,18 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   подключается через ROT, работает в STA и не регистрирует Add-in. R1 добавил
   baseline `GetDocuments()`, защиту пользовательских/open документов, no-overwrite
   guard, временное сохранение assembly→part с восстановлением настройки и decode
-  warning-флагов. Реальное размещение ECAD-компонентов не реализовано (D-020).
+  warning-флагов. Top placement prototype реализован в `BRIDGE-000018`; Bottom,
+  Native/External и board solid остаются вне scope (D-020).
+- `BRIDGE-000018`: Component Model Catalog 1.1.0 (BodyProjection, Standoff/Overall,
+  ModelStateSource); Top/Top Generic Embedded placement через Core
+  `PlacementTransformBuilder`; 20-occurrence `.SLDASM` на MiniPC и R3 U101–U104;
+  save/reopen 20/20 и 4/4, residuals 0, cleanup `Verified` (D-021/D-022).
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.
   `BRIDGE-000002` новых Altium API не добавляет.
 - Git-протокол и runtime-обмен разделены: Git не используется для пользовательских PCB, STEP
   и рабочих сборок.
-- Полноценный SOLIDWORKS Add-in, UI и placement остаются отдельной задачей.
+- Полноценный SOLIDWORKS Add-in и UI остаются отдельной задачей; Top-прототип
+  размещения реализован, Bottom/Native/External — нет.
 
 ## 9. Ключевые открытые вопросы
 
@@ -252,7 +261,7 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 |---|---|---|---|
 | Q-001 | Загружает ли AD26 in-process сборку `net10.0-windows`? | **Закрыт:** подтверждено оператором (C-65) | TFM InteractiveBom выбирается по версии Altium; TFM Bridge зафиксирован как `net10.0-windows` |
 | Q-002 | Какая точная сборка Altium Designer 26 используется на стенде? | **Уточнён:** `X2.EXE` 26.12.2.9, runtime `net10.0` / 10.0.10 | Изоляция конкретного варианта `Altium.SDK.dll` внутри хоста остаётся открытой (V-13) |
-| Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | **Закрыт для геометрии** в `BRIDGE-000014` | Per-body STEP AP214 экспортируется и упаковывается; positioning/Bottom остаются открытыми (V-27/V-30) |
+| Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | **Закрыт для геометрии** в `BRIDGE-000014`; Top placement prototype — `BRIDGE-000018` | Per-body STEP AP214 экспортируется и упаковывается; Bottom/compound Bottom остаются открытыми (V-27/V-30) |
 | Q-004 | Какой interop-пакет и API использовать для SOLIDWORKS 2026? | **Закрыт для prototype:** local `SolidWorks.Interop.*` 34.3.2.3, ROT, STA; Add-in registration отдельно | STEP/native/assembly/lifecycle API подтверждены smoke `BRIDGE-000015-R1` (S-001…S-015); D-020 |
 | Q-005 | Какой UI-стек использовать в Add-in (WPF/WinForms)? | Частично закрыт | Для smoke-команды — хост-диалог, для запуска сервера — минимальная WinForms-панель; полноценные панели ещё не проектировались |
 | Q-006 | Как автоматизировать установку/регистрацию расширения? | Открыт | Известен ручной путь через `ExtensionsRegistry.xml`; автоматизация требует отдельного решения |

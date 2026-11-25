@@ -375,6 +375,7 @@ R1 дополнительно подтвердил enumerate/close-only-created 
 |---|---|---|---|
 | S-016 | `ISldWorks.GetMathUtility()` → `IMathUtility`; `IMathUtility.CreateTransform(object)`; `IMathUtility.ComposeTransform(MathVector XVec, MathVector YVec, MathVector ZVec, MathVector TransVec, double Scale)`; `MathTransform.ArrayData` | SOLIDWORKS 2026 SP3.2 probe `SwTransformProbe`: identity/translation/basis vectors; 16-element layout: 3×3 block 0–8, translation 9–11, scale 12, zeros 13–15; translation in meters | Calibration of `MathTransform`; no production code in R0 |
 | S-017 | `IComponent2.Transform2` (get/set); `IComponent2.SetTransformAndSolve3(MathTransform, bool)`; `IComponent2.GetTotalTransform(bool)`; `IAssemblyDoc.AddComponent5(...)` | Probe: `AddComponent5(...,0,0,0)` then `Transform2`/`SetTransformAndSolve3`; readback and `GetTotalTransform` identical; origin `(0.01,0.02,0.03) m`, x basis `(0.01,-0.98,0.03) m` | Exact occurrence transform calibration; `AddComponent5` X/Y/Z is only approximate bbox placement |
+| S-018 | `ISldWorks.GetMathUtility()`; `IMathUtility.CreateTransform(object)`; `IComponent2.SetTransformAndSolve3`; `IComponent2.GetTotalTransform(false)`; repeated `IAssemblyDoc.AddComponent5` for one native SLDPRT | BRIDGE-000018 SOLIDWORKS 2026 SP3.2: 20 occurrences from 8 native SLDPRTs, 20/20 transforms verified, save/reopen 20/20, translation/rotation residual 0; R3 U101–U104 4/4, residuals 0; ArrayData translation in metres, row-major `R^T` | Production Top placement runtime; repeated part reuse |
 
 `MathTransform.ArrayData` first 9 values are the transpose of the column-vector rotation matrix: `ArrayData[0..8] = R^T` row-major. This is confirmed by basis-vector mapping; do not pass a user 4×4 row-major matrix directly.
 
@@ -440,3 +441,4 @@ R1 дополнительно подтвердил enumerate/close-only-created 
 | 2026-11-25 | BRIDGE-000016-R0: C-104 body projection/heights, C-105 snap API (metadata only); S-016/S-017 SOLIDWORKS transform probe; V-14 transform part partially closed | local-agent |
 | 2026-11-25 | BRIDGE-000016-R2: C-106 full board STEP exporter; full board golden reference shows board-local offset and no Component RotationDeg for fixture bodies | local-agent |
 | 2026-11-25 | BRIDGE-000016-R3: library-relative fixture creation blocked by UI-only workflow; no new API confirmed and no capability enabled | local-agent |
+| 2026-11-26 | BRIDGE-000018: S-018 placement runtime (20 occurrences/8 assets, R3 4/4, save/reopen, residual 0); Component Model Catalog 1.1.0 placement metadata; no new Altium API | local-agent |

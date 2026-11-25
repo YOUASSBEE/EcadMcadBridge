@@ -56,6 +56,12 @@ public sealed class ComponentModelsPackageTests
         Assert.Equal(AltiumUnits.IuToMm(393_700), generic.State.DzMm);
         Assert.Null(generic.Origin.ZIu);
         Assert.Null(generic.Origin.ZMm);
+        Assert.Equal(ComponentBodyProjection.Top, generic.BodyProjection);
+        Assert.Equal(ComponentModelStateSource.PlacedBodyEffective, generic.ModelStateSource);
+        Assert.Equal(0, generic.StandoffHeight.Iu);
+        Assert.Equal(1_181_102, generic.OverallHeight.Iu);
+        Assert.Equal(AltiumUnits.IuToMm(1_181_102), generic.OverallHeight.Mm);
+        Assert.Equal("1.1.0", read.Models!.SchemaVersion);
 
         var unknown = first.Bodies[1];
         Assert.Equal(ComponentModelRepresentation.Unknown, unknown.Representation);
@@ -76,6 +82,9 @@ public sealed class ComponentModelsPackageTests
         Assert.Equal(ComponentModelAssetAcquisition.SourceCopyVerified, native.AssetAcquisition);
         Assert.Equal(ComponentModelAssetFormat.ParasolidXT, native.AssetFormat);
         Assert.EndsWith(".x_t", native.AssetPath, StringComparison.Ordinal);
+        Assert.Equal(ComponentBodyProjection.Bottom, native.BodyProjection);
+        Assert.Equal(ComponentModelStateSource.SourceFootprint, native.ModelStateSource);
+        Assert.Equal(500_000, native.OverallHeight.Iu);
 
         var catalogBytes = File.ReadAllBytes(
             Path.Combine(packageDirectory, PackageManifest.ComponentModelsFileName.Replace('/', Path.DirectorySeparatorChar)));
@@ -83,6 +92,105 @@ public sealed class ComponentModelsPackageTests
         Assert.Equal(
             ComponentModelsJson.SerializeToUtf8(expectedCatalog),
             ComponentModelsJson.SerializeToUtf8(read.Models));
+    }
+
+    [Fact]
+    public void Reader_ReadsLegacy100CatalogWithoutPlacementMetadata()
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        EditCatalog(written.PackageDirectory!, root =>
+        {
+            root["schemaVersion"] = "1.0.0";
+            foreach (var component in root["components"]!.AsArray())
+            {
+                foreach (var body in component!["bodies"]!.AsArray())
+                {
+                    var value = body!.AsObject();
+                    value.Remove("bodyProjection");
+                    value.Remove("modelStateSource");
+                    value.Remove("standoffHeight");
+                    value.Remove("overallHeight");
+                }
+            }
+        });
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.True(read.IsSuccess, Describe(read.Errors));
+        Assert.NotNull(read.Models);
+        var generic = read.Models!.Components
+            .Single(component => component.ComponentId == "component-1")
+            .Bodies[0];
+        Assert.Equal(ComponentBodyProjection.Unknown, generic.BodyProjection);
+        Assert.Equal(ComponentModelStateSource.Unknown, generic.ModelStateSource);
+        Assert.False(generic.StandoffHeight.HasValue);
+        Assert.False(generic.OverallHeight.HasValue);
+    }
+
+    [Fact]
+    public void Reader_RejectsUnknownPlacementEnums()
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        EditCatalog(written.PackageDirectory!, root =>
+        {
+            root["components"]![0]!["bodies"]![0]!["bodyProjection"] = "sideways";
+            root["components"]![0]!["bodies"]![0]!["modelStateSource"] = "guess";
+        });
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.False(read.IsSuccess);
+        Assert.Contains(read.Errors, diagnostic =>
+            diagnostic.Code == PackageDiagnosticCodes.InvalidModelCatalog);
+    }
+
+    [Fact]
+    public void Reader_RejectsInconsistentStandoffLength()
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        EditCatalog(written.PackageDirectory!, root =>
+        {
+            root["components"]![0]!["bodies"]![0]!["standoffHeight"]!["mm"] = 999.0;
+        });
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.False(read.IsSuccess);
+        Assert.Contains(read.Errors, diagnostic =>
+            diagnostic.Code == PackageDiagnosticCodes.InvalidModelCatalog);
+    }
+
+    [Fact]
+    public void Reader_TreatsExplicitNullPlacementMetadataAsUnknown()
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        EditCatalog(written.PackageDirectory!, root =>
+        {
+            var body = root["components"]![0]!["bodies"]![0]!;
+            body["bodyProjection"] = null;
+            body["modelStateSource"] = null;
+            body["standoffHeight"] = null;
+            body["overallHeight"] = null;
+        });
+
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.True(read.IsSuccess, Describe(read.Errors));
+        var bodyValue = read.Models!.Components
+            .Single(component => component.ComponentId == "component-1")
+            .Bodies[0];
+        Assert.Equal(ComponentBodyProjection.Unknown, bodyValue.BodyProjection);
+        Assert.Equal(ComponentModelStateSource.Unknown, bodyValue.ModelStateSource);
+        Assert.False(bodyValue.StandoffHeight.HasValue);
+        Assert.False(bodyValue.OverallHeight.HasValue);
     }
 
     [Fact]
@@ -1367,6 +1475,10 @@ public sealed class ComponentModelsPackageTests
                             DzMm = 0,
                         },
                         ModelRotationDegRaw = 90,
+                        BodyProjection = ComponentBodyProjection.Bottom,
+                        ModelStateSource = ComponentModelStateSource.SourceFootprint,
+                        StandoffHeight = LengthValue.FromIu(0),
+                        OverallHeight = LengthValue.FromIu(500_000),
                     },
                 }
                 : Array.Empty<ComponentBodyWriteEntry>();
@@ -1407,6 +1519,10 @@ public sealed class ComponentModelsPackageTests
                                     DzMm = AltiumUnits.IuToMm(393_700),
                                 },
                                 ModelRotationDegRaw = 0,
+                                BodyProjection = ComponentBodyProjection.Top,
+                                ModelStateSource = ComponentModelStateSource.PlacedBodyEffective,
+                                StandoffHeight = LengthValue.FromIu(0),
+                                OverallHeight = LengthValue.FromIu(1_181_102),
                             },
                             new ComponentBodyWriteEntry
                             {

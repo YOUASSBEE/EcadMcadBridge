@@ -31,4 +31,21 @@ internal static class AltiumModelMetadataMapper
 
     public static double? MapRotation(double rotation) =>
         double.IsFinite(rotation) ? rotation : null;
+
+    public static ComponentBodyProjection MapBodyProjection(PCB.TBoardSide side) => side switch
+    {
+        PCB.TBoardSide.eBoardSide_Top => ComponentBodyProjection.Top,
+        PCB.TBoardSide.eBoardSide_Bottom => ComponentBodyProjection.Bottom,
+        _ => ComponentBodyProjection.Unknown,
+    };
+
+    public static LengthValue MapLength(int? iu) => LengthValue.FromIu(iu);
+
+    public static ComponentModelStateSource MapStateSource(
+        ComponentModelRepresentation representation,
+        ComponentModelSourceOrigin sourceOrigin) =>
+        representation == ComponentModelRepresentation.Generic
+        && sourceOrigin == ComponentModelSourceOrigin.Embedded
+            ? ComponentModelStateSource.PlacedBodyEffective
+            : ComponentModelStateSource.Unknown;
 }
