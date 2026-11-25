@@ -1,11 +1,11 @@
 ---
 id: BRIDGE-000015
 type: report
-status: blocked
+status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-25T16:30:00+03:00
-updated: 2026-11-25T19:47:07+03:00
+updated: 2026-11-25T19:50:03+03:00
 base: source
 branch: agent/BRIDGE-000015-solidworks-step-import
 commit: 9055bba
@@ -260,8 +260,8 @@ no-overwrite guard, save-result guard.
   прервались COM/RPC-отключением после 141/155 (`smoke-r29-minipc`) и 134/155
   (`smoke-r30-minipc`) assets. В r30 77 Bridge-документов остались незакрытыми
   из-за недоступности RPC-сервера. Полный one-run успех зафиксирован на
-  `smoke-r26-minipc`, но на точном финальном commit он не воспроизведён;
-  требуется решение оператора, а не объединение прогонов.
+  `smoke-r26-minipc` и принят оператором как proof для PR #14; риск COM/RPC
+  сохраняется. Объединение прогонов запрещено.
 - Реальное размещение ECAD-компонентов, `T_B_S`, Bottom, Euler, Add-in
   registration, Registry, installer, UI и двусторонняя синхронизация не
   реализованы.
@@ -288,23 +288,14 @@ no-overwrite guard, save-result guard.
   пользовательскими документами, forced-error sentinel и полный MiniPC в одном
   run (`smoke-r26-minipc`). Ревалидации финального commit (`smoke-r29-minipc`,
   `smoke-r30-minipc`) зафиксировали COM/RPC-отключение после 141/155 и 134/155
-  assets; статус отчёта изменён на `blocked` до решения оператора.
+  assets; вопрос вынесен на решение оператора.
 
-## 14. Блокирующий вопрос
+## 14. Решение оператора
 
-**Вопрос:** считать ли `smoke-r26-minipc` доказательством R1 для финального
-commit `9055bba` (изменение от `smoke-r26-minipc` касалось только счётчика
-lifecycle, import/save/cleanup не менялись) или требовать повторный полный
-one-run 155/155 именно на финальном commit в стабильной сессии SOLIDWORKS?
-
-**Варианты:**
-
-1. Принять `smoke-r26-minipc` как proof для PR #14, зафиксировав риск
-   нестабильности COM/RPC в отчёте.
-2. Не принимать revalidation до повторного полного one-run 155/155 на чистой
-   сессии SOLIDWORKS без параллельных CAD-операций; PR #14 оставить открытым
-   без merge.
-
-**Рекомендация:** вариант 1 для review PR #14, но перед production-gate всё же
-провести один полный one-run на стабильном стенде. Объединять r26/r28/r29/r30
-или подменять неудачные прогоны частичными результатами запрещено.
+2026-11-25 выбран вариант 1: `smoke-r26-minipc` принят как proof для PR #14.
+Основание: от `smoke-r26-minipc` до финального code commit `9055bba` менялся
+только счётчик lifecycle; import/save/cleanup не менялись. Риск COM/RPC
+нестабильности сохранён в разделе 11. Перед production-gate рекомендуется один
+полный one-run на стабильном стенде. Объединять r26/r28/r29/r30 или подменять
+неудачные прогоны частичными результатами запрещено. PR #14 остаётся открытым
+и не слит.
