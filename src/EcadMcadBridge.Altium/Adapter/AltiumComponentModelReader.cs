@@ -26,6 +26,8 @@ internal sealed class AltiumComponentModelDiagnostics
 
     public int ModelsStale { get; set; }
 
+    public int ModelStateUnknown { get; set; }
+
     public int StepExportsSucceeded { get; set; }
 
     public int StepExportsFailed { get; set; }
@@ -41,6 +43,7 @@ internal sealed class AltiumComponentModelDiagnostics
     public string Summary() =>
         $"components={Components} bodies={BodiesDetected} withModel={BodiesWithModel} " +
         $"missingModel={ModelsMissing} emptyModel={ModelsEmpty} staleModel={ModelsStale} " +
+        $"unknownModelState={ModelStateUnknown} " +
         $"stepAssets={StepExportsSucceeded} exportFailures={StepExportsFailed} " +
         $"fallbacks={StepFallbacks} metadataWarnings={MetadataWarnings} " +
         $"multiBodyComponents={MultiBodyComponents} bodiesWithoutAsset={BodiesWithoutAsset}";
@@ -113,15 +116,7 @@ internal static class AltiumComponentModelReader
                 var owner = GetOwner(body);
                 var ownerKey = CreateOwnerKey(owner);
                 var resolution = resolver.Resolve(ownerKey);
-                if (resolution.Status != AltiumComponentResolutionStatus.Resolved
-                    || string.IsNullOrWhiteSpace(resolution.ComponentId))
-                {
-                    throw new AltiumModelInventoryException(
-                        "A component body owner could not be resolved to one snapshot component " +
-                        "(" + resolution.Status + ").");
-                }
-
-                var componentId = resolution.ComponentId;
+                var componentId = AltiumComponentResolutionGuard.RequireComponentId(resolution);
                 var ordinal = ordinals.Next(componentId);
                 diagnostics.BodiesDetected++;
                 var label = Label(ownerKey.Designator, ordinal);
@@ -195,26 +190,46 @@ internal static class AltiumComponentModelReader
         var source = ReadModelSource(model, label, warnings, diagnostics);
         var fileName = ReadFileName(model, label, warnings, diagnostics);
         var representation = AltiumModelClassification.MapRepresentation(modelType);
+        var externalFileName = AltiumModelClassification.IsExternalFileName(
+            fileName,
+            source,
+            representation)
+            ? fileName
+            : null;
         var sourceOrigin = AltiumModelClassification.ClassifySourceOrigin(
             modelType,
             embed,
             source,
-            fileName);
+            externalFileName);
         var origin = ReadOrigin(model, label, warnings, diagnostics);
         var state = ReadState(model, label, warnings, diagnostics);
         var rotation = ReadRotation(model, label, warnings, diagnostics);
         var empty = ReadIsEmpty(model, label, warnings, diagnostics);
         var stale = ReadIsStale(model, label, warnings, diagnostics);
+        var modelState = AltiumModelStateClassifier.Classify(empty, stale);
 
-        if (empty || stale)
+        if (modelState != AltiumModelStateStatus.Clean)
         {
-            if (empty)
+            if (empty is null || stale is null)
+            {
+                diagnostics.ModelStateUnknown++;
+                warnings.Add(
+                    label + " model emptiness/staleness could not be verified; " +
+                    "no STEP asset was created.");
+            }
+
+            if (empty == true)
+            {
                 diagnostics.ModelsEmpty++;
-            if (stale)
+                warnings.Add(label + " has an empty model; no STEP asset was created.");
+            }
+
+            if (stale == true)
+            {
                 diagnostics.ModelsStale++;
-            warnings.Add(
-                label + (empty ? " has an empty model" : " has a stale model") +
-                "; no STEP asset was created.");
+                warnings.Add(label + " has a stale model; no STEP asset was created.");
+            }
+
             return new AltiumBodyInventoryEntry(
                 componentId,
                 bodyOrdinal,
@@ -487,7 +502,7 @@ internal static class AltiumComponentModelReader
         }
     }
 
-    private static bool ReadIsEmpty(
+    private static bool? ReadIsEmpty(
         IPCB_Model model,
         string label,
         List<string> warnings,
@@ -500,11 +515,11 @@ internal static class AltiumComponentModelReader
         catch (Exception ex)
         {
             AddMetadataWarning(diagnostics, warnings, label, "isEmpty", ex);
-            return false;
+            return null;
         }
     }
 
-    private static bool ReadIsStale(
+    private static bool? ReadIsStale(
         IPCB_Model model,
         string label,
         List<string> warnings,
@@ -517,7 +532,7 @@ internal static class AltiumComponentModelReader
         catch (Exception ex)
         {
             AddMetadataWarning(diagnostics, warnings, label, "isStale", ex);
-            return false;
+            return null;
         }
     }
 

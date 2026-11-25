@@ -1,3 +1,4 @@
+using System.IO;
 using EcadMcadBridge.Core.Model;
 using PCB;
 
@@ -18,19 +19,39 @@ internal static class AltiumModelClassification
         _ => ComponentModelRepresentation.Unknown,
     };
 
+    /// <summary>
+    /// A basename from an embedded generic model is not external evidence. File/Vault
+    /// sources, rooted paths and any filename on a procedural model are external evidence.
+    /// </summary>
+    public static bool IsExternalFileName(
+        string? fileName,
+        TModelSource? modelSource,
+        ComponentModelRepresentation representation)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return false;
+        if (modelSource is TModelSource.eModelSource_File or TModelSource.eModelsource_Vault)
+            return true;
+        if (representation == ComponentModelRepresentation.Native)
+            return true;
+        return Path.IsPathRooted(fileName);
+    }
+
     public static ComponentModelSourceOrigin ClassifySourceOrigin(
         T3DModelType? modelType,
         bool? embed,
         TModelSource? modelSource,
         string? fileName)
     {
-        if (embed == true)
-            return ComponentModelSourceOrigin.Embedded;
-
         var representation = MapRepresentation(modelType);
         var hasExternalEvidence = modelSource is TModelSource.eModelSource_File
                 or TModelSource.eModelsource_Vault
             || !string.IsNullOrWhiteSpace(fileName);
+
+        if (embed == true)
+            return hasExternalEvidence
+                ? ComponentModelSourceOrigin.Unknown
+                : ComponentModelSourceOrigin.Embedded;
 
         if (representation == ComponentModelRepresentation.Native && !hasExternalEvidence)
             return ComponentModelSourceOrigin.Native;

@@ -31,6 +31,9 @@ public sealed class AltiumModelClassificationTests
     [Theory]
     [InlineData(T3DModelType.e3DModelType_Generic, true, null, null, ComponentModelSourceOrigin.Embedded)]
     [InlineData(T3DModelType.e3DModelType_Extruded, true, null, null, ComponentModelSourceOrigin.Embedded)]
+    [InlineData(T3DModelType.e3DModelType_Generic, true, TModelSource.eModelSource_File, null, ComponentModelSourceOrigin.Unknown)]
+    [InlineData(T3DModelType.e3DModelType_Generic, true, TModelSource.eModelsource_Vault, null, ComponentModelSourceOrigin.Unknown)]
+    [InlineData(T3DModelType.e3DModelType_Extruded, true, null, "external.step", ComponentModelSourceOrigin.Unknown)]
     [InlineData(T3DModelType.e3DModelType_Generic, false, null, null, ComponentModelSourceOrigin.Unknown)]
     [InlineData(T3DModelType.e3DModelType_Extruded, false, null, null, ComponentModelSourceOrigin.Native)]
     [InlineData(T3DModelType.e3DModelType_Cylinder, false, null, null, ComponentModelSourceOrigin.Native)]
@@ -70,5 +73,25 @@ public sealed class AltiumModelClassificationTests
                     source,
                     "external.step"));
         }
+    }
+
+    [Theory]
+    [InlineData("part.step", null, ComponentModelRepresentation.Generic, false)]
+    [InlineData("part.step", TModelSource.eModelSource_Undefined, ComponentModelRepresentation.Generic, false)]
+    [InlineData("part.step", TModelSource.eModelSource_File, ComponentModelRepresentation.Generic, true)]
+    [InlineData("part.step", TModelSource.eModelsource_Vault, ComponentModelRepresentation.Generic, true)]
+    [InlineData("part.step", TModelSource.eModelSource_Undefined, ComponentModelRepresentation.Native, true)]
+    [InlineData("C:\\models\\part.step", TModelSource.eModelSource_Undefined, ComponentModelRepresentation.Generic, true)]
+    [InlineData("", null, ComponentModelRepresentation.Generic, false)]
+    [InlineData("   ", null, ComponentModelRepresentation.Generic, false)]
+    public void IdentifiesExternalFileEvidence(
+        string? fileName,
+        TModelSource? source,
+        ComponentModelRepresentation representation,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            AltiumModelClassification.IsExternalFileName(fileName, source, representation));
     }
 }

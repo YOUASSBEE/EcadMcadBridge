@@ -838,6 +838,7 @@ internal static class AltiumBoardSnapshotAdapter
 
             var index = 0;
             var holeWarning = false;
+            var componentIdsSeen = new HashSet<string>(StringComparer.Ordinal);
             for (var primitive = iterator.FirstPCBObject(); primitive is not null; primitive = iterator.NextPCBObject())
             {
                 if (primitive is not IPCB_Component component)
@@ -851,12 +852,14 @@ internal static class AltiumBoardSnapshotAdapter
                     warnings.Add("A component has no designator; a synthetic designator was used.");
                 }
 
-                var sourceUniqueId = component.GetState_SourceUniqueId();
-                var uniqueId = component.GetState_UniqueId();
-                var componentId = MakeId(
-                    "component",
+                var sourceUniqueId = AltiumComponentIdBuilder.NormalizeKey(component.GetState_SourceUniqueId());
+                var uniqueId = AltiumComponentIdBuilder.NormalizeKey(component.GetState_UniqueId());
+                var componentId = AltiumComponentIdBuilder.Build(
                     uniqueId,
-                    sourceUniqueId ?? designator + ":" + index,
+                    sourceUniqueId,
+                    designator,
+                    index,
+                    componentIdsSeen,
                     warnings,
                     diagnostics);
                 if (!string.IsNullOrWhiteSpace(uniqueId))
