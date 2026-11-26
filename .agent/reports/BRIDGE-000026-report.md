@@ -9,7 +9,7 @@ updated: 2026-11-26T21:04:13+03:00
 base: source
 base_sha: bdff118b288454be68c7c590d875142620a139e2
 branch: task/BRIDGE-000026-live-addin-loading
-commit: dfdaf311471788f7d2f62785fe357993455ad10a
+commit: 0d6d2ecff124883d51919e29eb0438aa44f92bf7
 pr: none
 related:
   - BRIDGE-000024
@@ -291,8 +291,9 @@ D-024 — непроверенной.
 
 ## 13. Commit SHA и PR
 
-- Коммит отчёта: `dfdaf311471788f7d2f62785fe357993455ad10a`. Следующий meta-коммит меняет только
-  ссылки на SHA в этом разделе и front matter.
+- Первичный коммит отчёта: `dfdaf311471788f7d2f62785fe357993455ad10a`.
+- Коммит с hot reload evidence: `0d6d2ecff124883d51919e29eb0438aa44f92bf7`. Финальный meta-коммит
+  меняет только ссылки на SHA в этом разделе и front matter.
 - PR для BRIDGE-000026 **не создаётся** по условию задачи.
 - PR #23: https://github.com/YOUASSBEE/EcadMcadBridge/pull/23 — `open`, `merged=false`,
   head `e28881486c69f0fb689f3181f9abda38deefe481`.
