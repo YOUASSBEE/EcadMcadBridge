@@ -5,10 +5,10 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-27T00:34:00+03:00
-updated: 2026-11-27T00:34:00+03:00
+updated: 2026-11-27T00:36:00+03:00
 base: source
 branch: task/BRIDGE-000035-top-only-smoke
-commit: pending
+commit: 659d2b1fd65d842a15a448eacd56bc04169eac71
 pr: none (no PR created by this task)
 related: [BRIDGE-000035, BRIDGE-000018, BRIDGE-000028, BRIDGE-000029]
 ---
@@ -256,6 +256,6 @@ Translations в mm, row-major matrices совпадают с ожидаемым�
 
 ## 10. Commit и review
 
-- Content commit: `pending` (будет записан после коммита).
+- Content commit: `659d2b1fd65d842a15a448eacd56bc04169eac71`; metadata-only SHA update follows.
 - Branch: `task/BRIDGE-000035-top-only-smoke`, base `source` @ `ea817c9…`.
 - PR: none. Report готов к review; интеграция требует отдельного решения оператора.
