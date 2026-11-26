@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T22:40:00+03:00
-updated: 2026-11-26T22:40:00+03:00
+updated: 2026-11-26T22:24:02+03:00
 base: source
 branch: task/BRIDGE-000029-identity-landmark-validation
-commit: PENDING
-pr: PENDING
+commit: 659fc13b162173f69affd1ab20993a6566804489
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/25
 related: [BRIDGE-000016, BRIDGE-000017, BRIDGE-000018, BRIDGE-000022, BRIDGE-000023, BRIDGE-000024, BRIDGE-000025, BRIDGE-000027, BRIDGE-000028, BRIDGE-000029]
 ---
 
@@ -271,8 +271,15 @@ E   = P + vx·X_b + vy·Y_b + vz·Z_b
 
 ## 6. Commit SHA и ссылка на PR
 
-- Commit: `PENDING`
-- PR: `PENDING`
+- Commit, на котором открыт PR: `659fc13b162173f69affd1ab20993a6566804489`.
+- Финальный commit работы: `659fc13b162173f69affd1ab20993a6566804489`
+  (production-код и контракт не менялись; следующий коммит добавил только URL PR
+  и эту пометку в отчёт).
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/25 — ветка
+  `task/BRIDGE-000029-identity-landmark-validation` → `source`; по состоянию на
+  `2026-11-26T22:24:02+03:00` `state=open`, `merged=false`.
+- PR не мержится по условию задачи; PR #23 и другие PR не изменялись. URL PR и
+  commit SHA добавлены отдельным коммитом после создания PR.
 
 ## 7. История изменений
 
@@ -280,3 +287,5 @@ E   = P + vx·X_b + vy·Y_b + vz·Z_b
   identity-значениями, save/reopen-сравнением и независимой STEP-landmark
   проверкой; вывод — вариант B, D-024 без изменений, production Bottom
   по-прежнему Unsupported.
+- 2026-11-26: после создания PR #25 в отчёт добавлены URL PR и commit SHA;
+  содержимое разделов, проверки и вывод не изменились.
