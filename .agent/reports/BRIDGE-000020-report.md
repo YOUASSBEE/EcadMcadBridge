@@ -5,10 +5,10 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T13:25:00+03:00
-updated: 2026-11-26T15:01:00+03:00
+updated: 2026-11-26T16:06:19+03:00
 base: source
 branch: agent/BRIDGE-000020-board-outline-completeness
-commit: a3ea50d933d258ca266cf7b73043556063182b68
+commit: 34a1e9672706977b9be4f73875a978e089a2b5aa
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/19
 related: [BRIDGE-000020, BRIDGE-000019, BRIDGE-000018]
 ---
@@ -664,3 +664,176 @@ smoke: `50547E5ED4AA84C430CD1F3B3F5EDBF2ED6FB013E8C076A871C9BDE4B5749A93` (бе�
 - Риски: ветка fallback-recovery не воспроизведена реальным AD26-прогоном; покрытие этой
   ветки — только изолированные unit-тесты. Остальные ранее зафиксированные риски
   REVIEW-FIX-001 сохраняются в силе.
+
+## 10. REVIEW-FIX-003 — достижимость recovery и топологическая роль
+
+Работа продолжена в той же ветке `agent/BRIDGE-000020-board-outline-completeness` и PR #19;
+новый PR не создавался, `source` не изменялся. Код и тесты зафиксированы коммитом
+`34a1e9672706977b9be4f73875a978e089a2b5aa`; отчёт — отдельным коммитом.
+
+### 10.1 Root cause недостижимости прежнего recovery
+
+В `ReadRegionContours()` до этого исправления `skipped` мог содержать только два реально
+достижимых состояния: `null` contour с пустыми точками и contour с количеством точек меньше
+двух. Fallback `MainContour`/`HoleContour` добавлялся только при `>= 2` точках. Поэтому
+`FindExactContourIndex(item.Points, fallback)` не мог найти совпадение в production-коде:
+у пропущенного контура просто не было геометрии для сравнения. Тесты REVIEW-FIX-002
+передавали в `skipped` полноценные прямоугольники, то есть состояние, которое production
+не формировал. Кроме того, проверка дубля не учитывала `IsHole`, поэтому одинаковая
+геометрия с разной топологической ролью могла считаться взаимозаменяемой.
+
+### 10.2 Новый алгоритм и его ограничения
+
+1. `ReadRegionContours()` теперь сохраняет для каждого пропущенного контура `Index` и
+   `IsHole` (если роль читается), а также отдельно обрабатывает `null`, 0/1 точку и
+   исключение чтения точек, не обрывая чтение остальных контуров.
+2. Для каждого пропущенного контура выполняется повторное чтение **того же** polygon
+   contour index (`TryReReadRegionContour`). Оно должно вернуть `>= 2` точки и тот же
+   топологический role. Это сохраняет исходную идентичность `region + contour`.
+3. Геометрия берётся из независимого `MainContour`/`HoleContour`; принимается только
+   **один уникальный** exact match с теми же точками IU и тем же `IsHole`. Сравнение
+   учитывает замыкание, стартовую точку и направление обхода, но не bounds/area/centre/count.
+4. Только после этого ключ снимается с `UnresolvedCutoutSources`, а контур добавляется в
+   `AltiumRegionInfo.Contours` с сохранёнными `Source`, `SourceIndex`, `IsHole` и исходным
+   `ContourIndex`; `BuildCutoutSources()` использует `ContourIndex` для source accounting.
+5. Дубль признаётся только при точном совпадении координат **и** `IsHole`. Одинаковая
+   геометрия с разным role не является дублем; при точном дубле с тем же role второй контур
+   не экспортируется, ключ учитывается через `DuplicateCutoutSources`.
+6. Если повторное чтение недоступно, дало `< 2` точек, выбросило исключение, role не
+   совпал, fallback отсутствует/неоднозначен — контур остаётся unresolved, добавляется
+   `RegionContourUnproven`, итог `Incomplete`. Для BoardCutout с полностью недоступным
+   geometric polygon добавляется unresolved source `-1`, даже если fallback дал геометрию.
+7. Per-contour ошибка больше не инкрементирует `BoardCutoutContourReadErrors`: она
+   считается восстановимой до reconciliation; недоказанный исход всё равно даёт
+   `Incomplete` через `boardCutoutUnprovenSkipped`.
+
+Ограничение: recovery возможен только если SDK реально возвращает тот же contour при
+повторном чтении. Если `GetGeometricPolygon()` детерминированно отдаёт `null`/0/1 точку,
+восстановление не выполняется — остаётся fail-closed. Это сделано намеренно: подстановка
+геометрии только по роли, количеству контуров, bounds или площади запрещена. Новых SDK API
+не добавлено; используется уже подтверждённый C-86.
+
+### 10.3 Тесты
+
+`RegionContourRecoveryTests.cs` переработан под production-reachable входы: `skipped`
+содержит `Array.Empty<Point2D>()` или одну точку, а не полноценный прямоугольник.
+Тестируется production-used helper `RecoverRegionContours()` с retry-делегатом, который
+имитирует второй SDK read; сам production-путь вызывает его через
+`ReadRegionContours()`/`TryReReadRegionContour()`.
+
+| Тест | Проверяемый исход |
+|---|---|
+| `NullGeometricContour_ExactRetryAndFallback_IsRecovered` | null contour + exact retry + fallback → контур в результате, `ContourIndex=1`, provenance/role сохранены |
+| `SinglePointGeometricContour_ExactRetryAndFallback_IsRecovered` | 1-точечный production-state восстанавливается, Hole provenance сохраняется |
+| `RetryUnavailable_LeavesSourceUnresolved` | повторное чтение недоступно → unresolved, `Incomplete` |
+| `RetryThrows_LeavesSourceUnresolved` | исключение повторного чтения → unresolved |
+| `RetryStillShort_LeavesSourceUnresolved` | повторное чтение снова дало 1 точку → unresolved |
+| `FallbackMissing_LeavesSourceUnresolved` | fallback отсутствует → unresolved |
+| `SameCoordinatesDifferentRole_IsNotAcceptedAsFallback` | fallback с теми же координатами, но другим `IsHole`, не принимается |
+| `SameCoordinatesDifferentRole_IsNotTreatedAsDuplicate` | одинаковые координаты с разным role не считаются дублем; Hole добавляется отдельно |
+| `ExactDuplicateWithSameRole_IsAccountedWithoutSecondExport` | точный дубль с тем же role учтён без второго export |
+| `MixedSkippedContours_RecoveredAndUnresolvedFailClosed` | один контур восстановлен, другой unresolved → `Incomplete` |
+| `ContourPointsEqual_IgnoresClosureStartPointAndDirection` | exact point comparison с замыканием/стартом/направлением |
+
+`dotnet build -c Release`: 0 warning, 0 error. `dotnet test -c Release`: Core 229/229,
+Altium 195/195, SOLIDWORKS 94/94, всего **518/518**.
+
+### 10.4 CAD-проверки
+
+После сборки установленное AD-расширение обновлено; процессы `X2`, удерживавшие старые DLL,
+остановлены. Установлены:
+
+- `EcadMcadBridge.dll` SHA-256 `7D1E21C29FDAA71B9DBFD84438D4B75417349D5ACEDC2F8327FF2365AC2A453A`;
+- `EcadMcadBridge.Core.dll` SHA-256 `1A106CF0DD31F9D194E760392C460E62C39D4BA078A7DCE6A32953677D567F70`.
+
+#### Desktop export + Smoke B
+
+Экспорт выполнен из копии
+`C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000020\board-with-cutout.PcbDoc`
+скриптом `run-export-b-003.ps1`. Package
+`125098ca-16fa-44c2-85b9-4cac822ee9cf` в
+`C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000020\packages-b-reviewfix-003\125098ca-16fa-44c2-85b9-4cac822ee9cf`.
+
+- `board.snapshot.json` SHA-256 `7439DDC5E77A1A68F7D26F46520EEB4981607E8D895333E9D990DE0A26EB2A85`;
+  `board.outline.completeness=complete`, capability `board-3d-model` присутствует.
+- `manifest.json` SHA-256 `19F9CDCBBADE0C0C69EA83792AB528C05331282E423609634157A456D8F3C9D3`;
+  `checksums.sha256` SHA-256 `2DAB02F232A75B30517595A6001A63B7AB8654B99ECE9F6A377779921E1CD198`;
+  `board.model.json` SHA-256 `DE92F593AF2B45D1747C9029F01A8B7D8D9C7EA63E93DFE72D3A2C335AD82A45`.
+- Контуры: `altium:contour:0` Outer (12 segments), `altium:contour:cutout:clip:1` Hole
+  (7 segments), `altium:contour:cutout:clip:2` Hole (9 segments). Origin
+  `603848426/1533.77500204` по X и `388464566/986.6999976399999` по Y.
+- `PACKAGE_EXPORT_OK`: layers=17, components=73, pads=224, nets=57, bodies=152,
+  stepAssets=152, exportFailures=0, fallbacks=0, adapterWarnings=14, modelWarnings=0,
+  packageWarnings=28; board STEP SHA-256 `a62e5dfeee8caeefdb1412da70a4ca97def6c0abebc7eff0ba2322df91fb5bfd`.
+- `ADAPTER_SUMMARY` (2026-11-26T13:01:56Z):
+  `regionContourRecovered=0 regionContourRecoveryDuplicates=0
+  boardCutoutUnprovenSkipped=0 unresolvedSources=0 unresolvedLoops=0
+  clipReusedSources=0 exportedCutoutContours=2 boardCutoutContours=5 boardCutoutHoles=2`.
+
+**Fallback-recovery на реальной плате не активировался:** оба новых счётчика равны нулю.
+CAD-прогон подтверждает отсутствие регрессии и сохранение прежней полноты контура, но не
+является runtime-доказательством ветки повторного чтения; она покрыта только unit-тестами.
+
+Smoke B:
+
+```powershell
+dotnet tools\EcadMcadBridge.SolidWorks.Smoke\bin\Release\net10.0-windows\EcadMcadBridge.SolidWorks.Smoke.dll `
+  --package 'C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000020\packages-b-reviewfix-003\125098ca-16fa-44c2-85b9-4cac822ee9cf' `
+  --output 'C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000020\smoke-b12' `
+  --placed-assembly --max-components 1 `
+  --template 'C:\ProgramData\SOLIDWORKS\SOLIDWORKS 2026\templates\gost-assy.asmdot'
+```
+
+`smoke-b12\smoke-result.json` SHA-256
+`C40AE09ECFAEBEDB271435176254156EC9CE3B7E23A78D30CE249434CD4808A9`.
+`success=true`, `packageReadSuccess=true`, `outlineCompleteness=Complete`,
+`outlineComplete=true`, geometry gate пройден: 3 solid body, bounds
+`80 x 54.999999999999886 x 0.79649574 mm`, XY residual `2.9000002541579306e-06 mm`
+(допуск `0.05 mm`), Z residual `0`, volume residual `1.1852663909909325 mm³`
+(допуск `max(5 mm³, 2%) = 16.9402866558029 mm³`). Geometry diagnostics — только
+ожидаемый `SW-BRD-005`; Error нет. Probes Outer/Hole: expected=actual для всех трёх.
+
+Placed assembly `smoke-b12\assembly\smoke-placed-assembly.SLDASM` SHA-256
+`9BAD635EEED27C4A0143EA8FADCFCAE90AFDCF85A5D86BCE313D28CF38824561`; 2/2 occurrences,
+save/reopen=true, transformsVerified=true, board `board-1` fixed=true/verified=true,
+translation/rotation residual `0`. Cleanup import и placedAssembly `Verified`,
+`RemainingCreatedDocuments=0`, `remainingDocuments` пуст. SHA-256 `.PcbDoc` до export и
+после smoke: `FE0F7D1FF7A662EF3333A09FDCA1A49EC1C9C4A534DACC6CCF570E05188B8EF7`
+(не изменялся). Это SHA текущей temp-копии; SHA `ED624C…` в REVIEW-FIX-002 относился к
+более раннему состоянию той же копии.
+
+#### MiniPC Smoke A
+
+```powershell
+dotnet tools\EcadMcadBridge.SolidWorks.Smoke\bin\Release\net10.0-windows\EcadMcadBridge.SolidWorks.Smoke.dll `
+  --package 'C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000020\packages-minipc\4a4fb429-c8b5-434f-8653-fd60de329fd6' `
+  --output 'C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000020\smoke-a10' `
+  --placed-assembly --template 'C:\ProgramData\SOLIDWORKS\SOLIDWORKS 2026\templates\gost-assy.asmdot'
+```
+
+`smoke-a10\smoke-result.json` SHA-256
+`3A1A2A0279862F3CE4B66AAE9C4236916A6464A167987BABFB0CBBC51E091D1C`.
+`success=true`, `outlineCompleteness=Complete`, `outlineComplete=true`, geometry gate
+пройден: 1 solid body, bounds `175.00000000000003 x 155 x 2.0080020800000002 mm`,
+volume `54097.58403728001 mm³`, expected `54097.58403888647 mm³`, residual
+`-1.6064586816355586e-06 mm³`, XY residual `5.1999995775986463e-07 mm`,
+Z residual `0`; diagnostics пусты. 21/21 occurrences, save/reopen=true,
+transformsVerified=true, board fixed=true, translation/rotation residual `0`,
+cleanup `Verified/Verified`, `RemainingCreatedDocuments=0`. Assembly
+`smoke-a10\assembly\smoke-placed-assembly.SLDASM` SHA-256
+`140A82B2025D0F128E28E17B88318ED1D411E1A61FDFDEE55EC5580B594E4B2F`.
+SHA-256 `minipc.PcbDoc` до и после smoke:
+`50547E5ED4AA84C430CD1F3B3F5EDBF2ED6FB013E8C076A871C9BDE4B5749A93` (не изменялся).
+
+### 10.5 Итог REVIEW-FIX-003
+
+- `dotnet build -c Release` — 0 warning, 0 error; `dotnet test -c Release` — **518/518**.
+- `git diff --check` — без ошибок; рабочее дерево после коммитов чистое.
+- Commit с кодом и тестами: `34a1e9672706977b9be4f73875a978e089a2b5aa`; PR #19
+  `https://github.com/YOUASSBEE/EcadMcadBridge/pull/19` — `open`, `merged=false`,
+  base `source`.
+- Архитектура, стек/TFM, публичный формат пакета, пороги допусков и правило
+  `board-3d-model` только при `Complete` не изменены. Новых ADR и SDK API нет.
+- Остаточное ограничение: production recovery зависит от успешного повторного чтения
+  контура SDK; при детерминированном `null`/0/1 point источник остаётся unresolved и
+  `Incomplete`. На проверенных платах ветка не активировалась.
