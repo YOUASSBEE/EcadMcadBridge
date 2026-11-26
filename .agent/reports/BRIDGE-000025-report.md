@@ -271,8 +271,12 @@ bbox-наблюдения. Точки сравнения из BRIDGE-000023 (`CA
 - Коммит отчёта: `b1448547404dcba46a8a802bcdf1919f24db63fc`. Следующий meta-коммит меняет
   только ссылки на SHA в этом разделе.
 - PR для BRIDGE-000025 **не создаётся** по условию задачи.
-- PR #23: https://github.com/YOUASSBEE/EcadMcadBridge/pull/23 — `open`, `merged=false`,
-  head `0b407e3f2d0a59fc300e4e0929633a406e9f0ffb`.
+- PR #23: https://github.com/YOUASSBEE/EcadMcadBridge/pull/23 — `open`, `merged=false`.
+  Диагностика собрана из указанного в постановке head
+  `0b407e3f2d0a59fc300e4e0929633a406e9f0ffb`. После обновления отчёта BRIDGE-000024
+  (только документ, без изменения кода) head PR #23 стал
+  `e28881486c69f0fb689f3181f9abda38deefe481`; это не меняет собранных DLL и не переносит
+  реализацию на другой HEAD.
 
 ## 14. Оставшиеся блокеры и что нужно от Оператора
 
