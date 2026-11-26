@@ -31,7 +31,7 @@ related:
   `0b407e3f2d0a59fc300e4e0929633a406e9f0ffb` совпадает с постановкой; `state=open`,
   `merged=false`.
 - Диагностическая сборка собрана **из этого точного commit** в отдельном worktree вне
-  Basic working tree: `Release`, `0 warnings, 0 errors`.
+  рабочего дерева репозитория: `Release`, `0 warnings, 0 errors`.
 - Повторно проверен research package BRIDGE-000023: `files=24 ok=24 bad=[]`; STEP не
   переэкспортировался.
 - Подготовлен request JSON со всеми 15 designators вне Git.
