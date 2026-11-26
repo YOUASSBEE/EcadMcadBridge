@@ -16,6 +16,23 @@ public sealed record SolidWorksPlacedOccurrence(
     string NativePartPath,
     Matrix4x4D RequestedTransform);
 
+/// <summary>The board substrate occurrence and its alignment transform.</summary>
+public sealed record SolidWorksPlacedBoardOccurrence(
+    string NativePartPath,
+    Matrix4x4D RequestedTransform);
+
+/// <summary>Verification for the board occurrence after transform assignment, fix and reopen.</summary>
+public sealed record SolidWorksPlacedBoardResult(
+    string NativePartPath,
+    string OccurrenceName,
+    Matrix4x4D RequestedTransform,
+    Matrix4x4D ReadbackTransform,
+    double TranslationResidualMm,
+    double RotationBasisResidual,
+    double Determinant,
+    bool Fixed,
+    bool Verified);
+
 /// <summary>Verification for one requested occurrence after transform assignment and reopen.</summary>
 public sealed record SolidWorksPlacedOccurrenceResult(
     string ComponentId,
@@ -40,7 +57,11 @@ public sealed record SolidWorksPlacedAssemblyResult(
     bool TransformsVerified,
     IReadOnlyList<SolidWorksPlacedOccurrenceResult> Occurrences,
     IReadOnlyList<SolidWorksDiagnostic> Diagnostics,
-    SolidWorksDocumentLifecycle Lifecycle);
+    SolidWorksDocumentLifecycle Lifecycle)
+{
+    /// <summary>Board occurrence result; null when no board part was requested.</summary>
+    public SolidWorksPlacedBoardResult? BoardOccurrence { get; init; }
+}
 
 /// <summary>
 /// Creates a native SLDASM with one occurrence per body reference and explicitly sets each
@@ -60,13 +81,20 @@ public sealed class SolidWorksPlacedAssemblyService
     public SolidWorksPlacedAssemblyResult Create(
         string templatePath,
         string assemblyPath,
-        IReadOnlyList<SolidWorksPlacedOccurrence> occurrences)
+        IReadOnlyList<SolidWorksPlacedOccurrence> occurrences) =>
+        Create(templatePath, assemblyPath, occurrences, board: null);
+
+    public SolidWorksPlacedAssemblyResult Create(
+        string templatePath,
+        string assemblyPath,
+        IReadOnlyList<SolidWorksPlacedOccurrence> occurrences,
+        SolidWorksPlacedBoardOccurrence? board)
     {
         var diagnostics = new List<SolidWorksDiagnostic>();
         var tracker = SolidWorksDocumentTracker.Capture(_solidWorks);
         var verified = new List<SolidWorksPlacedOccurrenceResult>();
 
-        if (occurrences.Count == 0)
+        if (occurrences.Count == 0 && board is null)
         {
             return Failure(
                 assemblyPath,
@@ -196,7 +224,7 @@ public sealed class SolidWorksPlacedAssemblyService
                     "AssemblyDoc is unavailable.");
             }
 
-            if (!LoadUniqueParts(occurrences, tracker, diagnostics))
+            if (!LoadUniqueParts(occurrences, board, tracker, diagnostics))
             {
                 return Failure(
                     assemblyPath,
@@ -244,13 +272,41 @@ public sealed class SolidWorksPlacedAssemblyService
                     verified.Add(result);
             }
 
-            if (added != occurrences.Count)
+            SolidWorksPlacedBoardResult? boardResult = null;
+            if (board is not null)
+            {
+                var boardComponent = assembly.AddComponent5(
+                    board.NativePartPath,
+                    (int)swAddComponentConfigOptions_e.swAddComponentConfigOptions_CurrentSelectedConfig,
+                    string.Empty,
+                    false,
+                    string.Empty,
+                    0,
+                    0,
+                    0);
+                if (boardComponent is null)
+                {
+                    diagnostics.Add(Error(
+                        "SW-PLC-ASM-036",
+                        "BOARD",
+                        "AddComponent5 returned null for " + Path.GetFileName(board.NativePartPath) + "."));
+                }
+                else
+                {
+                    added++;
+                    TrackComponent(boardComponent, tracker, diagnostics);
+                    boardResult = ApplyBoardOccurrence(boardComponent, board, assembly, diagnostics);
+                }
+            }
+
+            var expectedAdded = occurrences.Count + (board is null ? 0 : 1);
+            if (added != expectedAdded)
             {
                 diagnostics.Add(Error(
                     "SW-PLC-ASM-010",
                     "assembly",
                     "Only " + added.ToString(CultureInfo.InvariantCulture) + " of " +
-                    occurrences.Count.ToString(CultureInfo.InvariantCulture) + " occurrences were added."));
+                    expectedAdded.ToString(CultureInfo.InvariantCulture) + " occurrences were added."));
             }
 
             var assembleVerified = verified.Count == occurrences.Count &&
@@ -263,6 +319,14 @@ public sealed class SolidWorksPlacedAssemblyService
                     "Not every requested occurrence was added and verified."));
             }
 
+            var boardAssembled = board is null || boardResult is { Verified: true, Fixed: true };
+            if (!boardAssembled)
+            {
+                diagnostics.Add(Error(
+                    "SW-PLC-ASM-037",
+                    "BOARD",
+                    "The board occurrence was not added, aligned and fixed."));
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(assemblyPath)!);
             var extension = document.Extension;
             if (extension is null)
@@ -378,22 +442,41 @@ public sealed class SolidWorksPlacedAssemblyService
 
             var reopenedCount = CountComponents(reopenedAssembly);
             TrackComponents(reopenedAssembly, tracker, diagnostics);
+            var allOccurrences = board is null
+                ? occurrences.ToArray()
+                : occurrences.Concat(new[]
+                {
+                    new SolidWorksPlacedOccurrence(
+                        "__board__",
+                        "BOARD",
+                        -1,
+                        board.NativePartPath,
+                        board.RequestedTransform),
+                }).ToArray();
             var reopenedVerified = VerifyReopened(
                 reopenedAssembly,
-                occurrences,
+                allOccurrences,
                 diagnostics);
+            if (board is not null)
+            {
+                boardResult = ReadBoardOccurrence(reopenedAssembly, board, diagnostics) ?? boardResult;
+            }
 
+            var boardReopened = board is null || boardResult is { Fixed: true, Verified: true };
+            var expectedOccurrences = occurrences.Count + (board is null ? 0 : 1);
             CloseAndReport(diagnostics, tracker, reopened);
             var success = saved
-                && reopenedCount == occurrences.Count
+                && reopenedCount == expectedOccurrences
                 && assembleVerified
+                && boardAssembled
                 && reopenedVerified
+                && boardReopened
                 && diagnostics.All(item => item.Severity != SolidWorksDiagnosticSeverity.Error)
                 && tracker.CleanupStatus == SolidWorksCleanupStatus.Verified;
 
             return new SolidWorksPlacedAssemblyResult(
                 assemblyPath,
-                occurrences.Count,
+                expectedOccurrences,
                 added,
                 reopenedCount,
                 true,
@@ -401,7 +484,10 @@ public sealed class SolidWorksPlacedAssemblyService
                 success,
                 verified,
                 diagnostics,
-                tracker.Snapshot());
+                tracker.Snapshot())
+            {
+                BoardOccurrence = boardResult,
+            };
         }
         catch (Exception ex)
         {
@@ -431,14 +517,18 @@ public sealed class SolidWorksPlacedAssemblyService
 
     private bool LoadUniqueParts(
         IReadOnlyList<SolidWorksPlacedOccurrence> occurrences,
+        SolidWorksPlacedBoardOccurrence? board,
         SolidWorksDocumentTracker tracker,
         List<SolidWorksDiagnostic> diagnostics)
     {
+        var paths = occurrences
+            .Select(item => item.NativePartPath)
+            .Concat(board is null ? Array.Empty<string>() : new[] { board.NativePartPath })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         var loaded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var path in occurrences
-                     .Select(item => item.NativePartPath)
-                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                     .OrderBy(item => item, StringComparer.OrdinalIgnoreCase))
+        foreach (var path in paths)
         {
             if (!File.Exists(path))
             {
@@ -469,10 +559,7 @@ public sealed class SolidWorksPlacedAssemblyService
             loaded.Add(path);
         }
 
-        return loaded.Count == occurrences
-            .Select(item => item.NativePartPath)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
+        return loaded.Count == paths.Length;
     }
 
     private SolidWorksPlacedOccurrenceResult? ApplyTransform(
@@ -553,6 +640,139 @@ public sealed class SolidWorksPlacedAssemblyService
             residual.TranslationMm,
             residual.RotationBasisMax,
             residual.Determinant,
+            verified);
+    }
+
+    private SolidWorksPlacedBoardResult? ApplyBoardOccurrence(
+        Component2 component,
+        SolidWorksPlacedBoardOccurrence board,
+        AssemblyDoc assembly,
+        List<SolidWorksDiagnostic> diagnostics)
+    {
+        var occurrence = new SolidWorksPlacedOccurrence(
+            "__board__",
+            "BOARD",
+            -1,
+            board.NativePartPath,
+            board.RequestedTransform);
+        var applied = ApplyTransform(component, occurrence, diagnostics);
+        if (applied is null)
+            return null;
+
+        var fixedOk = TryFix(assembly, component, diagnostics);
+        return new SolidWorksPlacedBoardResult(
+            board.NativePartPath,
+            applied.OccurrenceName,
+            applied.RequestedTransform,
+            applied.ReadbackTransform,
+            applied.TranslationResidualMm,
+            applied.RotationBasisResidual,
+            applied.Determinant,
+            fixedOk,
+            applied.Verified && fixedOk);
+    }
+
+    private static bool TryFix(
+        AssemblyDoc assembly,
+        Component2 component,
+        List<SolidWorksDiagnostic> diagnostics)
+    {
+        try
+        {
+            if (component.IsFixed())
+                return true;
+
+            if (!component.Select4(false, null, false))
+            {
+                diagnostics.Add(Error("SW-PLC-ASM-038", "BOARD", "The board component could not be selected for fixing."));
+                return false;
+            }
+
+            assembly.FixComponent();
+            component.DeSelect();
+            if (!component.IsFixed())
+            {
+                diagnostics.Add(Error("SW-PLC-ASM-038", "BOARD", "The board component is not fixed after FixComponent."));
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            diagnostics.Add(Error(
+                "SW-PLC-ASM-038",
+                "BOARD",
+                "Fixing the board component failed: " + ex.GetType().Name + "."));
+            return false;
+        }
+    }
+
+    private SolidWorksPlacedBoardResult? ReadBoardOccurrence(
+        AssemblyDoc assembly,
+        SolidWorksPlacedBoardOccurrence board,
+        List<SolidWorksDiagnostic> diagnostics)
+    {
+        var path = SolidWorksPath.Normalize(board.NativePartPath);
+        var components = assembly.GetComponents(false) as object[] ?? Array.Empty<object>();
+        Component2? match = null;
+        foreach (var item in components)
+        {
+            if (item is Component2 component
+                && string.Equals(
+                    SolidWorksPath.Normalize(component.GetPathName()),
+                    path,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                match = component;
+                break;
+            }
+        }
+
+        if (match is null)
+        {
+            diagnostics.Add(Error("SW-PLC-ASM-039", "BOARD", "The board occurrence is missing after reopen."));
+            return null;
+        }
+
+        var transform = match.GetTotalTransform(false);
+        var readbackError = "unknown";
+        if (transform?.ArrayData is not double[] data
+            || !SolidWorksTransformConverter.TryFromArrayData(data, out var readback, out readbackError))
+        {
+            diagnostics.Add(Error(
+                "SW-PLC-ASM-039",
+                "BOARD",
+                "The board occurrence transform could not be read: " + readbackError));
+            return null;
+        }
+
+        var residual = SolidWorksTransformConverter.Measure(board.RequestedTransform, readback);
+        var fixedOk = match.IsFixed();
+        var verified = residual.TranslationMm <= TranslationToleranceMm
+            && residual.RotationBasisMax <= RotationTolerance
+            && Math.Abs(residual.Determinant - 1.0) <= RotationTolerance
+            && fixedOk;
+        if (!verified)
+        {
+            diagnostics.Add(Error(
+                "SW-PLC-ASM-039",
+                "BOARD",
+                "Reopened board occurrence is not verified (translation=" +
+                residual.TranslationMm.ToString("R", CultureInfo.InvariantCulture) +
+                " mm, rotation=" + residual.RotationBasisMax.ToString("R", CultureInfo.InvariantCulture) +
+                ", fixed=" + fixedOk.ToString() + ")."));
+        }
+
+        return new SolidWorksPlacedBoardResult(
+            board.NativePartPath,
+            match.Name2 ?? match.Name ?? "BOARD",
+            board.RequestedTransform,
+            readback,
+            residual.TranslationMm,
+            residual.RotationBasisMax,
+            residual.Determinant,
+            fixedOk,
             verified);
     }
 

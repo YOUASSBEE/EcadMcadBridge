@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using DXP;
 using EcadMcadBridge.Altium.Adapter;
+using EcadMcadBridge.Core.Model;
 using EcadMcadBridge.Core.Packaging;
 
 namespace EcadMcadBridge.Altium.Application;
@@ -121,6 +122,23 @@ internal static class ExportBoardSnapshotHandler
                 BridgeLogger.Write("WARN", "MODEL_WARNING", modelWarning);
             BridgeLogger.Write("INFO", "MODEL_EXPORT_SUMMARY", modelResult.Diagnostics.Summary());
 
+            var capabilities = Capabilities.ToList();
+            var boardModelResult = AltiumBoardModelExporter.Export(data.Board, tempDirectory);
+            foreach (var warning in boardModelResult.Warnings)
+                BridgeLogger.Write("WARN", "BOARD_MODEL", warning);
+            if (boardModelResult.IsSuccess)
+            {
+                capabilities.Add(BoardModelDescriptor.Capability);
+                BridgeLogger.Write(
+                    "INFO",
+                    "BOARD_MODEL_EXPORT",
+                    $"boardStepSize={boardModelResult.Size} boardStepSha={boardModelResult.Sha256}");
+            }
+            else
+            {
+                BridgeLogger.Write("WARN", "E_BOARD_MODEL", boardModelResult.Error ?? "Board model export failed.");
+            }
+
             if (!AltiumDocumentStateReader.TryRecheck(document, before, out var recheckError))
             {
                 BridgeLogger.Write("WARN", "E_SOURCE_CHANGED", recheckError);
@@ -156,14 +174,18 @@ internal static class ExportBoardSnapshotHandler
                     Cad = "altium",
                     DocumentSha256 = source.Metadata.Sha256,
                 },
-                Capabilities = Capabilities,
+                Capabilities = capabilities.ToArray(),
             };
 
+            var boardRequest = boardModelResult.IsSuccess
+                ? new BoardModelWriteRequest { SourcePath = boardModelResult.StepPath! }
+                : null;
             var package = ExchangePackageWriter.Write(
                 packageRoot.Root,
                 data.Snapshot,
                 options,
-                modelResult.Request);
+                modelResult.Request,
+                boardRequest);
             if (!package.IsSuccess)
             {
                 foreach (var diagnostic in package.Errors)
@@ -186,7 +208,8 @@ internal static class ExportBoardSnapshotHandler
             var read = ExchangePackageReader.Read(packageDirectory);
             if (!read.IsSuccess
                 || read.Models is null
-                || read.Models.Components.Count != data.Snapshot.Components.Count)
+                || read.Models.Components.Count != data.Snapshot.Components.Count
+                || (boardRequest is not null && read.BoardModel is null))
             {
                 foreach (var diagnostic in read.Errors)
                 {
@@ -205,7 +228,8 @@ internal static class ExportBoardSnapshotHandler
             }
 
             var partial = modelResult.Diagnostics.BodiesWithoutAsset > 0
-                || modelResult.Warnings.Count > 0;
+                || modelResult.Warnings.Count > 0
+                || !boardModelResult.IsSuccess;
             var message =
                 "Exchange Package written to:\n" + packageDirectory +
                 "\npackageId=" + packageId.ToString("D") +
@@ -214,6 +238,7 @@ internal static class ExportBoardSnapshotHandler
                 $"\nbodies={modelResult.Diagnostics.BodiesDetected} " +
                 $"stepAssets={modelResult.Diagnostics.StepExportsSucceeded} " +
                 $"bodiesWithoutAsset={modelResult.Diagnostics.BodiesWithoutAsset}" +
+                $"\nboardStep={boardModelResult.Size} bytes sha256={boardModelResult.Sha256}" +
                 $"\nadapterWarnings={data.Warnings.Count} modelWarnings={modelResult.Warnings.Count} " +
                 $"packageWarnings={package.Warnings.Count}";
             BridgeLogger.Write(
@@ -223,6 +248,7 @@ internal static class ExportBoardSnapshotHandler
                 $"packageId={packageId:D} layers={data.Snapshot.Layers.Count} " +
                 $"components={data.Snapshot.Components.Count} pads={data.Snapshot.Pads.Count} " +
                 $"nets={data.Snapshot.Nets.Count} " + modelResult.Diagnostics.Summary() + " " +
+                $"boardStepSize={boardModelResult.Size} boardStepSha={boardModelResult.Sha256} " +
                 $"adapterWarnings={data.Warnings.Count} modelWarnings={modelResult.Warnings.Count} " +
                 $"packageWarnings={package.Warnings.Count}");
             return (message, partial);

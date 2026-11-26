@@ -41,4 +41,8 @@ public static class PackageDiagnosticCodes
     public const string InvalidModelReference = "EMB-PKG-024";
     public const string InvalidModelAsset = "EMB-PKG-025";
     public const string ModelCatalogCapabilityMismatch = "EMB-PKG-026";
+    public const string InvalidBoardModel = "EMB-PKG-027";
+    public const string UnsupportedBoardModelSchema = "EMB-PKG-028";
+    public const string BoardModelCapabilityMismatch = "EMB-PKG-029";
+    public const string InvalidBoardModelAsset = "EMB-PKG-030";
 }

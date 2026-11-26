@@ -147,6 +147,8 @@ internal static class SmokeRunner
         }
 
         SolidWorksPlacedAssemblyResult? placedAssembly = null;
+        BoardPlacementTransformResult? boardTransform = null;
+        SolidWorksPlacedBoardOccurrence? boardOccurrence = null;
         if (options.PlacedAssembly)
         {
             var occurrences = placementPlan?.Requests
@@ -157,10 +159,26 @@ internal static class SmokeRunner
                     request.NativePartPath,
                     request.Transform))
                 .ToArray() ?? Array.Empty<SolidWorksPlacedOccurrence>();
+            if (importResult.Board is not null
+                && importResult.Board.Geometry?.Geometry is { } boardGeometry
+                && read.Snapshot is not null)
+            {
+                boardTransform = BoardPlacementTransformBuilder.Build(
+                    read.Snapshot.Properties.Thickness.Mm ?? 0,
+                    boardGeometry);
+                if (boardTransform.IsSupported)
+                {
+                    boardOccurrence = new SolidWorksPlacedBoardOccurrence(
+                        importResult.Board.NativePartPath,
+                        boardTransform.Transform!.Value);
+                }
+            }
+
             placedAssembly = new SolidWorksPlacedAssemblyService(solidWorks).Create(
                 options.AssemblyTemplate!,
                 Path.Combine(options.OutputDirectory, "assembly", "smoke-placed-assembly.SLDASM"),
-                occurrences);
+                occurrences,
+                boardOccurrence);
         }
 
         total.Stop();
@@ -193,11 +211,19 @@ internal static class SmokeRunner
                 && asset.ReopenSucceeded
                 && asset.ImportedBodyCount == asset.ReopenedBodyCount
                 && asset.ReopenedBodyCount > 0);
+        var boardImported = importResult.Board is null
+            || (importResult.Board.SaveSucceeded
+                && importResult.Board.ReopenSucceeded
+                && importResult.Board.ImportedBodyCount == importResult.Board.ReopenedBodyCount
+                && importResult.Board.Geometry is { IsValid: true });
         var mappedAll = importResult.BodyParts.Count == selectedPlan.BodyReferences.Count;
         var assemblyOk = assembly is null || (assembly.Saved && assembly.Reopened);
         var placementOk = !options.PlacedAssembly
             || (placementPlan is { IsValid: true }
-                && placedAssembly is { Saved: true, Reopened: true, TransformsVerified: true });
+                && placedAssembly is { Saved: true, Reopened: true, TransformsVerified: true }
+                && (importResult.Board is null
+                    || (boardOccurrence is not null
+                        && placedAssembly.BoardOccurrence is { Verified: true, Fixed: true })));
         var cleanupVerified = importResult.Lifecycle.CleanupStatus == SolidWorksCleanupStatus.Verified
             && (assembly is null || assembly.Lifecycle.CleanupStatus == SolidWorksCleanupStatus.Verified)
             && (placedAssembly is null || placedAssembly.Lifecycle.CleanupStatus == SolidWorksCleanupStatus.Verified);
@@ -205,6 +231,7 @@ internal static class SmokeRunner
             && (placementPlan is null || placementPlan.IsValid)
             && importResult.Assets.Count == selectedPlan.Assets.Count
             && importedAll
+            && boardImported
             && mappedAll
             && assemblyOk
             && placementOk
@@ -234,6 +261,32 @@ internal static class SmokeRunner
             totalMilliseconds = total.ElapsedMilliseconds,
             assets = importResult.Assets,
             bodyParts = importResult.BodyParts,
+            board = importResult.Board is null
+                ? null
+                : new
+                {
+                    assetPath = importResult.Board.AssetPath,
+                    nativePartPath = importResult.Board.NativePartPath,
+                    importedBodyCount = importResult.Board.ImportedBodyCount,
+                    reopenedBodyCount = importResult.Board.ReopenedBodyCount,
+                    saveSucceeded = importResult.Board.SaveSucceeded,
+                    reopenSucceeded = importResult.Board.ReopenSucceeded,
+                    geometry = importResult.Board.Geometry?.Geometry,
+                    geometryDiagnostics = importResult.Board.Geometry?.Diagnostics,
+                },
+            boardPlacement = boardTransform is null && boardOccurrence is null
+                ? null
+                : new
+                {
+                    supported = boardTransform?.IsSupported,
+                    translationXMm = boardTransform?.TranslationXMm,
+                    translationYMm = boardTransform?.TranslationYMm,
+                    translationZMm = boardTransform?.TranslationZMm,
+                    expectedTopSurfaceZMm = boardTransform?.ExpectedTopSurfaceZMm,
+                    resultingTopSurfaceZMm = boardTransform?.ResultingTopSurfaceZMm,
+                    transform = boardTransform?.Transform is { } matrix ? MatrixArray(matrix) : null,
+                    diagnostics = boardTransform?.Diagnostics ?? Array.Empty<SolidWorksDiagnostic>(),
+                },
             assembly,
             placement = placementPlan is null
                 ? null
@@ -276,6 +329,15 @@ internal static class SmokeRunner
         Console.WriteLine("packageId=" + report.packageId);
         Console.WriteLine("assets=" + selectedPlan.Assets.Count + " imported=" + importResult.Assets.Count);
         Console.WriteLine("bodyReferences=" + selectedPlan.BodyReferences.Count + " mapped=" + importResult.BodyParts.Count);
+        if (importResult.Board is not null)
+        {
+            var geometry = importResult.Board.Geometry?.Geometry;
+            Console.WriteLine(
+                "boardBodies=" + importResult.Board.ReopenedBodyCount +
+                " boardBounds=" + (geometry is null ? "unavailable" : $"{geometry.WidthMm:R}x{geometry.HeightMm:R}x{geometry.ThicknessMm:R}") +
+                " boardVolume=" + (geometry is null ? "unavailable" : geometry.VolumeMm3.ToString("R")) +
+                " geometryValid=" + (importResult.Board.Geometry?.IsValid ?? false));
+        }
         Console.WriteLine("revision=" + revision + " build=" + build);
         Console.WriteLine("result=" + resultPath);
         foreach (var diagnostic in diagnostics)
@@ -288,6 +350,13 @@ internal static class SmokeRunner
                 "placedOccurrences=" + placedAssembly.AddedOccurrences +
                 " reopened=" + placedAssembly.ReopenedOccurrences +
                 " transformsVerified=" + placedAssembly.TransformsVerified);
+            if (placedAssembly.BoardOccurrence is not null)
+            {
+                Console.WriteLine(
+                    "boardOccurrenceFixed=" + placedAssembly.BoardOccurrence.Fixed +
+                    " boardVerified=" + placedAssembly.BoardOccurrence.Verified +
+                    " boardResidual=" + placedAssembly.BoardOccurrence.TranslationResidualMm.ToString("R"));
+            }
         }
 
         Console.WriteLine("success=" + success);
@@ -359,6 +428,20 @@ internal static class SmokeRunner
             }).ToArray(),
             diagnostics = result.Diagnostics,
             lifecycle = result.Lifecycle,
+            board = result.BoardOccurrence is null
+                ? null
+                : new
+                {
+                    nativePartPath = result.BoardOccurrence.NativePartPath,
+                    occurrenceName = result.BoardOccurrence.OccurrenceName,
+                    requestedTransform = MatrixArray(result.BoardOccurrence.RequestedTransform),
+                    readbackTransform = MatrixArray(result.BoardOccurrence.ReadbackTransform),
+                    translationResidualMm = result.BoardOccurrence.TranslationResidualMm,
+                    rotationBasisResidual = result.BoardOccurrence.RotationBasisResidual,
+                    determinant = result.BoardOccurrence.Determinant,
+                    fixedFlag = result.BoardOccurrence.Fixed,
+                    verified = result.BoardOccurrence.Verified,
+                },
         };
 
     private static double[] MatrixArray(Matrix4x4D matrix) =>
@@ -582,7 +665,7 @@ internal static class SmokeRunner
             output ??= Path.Combine(
                 Path.GetTempPath(),
                 "EcadMcadBridge",
-                placedAssembly ? "BRIDGE-000018" : "BRIDGE-000015",
+                placedAssembly ? "BRIDGE-000019" : "BRIDGE-000015",
                 "smoke-" + Guid.NewGuid().ToString("N"));
             return new SmokeOptions(package, output, template, sample, assembly, placedAssembly, onlyAsset,
                 ParseDesignators(designatorsValue), maxComponents, null);

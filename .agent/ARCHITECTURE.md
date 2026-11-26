@@ -521,7 +521,7 @@ Core рассматривает ID как непрозрачную непуст�
   `0.4.0`, capabilities — только реально извлекаемые данные. В `BRIDGE-000009`
   объявляются `board-outline`, `component-placement`, `layers`, `nets`, `pad-stacks`,
   `pads`, `regions`, `texts`, `tracks`, `vias`; при наличии 3D-каталога Writer
-  добавляет `component-3d-models`.
+  добавляет `component-3d-models`, при наличии board STEP — `board-3d-model`.
 - Writer создаёт пакет атомарно и не перезаписывает существующий каталог;
   пользователю показываются путь, package id, counts и warnings, но в лог не
   попадают absolute user paths.
@@ -761,6 +761,51 @@ Designator/BodyOrdinal, smoke `success=false`, частичное размеще
 JSON содержит package ID, версии, выбранные designators,
 asset/native/SLDPRT mapping, requested/readback matrices, residuals, lifecycle и
 cleanup status.
+
+### 6.7 Board substrate export and assembly (BRIDGE-000019)
+
+Board substrate — отдельная сущность пакета, не фиктивный компонент:
+
+```text
+board.model.json                 descriptor
+assets/board/<sha256>.step       content-addressed STEP AP214
+capability board-3d-model        only when the board STEP exists
+```
+
+Descriptor (`ecad-mcad-bridge/board-model` 1.0.0) содержит schema/schemaVersion,
+asset path/format/SHA-256/size, units `mm`, frame и nominal thickness из snapshot.
+Frame фиксирован: XY origin в минимуме аналитического Outer contour, X/Y совпадают
+с положительными Altium X/Y, Z=0 на верхней поверхности, положительный Z наружу от
+Top, substrate в отрицательном Z. Reader проверяет capability вместе с descriptor,
+путь внутри `assets/board/`, имя `<lowercase-sha256>.step`, manifest/checksums,
+SHA-256 и размер; неизвестный frame, major version или повреждённый asset отклоняются.
+Пакеты без `board.model.json` читаются как раньше, `BoardModel = null`.
+
+Altium export использует тот же `IPCB_Board`. `IPCB_Board3DModelExporter` получает
+явные настройки (STEP, `SelectedComponents`, `AllHoles`, `CopperNone`, без folded
+board, без component suffix, без pad/cavity holes и cover layers). Board-only
+режим доказывается `SelectedComponents` + проверенным пустым `IPCB_Board`
+selection; SDK не имеет отдельного «no components» переключателя. Сохранённые
+Altium preferences не читаются. Если board STEP не создан или не AP214, capability
+не объявляется, а пакет остаётся совместимым с предыдущим поведением.
+
+SOLIDWORKS импортирует board asset как отдельный native `board.SLDPRT`, тем же
+`LoadFile4`; STEP может открыться как part или assembly, assembly сохраняется в
+part без смешивания с компонентами. Измеряются реальные solid body count,
+`BoundingBox`, `Volume` и толщина (API отдаёт метры, значения переводятся в mm).
+XY bounds сверяются с `BoardOutlineBounds`, объём — с площадью Outer/Hole contours
+× измеренной толщиной; nominal `BoardProperties.Thickness` только диагностируется.
+Точки внутри платы и внутри каждого hole contour проверяются ray-casting по
+фактической tessellation; cutout считается подтверждённым только при отсутствии
+материала.
+
+Board occurrence добавляется в `.SLDASM` отдельно и фиксируется:
+
+- `Tx = -measuredMinX`, `Ty = -measuredMinY`;
+- `Tz = BoardSnapshot.Thickness / 2 - measuredTopZ`;
+- измеренная толщина не подменяется nominal и компоненты не сдвигаются;
+- после save/reopen проверяются board occurrence, fixed flag, native path и
+  transform residual вместе с компонентными occurrences.
 
 ## 7. Обработка ошибок и логирование
 

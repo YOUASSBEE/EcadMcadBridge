@@ -25,14 +25,26 @@ public sealed record SolidWorksImportedAsset(
     int OpenErrors,
     int OpenWarnings);
 
+public sealed record SolidWorksImportedBoard(
+    string AssetPath,
+    string NativePartPath,
+    int ImportedBodyCount,
+    int ReopenedBodyCount,
+    bool SaveSucceeded,
+    bool ReopenSucceeded,
+    SolidWorksBoardGeometryResult? Geometry);
+
 public sealed record SolidWorksImportResult(
     IReadOnlyList<ImportedBodyPart> BodyParts,
     IReadOnlyList<SolidWorksImportedAsset> Assets,
     IReadOnlyList<SolidWorksDiagnostic> Diagnostics,
     SolidWorksDocumentLifecycle Lifecycle)
 {
+    /// <summary>Imported board substrate part; null when the package has no board asset.</summary>
+    public SolidWorksImportedBoard? Board { get; init; }
+
     public bool IsComplete => Diagnostics.All(item => item.Severity != SolidWorksDiagnosticSeverity.Error)
-        && BodyParts.Count > 0;
+        && (BodyParts.Count > 0 || Board is not null);
 }
 
 /// <summary>
@@ -55,6 +67,7 @@ public sealed class SolidWorksImportService
         var assets = new List<SolidWorksImportedAsset>();
         var parts = new List<ImportedBodyPart>();
         var tracker = SolidWorksDocumentTracker.Capture(_solidWorks);
+        SolidWorksImportedBoard? board = null;
 
         if (!plan.IsValid)
         {
@@ -94,6 +107,22 @@ public sealed class SolidWorksImportService
                 }
             }
 
+            if (plan.BoardAsset is not null)
+            {
+                if (plan.Snapshot is null)
+                {
+                    diagnostics.Add(new SolidWorksDiagnostic(
+                        "SW-IMP-030",
+                        SolidWorksDiagnosticSeverity.Error,
+                        plan.BoardAsset.AssetPath,
+                        "Board asset cannot be validated without a board snapshot."));
+                }
+                else
+                {
+                    board = ImportBoard(plan.BoardAsset, plan.Snapshot, diagnostics, tracker);
+                }
+            }
+
             var mappedReferences = new HashSet<string>(
                 parts.Select(part => part.ComponentId + "\u001f" + part.BodyOrdinal.ToString(CultureInfo.InvariantCulture)
                     + "\u001f" + part.AssetPath),
@@ -117,7 +146,10 @@ public sealed class SolidWorksImportService
             CloseAndReport(diagnostics, tracker);
         }
 
-        return new SolidWorksImportResult(parts, assets, diagnostics, tracker.Snapshot());
+        return new SolidWorksImportResult(parts, assets, diagnostics, tracker.Snapshot())
+        {
+            Board = board,
+        };
     }
 
     private ImportedAssetResult? ImportAsset(
@@ -211,10 +243,10 @@ public sealed class SolidWorksImportService
             Directory.CreateDirectory(tempDirectory);
             tempPartPath = Path.Combine(tempDirectory, Guid.NewGuid().ToString("N") + ".SLDPRT");
             saveSucceeded = SaveAsPart(
-                asset,
                 importedDocument,
                 isAssembly,
                 tempPartPath,
+                asset.AssetPath,
                 diagnostics,
                 ref saveErrors,
                 ref saveWarnings);
@@ -373,11 +405,238 @@ public sealed class SolidWorksImportService
         }
     }
 
+    private SolidWorksImportedBoard? ImportBoard(
+        SolidWorksBoardAsset asset,
+        Core.Model.BoardSnapshot snapshot,
+        List<SolidWorksDiagnostic> diagnostics,
+        SolidWorksDocumentTracker tracker)
+    {
+        var saveErrors = 0;
+        var saveWarnings = 0;
+        var openErrors = 0;
+        var openWarnings = 0;
+        var importedBodies = 0;
+        var reopenedBodies = 0;
+        var saveSucceeded = false;
+        var reopenSucceeded = false;
+        string? tempPartPath = null;
+        string? verifyPartPath = null;
+
+        try
+        {
+            if (!SolidWorksFileGuard.TryValidateNewTarget(asset.NativePartPath, _solidWorks, out var targetReason))
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-IMP-020",
+                    SolidWorksDiagnosticSeverity.Error,
+                    asset.AssetPath,
+                    targetReason));
+                return null;
+            }
+
+            var importData = _solidWorks.GetImportFileData(asset.FullPath) as IImportStepData;
+            if (importData is null)
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-IMP-003",
+                    SolidWorksDiagnosticSeverity.Error,
+                    asset.AssetPath,
+                    "SOLIDWORKS did not return IImportStepData for the board STEP file."));
+                return null;
+            }
+
+            importData.MapConfigurationData = false;
+            var errors = 0;
+            var importedDocument = _solidWorks.LoadFile4(asset.FullPath, "r", importData, ref errors) as ModelDoc2;
+            if (importedDocument is null || errors != 0)
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-IMP-004",
+                    SolidWorksDiagnosticSeverity.Error,
+                    asset.AssetPath,
+                    "Board LoadFile4 failed with errors=" + errors.ToString(CultureInfo.InvariantCulture) + "."));
+                return null;
+            }
+
+            tracker.Track(importedDocument);
+            var documentType = importedDocument.GetType();
+            var isAssembly = documentType == (int)swDocumentTypes_e.swDocASSEMBLY;
+            if (documentType == (int)swDocumentTypes_e.swDocPART && importedDocument is PartDoc importedPart)
+            {
+                importedBodies = CountSolidBodies(importedPart);
+            }
+            else if (isAssembly && importedDocument is AssemblyDoc importedAssembly)
+            {
+                TrackComponents(importedAssembly, tracker);
+                importedBodies = CountAssemblySolidBodies(importedAssembly);
+            }
+            else
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-IMP-031",
+                    SolidWorksDiagnosticSeverity.Error,
+                    asset.AssetPath,
+                    "Board STEP did not import as a SOLIDWORKS part or assembly."));
+                return null;
+            }
+
+            if (importedBodies <= 0)
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-IMP-006",
+                    SolidWorksDiagnosticSeverity.Error,
+                    asset.AssetPath,
+                    "Imported board STEP contains no solid B-Rep bodies."));
+                return null;
+            }
+
+            var nativeDirectory = Path.GetDirectoryName(asset.NativePartPath)!;
+            var tempDirectory = Path.Combine(nativeDirectory, ".bridge-temp");
+            Directory.CreateDirectory(tempDirectory);
+            tempPartPath = Path.Combine(tempDirectory, Guid.NewGuid().ToString("N") + ".SLDPRT");
+            saveSucceeded = SaveAsPart(
+                importedDocument,
+                isAssembly,
+                tempPartPath,
+                asset.AssetPath,
+                diagnostics,
+                ref saveErrors,
+                ref saveWarnings);
+            AddSaveWarnings(diagnostics, asset.AssetPath, saveWarnings);
+            if (!SolidWorksFileGuard.IsSaveSuccessful(saveSucceeded, saveErrors, tempPartPath))
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-IMP-009",
+                    SolidWorksDiagnosticSeverity.Error,
+                    asset.AssetPath,
+                    "Board SaveAs3 did not create a valid SLDPRT (returned=" +
+                    saveSucceeded.ToString(CultureInfo.InvariantCulture) +
+                    ", errors=" + saveErrors.ToString(CultureInfo.InvariantCulture) + ")."));
+                return null;
+            }
+
+            CloseAndReport(diagnostics, tracker, importedDocument);
+            if (File.Exists(asset.NativePartPath))
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-IMP-020",
+                    SolidWorksDiagnosticSeverity.Error,
+                    asset.AssetPath,
+                    "Board SLDPRT target appeared before the temporary save could be moved."));
+                return null;
+            }
+
+            try
+            {
+                File.Move(tempPartPath, asset.NativePartPath);
+                tempPartPath = null;
+            }
+            catch (Exception ex)
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-IMP-020",
+                    SolidWorksDiagnosticSeverity.Error,
+                    asset.AssetPath,
+                    "The temporary board SLDPRT could not be moved to the native target: " +
+                    ex.GetType().Name + "."));
+                return null;
+            }
+
+            var verifyDirectory = Path.Combine(nativeDirectory, ".bridge-verify");
+            Directory.CreateDirectory(verifyDirectory);
+            verifyPartPath = Path.Combine(verifyDirectory, Guid.NewGuid().ToString("N") + ".SLDPRT");
+            File.Copy(asset.NativePartPath, verifyPartPath, overwrite: false);
+
+            var reopened = _solidWorks.OpenDoc6(
+                verifyPartPath,
+                (int)swDocumentTypes_e.swDocPART,
+                (int)swOpenDocOptions_e.swOpenDocOptions_Silent,
+                string.Empty,
+                ref openErrors,
+                ref openWarnings);
+            AddLoadWarnings(diagnostics, asset.AssetPath, openWarnings);
+            if ((openWarnings & (int)swFileLoadWarning_e.swFileLoadWarning_AlreadyOpen) != 0)
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-IMP-010",
+                    SolidWorksDiagnosticSeverity.Error,
+                    asset.AssetPath,
+                    "The saved board SLDPRT was already open during reopen verification."));
+                return null;
+            }
+
+            if (reopened is not PartDoc reopenedPart || openErrors != 0)
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-IMP-010",
+                    SolidWorksDiagnosticSeverity.Error,
+                    asset.AssetPath,
+                    "Reopening the saved board SLDPRT failed with errors=" +
+                    openErrors.ToString(CultureInfo.InvariantCulture) + "."));
+                return null;
+            }
+
+            tracker.Track(reopened, openWarnings);
+            reopenedBodies = CountSolidBodies(reopenedPart);
+            reopenSucceeded = reopenedBodies == importedBodies;
+            if (!reopenSucceeded)
+            {
+                diagnostics.Add(new SolidWorksDiagnostic(
+                    "SW-IMP-011",
+                    SolidWorksDiagnosticSeverity.Error,
+                    asset.AssetPath,
+                    "Reopened board SLDPRT contains " +
+                    reopenedBodies.ToString(CultureInfo.InvariantCulture) +
+                    " solid bodies; expected " +
+                    importedBodies.ToString(CultureInfo.InvariantCulture) + "."));
+            }
+
+            var geometry = SolidWorksBoardGeometryInspector.Inspect(reopenedPart, snapshot);
+            diagnostics.AddRange(geometry.Diagnostics);
+            CloseAndReport(diagnostics, tracker, reopened);
+            return new SolidWorksImportedBoard(
+                asset.AssetPath,
+                asset.NativePartPath,
+                importedBodies,
+                reopenedBodies,
+                saveSucceeded,
+                reopenSucceeded,
+                geometry);
+        }
+        catch (Exception ex)
+        {
+            diagnostics.Add(new SolidWorksDiagnostic(
+                "SW-IMP-012",
+                SolidWorksDiagnosticSeverity.Error,
+                asset.AssetPath,
+                "SOLIDWORKS board import failed: " + ex.GetType().Name + "."));
+            return null;
+        }
+        finally
+        {
+            CloseAndReport(diagnostics, tracker);
+            foreach (var temporary in new[] { tempPartPath, verifyPartPath })
+            {
+                if (temporary is null)
+                    continue;
+                try
+                {
+                    if (File.Exists(temporary))
+                        File.Delete(temporary);
+                }
+                catch
+                {
+                    // Temporary native output is inside the Bridge output directory only.
+                }
+            }
+        }
+    }
+
     private bool SaveAsPart(
-        SolidWorksStepAsset asset,
         ModelDoc2 document,
         bool isAssembly,
         string targetPath,
+        string assetPath,
         List<SolidWorksDiagnostic> diagnostics,
         ref int saveErrors,
         ref int saveWarnings)
@@ -388,7 +647,7 @@ public sealed class SolidWorksImportService
             diagnostics.Add(new SolidWorksDiagnostic(
                 "SW-IMP-008",
                 SolidWorksDiagnosticSeverity.Error,
-                asset.AssetPath,
+                assetPath,
                 "ModelDoc2.Extension is unavailable."));
             return false;
         }
@@ -420,7 +679,7 @@ public sealed class SolidWorksImportService
                 diagnostics.Add(new SolidWorksDiagnostic(
                     "SW-IMP-018",
                     SolidWorksDiagnosticSeverity.Error,
-                    asset.AssetPath,
+                    assetPath,
                     "Assembly-as-part preference could not be read: " + ex.GetType().Name + "."));
                 return false;
             }
@@ -432,7 +691,7 @@ public sealed class SolidWorksImportService
                 diagnostics.Add(new SolidWorksDiagnostic(
                     "SW-IMP-018",
                     SolidWorksDiagnosticSeverity.Error,
-                    asset.AssetPath,
+                    assetPath,
                     "Assembly-as-part preference could not be set to AllComponents."));
                 return false;
             }
@@ -459,7 +718,7 @@ public sealed class SolidWorksImportService
                         diagnostics.Add(new SolidWorksDiagnostic(
                             "SW-IMP-019",
                             SolidWorksDiagnosticSeverity.Info,
-                            asset.AssetPath,
+                            assetPath,
                             "Assembly-as-part preference restored to " +
                             original.ToString(CultureInfo.InvariantCulture) + "."));
                     }
@@ -468,7 +727,7 @@ public sealed class SolidWorksImportService
                         diagnostics.Add(new SolidWorksDiagnostic(
                             "SW-IMP-019",
                             SolidWorksDiagnosticSeverity.Error,
-                            asset.AssetPath,
+                            assetPath,
                             "Assembly-as-part preference could not be restored."));
                     }
                 }
@@ -477,7 +736,7 @@ public sealed class SolidWorksImportService
                     diagnostics.Add(new SolidWorksDiagnostic(
                         "SW-IMP-019",
                         SolidWorksDiagnosticSeverity.Error,
-                        asset.AssetPath,
+                        assetPath,
                         "Assembly-as-part preference restore failed: " + ex.GetType().Name + "."));
                 }
             }

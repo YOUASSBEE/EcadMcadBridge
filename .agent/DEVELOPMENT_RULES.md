@@ -129,6 +129,27 @@ tests/
   rotation basis residual ≤ 1e-8. Save/reopen проверяет количество occurrences
   и transforms. Успех — только при `CleanupStatus = Verified`.
 
+### 4.3 Board substrate rules (BRIDGE-000019)
+
+- Board STEP — отдельный asset `assets/board/<sha256>.step` и descriptor
+  `board.model.json`; нельзя представлять плату фиктивным компонентом каталога.
+- Board-only экспорт: `SelectedComponents` + проверенный пустой selection. Нет
+  отдельного SDK-переключателя «без компонентов»; full-board STEP с компонентами
+  запрещён как board part.
+- Frame: XY origin в минимуме Outer contour, Z=0 на верхней поверхности,
+  положительный Z наружу от Top. Несовместимый bbox/frame отклоняется, а не
+  «исправляется» масштабом или сдвигом компонентов.
+- SOLIDWORKS API отдаёт `BoundingBox` и `Volume` в метрах; измеренные значения
+  переводятся в mm и не подменяются nominal thickness.
+- Cutout подтверждается только отсутствием материала в контрольной точке
+  (tessellation ray casting). Наличие Hole contour в snapshot само по себе не
+  является доказательством.
+- Board occurrence: `Tx=-measuredMinX`, `Ty=-measuredMinY`,
+  `Tz=BoardSnapshot.Thickness/2 - measuredTopZ`; затем fixed. Компонентные
+  transforms не меняются.
+- Успех сборки требует ровно одного board occurrence, всех компонентных
+  occurrences, save/reopen, fixed flag, residual в допуске и cleanup `Verified`.
+
 ## 5. Работа с API и данными
 
 - Чтение платы — только через документированные `PCB.IPCB_*` интерфейсы.

@@ -21,6 +21,12 @@ public sealed class PackageManifest
 
     public const string ComponentAssetsDirectory = ComponentModelCatalog.AssetDirectory;
 
+    public const string BoardModelFileName = BoardModelDescriptor.FileRelativePath;
+
+    public const string BoardModelCapability = BoardModelDescriptor.Capability;
+
+    public const string BoardAssetsDirectory = BoardModelDescriptor.AssetDirectory;
+
     public string Schema { get; init; } = SchemaName;
 
     public string SchemaVersion { get; init; } = SchemaVersionValue;
@@ -124,12 +130,14 @@ public sealed class PackageReadResult
         PackageManifest? manifest,
         BoardSnapshot? snapshot,
         ComponentModelCatalog? models,
+        BoardModelDescriptor? boardModel,
         IReadOnlyList<PackageDiagnostic> diagnostics)
     {
         IsSuccess = isSuccess;
         Manifest = manifest;
         Snapshot = snapshot;
         Models = models;
+        BoardModel = boardModel;
         Diagnostics = diagnostics;
         Errors = diagnostics.Where(item => item.Severity == PackageDiagnosticSeverity.Error).ToArray();
         Warnings = diagnostics.Where(item => item.Severity == PackageDiagnosticSeverity.Warning).ToArray();
@@ -144,6 +152,9 @@ public sealed class PackageReadResult
     /// <summary>Typed component model catalog; null for packages without 3D models.</summary>
     public ComponentModelCatalog? Models { get; }
 
+    /// <summary>Typed board model descriptor; null for packages without a board STEP asset.</summary>
+    public BoardModelDescriptor? BoardModel { get; }
+
     public IReadOnlyList<PackageDiagnostic> Diagnostics { get; }
 
     public IReadOnlyList<PackageDiagnostic> Errors { get; }
@@ -154,12 +165,13 @@ public sealed class PackageReadResult
         PackageManifest manifest,
         BoardSnapshot snapshot,
         ComponentModelCatalog? models,
+        BoardModelDescriptor? boardModel,
         IReadOnlyList<PackageDiagnostic> diagnostics) =>
-        new(true, manifest, snapshot, models, diagnostics);
+        new(true, manifest, snapshot, models, boardModel, diagnostics);
 
     internal static PackageReadResult Failure(
         PackageManifest? manifest,
         BoardSnapshot? snapshot,
         IReadOnlyList<PackageDiagnostic> diagnostics) =>
-        new(false, manifest, snapshot, null, diagnostics);
+        new(false, manifest, snapshot, null, null, diagnostics);
 }
