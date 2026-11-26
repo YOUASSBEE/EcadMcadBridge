@@ -722,7 +722,7 @@ Placement request:
 |---|---|
 | Top component + Top BodyProjection, Generic Embedded, STEP AP214, SdkExport, PlacedBodyEffective | Supported |
 | Top compound model state + component rotation | Supported через PlacementTransformBuilder |
-| Bottom, projection mismatch, Native, External, NotAcquired, Unknown | Unsupported с диагностикой |
+| Bottom/Bottom (production), projection mismatch, Native, External, NotAcquired, Unknown | Unsupported с диагностикой; Bottom открыт только как research D-023 |
 | Отсутствующая толщина/позиция/origin/state/калибровка | Unsupported, матрица не строится |
 
 SOLIDWORKS transform:
@@ -761,6 +761,30 @@ Designator/BodyOrdinal, smoke `success=false`, частичное размеще
 JSON содержит package ID, версии, выбранные designators,
 asset/native/SLDPRT mapping, requested/readback matrices, residuals, lifecycle и
 cleanup status.
+
+#### 6.6.1 Bottom placement research (D-023)
+
+D-023 разрешает только исследование калибровки; production-конвейер §6.6
+остаётся Top-only, а SOLIDWORKS builder по-прежнему отклоняет Bottom через
+`SW-PLC-006`/`SW-PLC-007`. Core `BuildBottom` и R4-A/R4-B — fixture-level
+доказательства, а не активированный контракт пакета.
+
+Предлагаемый контракт (требует отдельного ADR D-024 до реализации):
+
+```text
+ComponentBodyEntry.footprintCalibration (catalog 1.2.0, package only)
+  key      = (footprintSourceUniqueId, bodyUniqueId, bodyOrdinal, stepAssetSha256)
+  fields   = schemaVersion, calibrationId, libraryDocumentSha256,
+             top/bottomModelOriginOffset (IU+mm), fixtureId, adVersion
+  bottomBoard = (bottomLocal.X, -bottomLocal.Y)
+  e           = bottomBoard - topLocal
+```
+
+Калибровка проверяется по SHA STEP-ассета и footprint/body id; расхождение,
+отсутствие или несовместимость даёт Unsupported без матрицы. Значение
+`e=+3.371315 mm` из R4-A относится только к `BRIDGE_ROT_3D` и не является
+production-константой. Projection mismatch и compound Bottom остаются вне
+этого research-контракта.
 
 ### 6.7 Board substrate export and assembly (BRIDGE-000019)
 
