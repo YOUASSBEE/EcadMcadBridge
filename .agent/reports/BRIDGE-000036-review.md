@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-27T00:41:00+03:00
-updated: 2026-11-27T00:41:00+03:00
+updated: 2026-11-27T00:44:00+03:00
 base: origin/source
 branch: task/BRIDGE-000035-top-only-smoke
-commit: pending
-pr: pending
+commit: b10ece683cdea1359eb70c556809fba9b7cb85cd
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/28
 related: [BRIDGE-000035]
 ---
 
@@ -145,6 +145,9 @@ PR подготавливается из `task/BRIDGE-000035-top-only-smoke` в 
 
 ## 9. Commit и PR
 
-- Content commit review: `pending`.
+- Content commit review: `b10ece683cdea1359eb70c556809fba9b7cb85cd`; metadata-only SHA/PR update follows.
 - Branch: `task/BRIDGE-000035-top-only-smoke`, base `origin/source @ ea817c9b1e52b6a86e5eb541cf814a578887a7d5`.
-- PR: pending (создаётся отдельным шагом Stage E).
+- PR #28: https://github.com/YOUASSBEE/EcadMcadBridge/pull/28 — `open`, `mergeable=true`, base SHA
+  `ea817c9b1e52b6a86e5eb541cf814a578887a7d5`, head SHA at creation `b10ece683cdea1359eb70c556809fba9b7cb85cd`.
+- PR audit after creation: 5 commits, 4 changed files (all Markdown reports), `891` additions, `0` deletions;
+  binary/CAD artifacts absent; `source` unchanged; merge not performed.
