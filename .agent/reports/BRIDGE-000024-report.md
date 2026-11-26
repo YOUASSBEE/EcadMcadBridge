@@ -5,12 +5,12 @@ status: blocked
 from: local-agent
 to: operator
 created: 2026-11-26T18:06:48+03:00
-updated: 2026-11-26T20:28:31+03:00
+updated: 2026-11-26T20:39:19+03:00
 base: source
 branch: task/BRIDGE-000024-readonly-diagnostics
 commit: d8f265449a84554f9a0ec2e6089eb17e91041e4a
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/23
-related: [BRIDGE-000024]
+related: [BRIDGE-000024, BRIDGE-000025]
 ---
 
 # BRIDGE-000024 — read-only D-024 diagnostics
@@ -69,6 +69,16 @@ Package, catalog, transform engine, SDK ledger и `.PcbDoc` не изменен�
 DLL из текущей ветки (`EcadMcadBridge.dll` — `DF75651010B3CC2680E23D9123D12EAFA531860CD31AB292A0CF56901BDC17BD`,
 `EcadMcadBridge.Core.dll` — `13B8848A8DB6044A09F580C12E4E959C5C2FB5F8D8BBC4680F3C0CA79DCD7D11`) в каталог
 расширения **не** копировались.
+
+**Статус после BRIDGE-000025: остаётся `blocked`.** Оператор выбрал вариант B и вынес
+runtime-проверку в отдельную задачу. BRIDGE-000025 тоже завершилась с `blocked`: отдельная
+сессия Altium с диагностической сборкой не подготовлена (единственный machine-wide каталог
+расширений, DLL заблокирована текущим X2 PID 32260, замена требует остановки сессии или
+постоянной регистрации — оба варианта запрещены). Команда не исполнена, `diagnostics.json`
+не создан, 9 пар не посчитаны. Полные результаты и технические причины:
+`.agent/reports/BRIDGE-000025-report.md` в ветке
+`task/BRIDGE-000025-runtime-validation` (commit `e3c4d24af124005baeb2c3f1afb34c782e5a229c`).
+PR #23 остаётся открытым и неслитым до появления фактических доказательств.
 
 ## 2. Изменённые файлы
 
