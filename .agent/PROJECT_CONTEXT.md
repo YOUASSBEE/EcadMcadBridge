@@ -69,7 +69,8 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 
 - полноценный SOLIDWORKS Add-in, регистрация `ISwAddin` и UI;
 - Production Bottom, projection mismatch, Native/External placement и обратная
-  синхронизация; Bottom открыт только как research D-023 без активации production;
+  синхронизация; D-023 research и D-024 контракт калибровки приняты, но production
+  Bottom по-прежнему не активирован;
 - ECO, обратная аннотация, синхронизация изменений;
 - установщик, CI/CD, подпись сборок, публикация расширения;
 - изменение архитектуры без отдельного согласования.
@@ -264,8 +265,11 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   `PlacementTransformBuilder`; 20-occurrence `.SLDASM` на MiniPC и R3 U101–U104;
   save/reopen 20/20 и 4/4, residuals 0, cleanup `Verified` (D-021/D-022).
 - `BRIDGE-000021`: принят D-023 как research-этап Bottom и согласованный проект
-  контракта per-footprint calibration; production Bottom по-прежнему Unsupported
-  до отдельного ADR D-024 и CAD-подтверждения (O-010).
+  контракта per-footprint calibration; O-010 закрыт в `BRIDGE-000022` принятием D-024,
+  но production Bottom по-прежнему Unsupported до PR по реализации и CAD-подтверждения.
+- `BRIDGE-000022`: принят D-024 — окончательный контракт identity/математики/
+  версионирования калибровки; catalog 1.2.0 зарезервирован, не реализован;
+  production Bottom, catalog, API ledger и transform engine не изменены.
 - API-реестр дополнен подтверждениями хоста (C-66…C-72); закрыты V-02/V-03/V-04.
   `BRIDGE-000002` новых Altium API не добавляет.
 - Git-протокол и runtime-обмен разделены: Git не используется для пользовательских PCB, STEP
@@ -279,7 +283,7 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 |---|---|---|---|
 | Q-001 | Загружает ли AD26 in-process сборку `net10.0-windows`? | **Закрыт:** подтверждено оператором (C-65) | TFM InteractiveBom выбирается по версии Altium; TFM Bridge зафиксирован как `net10.0-windows` |
 | Q-002 | Какая точная сборка Altium Designer 26 используется на стенде? | **Уточнён:** `X2.EXE` 26.12.2.9, runtime `net10.0` / 10.0.10 | Изоляция конкретного варианта `Altium.SDK.dll` внутри хоста остаётся открытой (V-13) |
-| Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | **Закрыт для геометрии** в `BRIDGE-000014`; Top placement prototype — `BRIDGE-000018` | Per-body STEP AP214 экспортируется и упаковывается; Bottom/compound Bottom — research D-023, production ожидает D-024 (V-27/V-30, O-010) |
+| Q-003 | Как извлекать 3D-модели компонентов для MCAD-стороны? | **Закрыт для геометрии** в `BRIDGE-000014`; Top placement prototype — `BRIDGE-000018`; контракт калибровки — D-024 | Per-body STEP AP214 экспортируется и упаковывается; Bottom/compound Bottom остаются Unsupported до evidence gate D-024 §5 (V-27/V-30) |
 | Q-004 | Какой interop-пакет и API использовать для SOLIDWORKS 2026? | **Закрыт для prototype:** local `SolidWorks.Interop.*` 34.3.2.3, ROT, STA; Add-in registration отдельно | STEP/native/assembly/lifecycle API подтверждены smoke `BRIDGE-000015-R1` (S-001…S-015); D-020 |
 | Q-005 | Какой UI-стек использовать в Add-in (WPF/WinForms)? | Частично закрыт | Для smoke-команды — хост-диалог, для запуска сервера — минимальная WinForms-панель; полноценные панели ещё не проектировались |
 | Q-006 | Как автоматизировать установку/регистрацию расширения? | Открыт | Известен ручной путь через `ExtensionsRegistry.xml`; автоматизация требует отдельного решения |

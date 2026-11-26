@@ -7,7 +7,7 @@
 1. Не использовать DelphiScript.
 2. Не использовать Legacy API Altium.
 3. Не менять архитектуру без решения в `DECISIONS.md`.
-4. SOLIDWORKS backend реализуется в рамках D-020; Top-прототип placement — D-022. Bottom placement — отдельный research-этап D-023; production Bottom/Native/External placement остаётся вне scope до отдельного ADR и CAD-подтверждения. Полноценный Add-in, Registry и установщик требуют отдельного решения.
+4. SOLIDWORKS backend реализуется в рамках D-020; Top-прототип placement — D-022. Bottom placement исследован в D-023 и получил контракт D-024; production Bottom/Native/External placement остаётся вне scope до отдельного PR по реализации и CAD-подтверждения. Полноценный Add-in, Registry и установщик требуют отдельного решения.
 5. Не добавлять API в категорию «подтверждено» без доказательства.
 6. Не изменять ветку `source` напрямую; только через Pull Request.
 7. Не коммитить проприетарные сборки Altium/SOLIDWORKS, лицензии и данные заказчиков.
@@ -178,21 +178,28 @@ tests/
   для нескольких Outer создаётся по одной независимой точке. Smoke `success`
   требует `outlineComplete=true`.
 
-### 4.5 Bottom placement research (D-023)
+### 4.5 Per-footprint calibration contract (D-023/D-024)
 
-- D-023 разрешает пересмотр scope и research калибровки; production Bottom
-  остаётся Unsupported до отдельного ADR (D-024) и реального CAD-прогона.
-- Значение `e` из R4-A (`+3.371315 mm`) — только fixture-данные `BRIDGE_ROT_3D`;
-  production-код не содержит designators, фикстурных координат и констант `e`.
-- Калибровка хранится вместе с catalog body entry и связывается точным ключом
-  `(footprintSourceUniqueId, bodyUniqueId, bodyOrdinal, stepAssetSha256)`;
-  designator и позиция на плате ключом не являются.
-- Применимость проверяется по SHA STEP-ассета и идентификатору footprint;
-  отсутствие, рассогласование или несовместимость калибровки даёт явную
-  диагностику `MissingFootprintCalibration`/`Unsupported`, но не zero/identity матрицу.
-- Core-формула Bottom rotation из BRIDGE-000017 — research-доказательство на
-  фикстуре, а не подтверждённый production-контракт; SOLIDWORKS builder продолжает
-  отклонять Bottom и projection mismatch до отдельного решения.
+- D-024 принят как контракт, но production Bottom остаётся Unsupported до
+  отдельного PR по реализации и CAD-доказательств из D-024 §5.
+- Ключ калибровки — ровно `(footprintSourceUniqueId, bodyUniqueId,
+  bodyOrdinal, stepAssetSha256)`; designator, имя модели, позиция на плате и
+  body ordinal без `bodyUniqueId` ключом не являются.
+- Запись обязана иметь `schemaVersion="1.0.0"`, согласованный `calibrationId`,
+  `libraryDocumentSha256`, пары IU/mm для Top/Bottom offsets и provenance.
+  Неверсионированные research-записи D-023 недействительны.
+- `e = (bottomLocal.X, -bottomLocal.Y) - topLocal`, в мм, без Z; pivot —
+  `P_board + e`. Знак `e` не инвертируется; `Rx(180)` задаёт projection, а
+  `Rz(+theta)` применяется в board frame вокруг pivot.
+- Fail-closed без матрицы: отсутствие/дублирование калибровки, несовпадение
+  любого идентификатора или STEP SHA, некорректные числа, неизвестная версия,
+  неоднозначный body. Запрещены zero/identity/reflection, «первая запись» и
+  ослабление допусков `1e-9` / `0.001 mm` / `1e-8`.
+- `e=+3.371315…316 mm` из R4-A — только fixture `BRIDGE_ROT_3D`; production-код
+  не содержит designators, фикстурных координат и констант `e`.
+- Catalog 1.2.0 зарезервирован, но не реализован; текущий writer остаётся на
+  1.1.0, API ledger и Exchange Package не меняются. SOLIDWORKS builder продолжает
+  отклонять Bottom и projection mismatch.
 
 ## 5. Работа с API и данными
 

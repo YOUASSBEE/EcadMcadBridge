@@ -47,9 +47,10 @@
 `CSharpPlugin.PluginFactory.InvokePluginFactory(DXP.IClient)`.
 
 SOLIDWORKS 2026 backend реализует STEP import/native SLDPRT и Top-прототип
-placement (D-020/D-022). Bottom открыт только как research D-023; production
-Bottom остаётся Unsupported до отдельного ADR. Полноценный Add-in host, Registry
-и установщик не реализуются. Изменение стека или TFM — только через `.agent/DECISIONS.md`.
+placement (D-020/D-022). Bottom исследован в D-023 и получил окончательный контракт
+калибровки D-024; production Bottom остаётся Unsupported до отдельного PR
+по реализации и CAD-подтверждения. Полноценный Add-in host, Registry и установщик не
+реализуются. Изменение стека или TFM — только через `.agent/DECISIONS.md`.
 
 ## Архитектура (кратко)
 
@@ -143,8 +144,9 @@ dotnet run --project tools/EcadMcadBridge.SolidWorks.Smoke -c Release -- `
 `--max-components` (по умолчанию 20) поддержанных component instances в
 детерминированном порядке. Режим `--assembly`/`--sample`/`--only-asset` сохранён.
 Результат — `smoke-result.json` с package ID, mapping, requested/readback matrices,
-residuals, lifecycle и cleanup. Production Bottom (research — D-023), projection
-mismatch, Native/External и board solid не поддерживаются.
+residuals, lifecycle и cleanup. Production Bottom (D-023 research, D-024 контракт,
+не активирован), projection mismatch, Native/External и board solid не
+поддерживаются.
 
 ## Установка Altium Add-in (текущий стенд)
 
