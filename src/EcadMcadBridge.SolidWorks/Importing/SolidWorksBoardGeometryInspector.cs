@@ -1,5 +1,7 @@
 using System.Globalization;
+using EcadMcadBridge.Core.Diagnostics;
 using EcadMcadBridge.Core.Model;
+using EcadMcadBridge.Core.Packaging;
 using EcadMcadBridge.SolidWorks.Placement;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
@@ -88,6 +90,7 @@ internal readonly record struct SolidWorksBodyVolume(
 internal static class SolidWorksBoardGeometryInspector
 {
     private const double BoundsToleranceMm = 0.05;
+    private const double UnitToleranceMm = 1e-9;
     private const double VolumeAbsoluteToleranceMm3 = 5.0;
     private const double VolumeRelativeTolerance = 0.02;
     private const int ArcSamples = 64;
@@ -100,6 +103,9 @@ internal static class SolidWorksBoardGeometryInspector
     public static SolidWorksBoardGeometryResult Inspect(PartDoc part, BoardSnapshot snapshot)
     {
         var diagnostics = new List<SolidWorksDiagnostic>();
+        if (!TryReadFrameOrigin(snapshot, diagnostics, out var originX, out var originY))
+            return new SolidWorksBoardGeometryResult(null, diagnostics);
+
         var bodies = part.GetBodies2((int)swBodyType_e.swSolidBody, false) as object[];
         if (bodies is null || bodies.Length == 0)
         {
@@ -163,8 +169,6 @@ internal static class SolidWorksBoardGeometryInspector
             return new SolidWorksBoardGeometryResult(null, diagnostics);
         }
 
-        var originX = snapshot.Properties.OriginX.Mm ?? 0;
-        var originY = snapshot.Properties.OriginY.Mm ?? 0;
         var localMinX = inputs.Min(item => item.Box.MinX);
         var localMinY = inputs.Min(item => item.Box.MinY);
         var minZ = inputs.Min(item => item.Box.MinZ);
@@ -309,6 +313,69 @@ internal static class SolidWorksBoardGeometryInspector
             measurements,
             probes);
         return new SolidWorksBoardGeometryResult(geometry, diagnostics);
+    }
+
+    /// <summary>
+    /// The frame origin is mandatory for board-3d-model inspection. A missing value is never
+    /// replaced by zero: the caller must stop before applying any board offset.
+    /// </summary>
+    internal static bool TryReadFrameOrigin(
+        BoardSnapshot snapshot,
+        List<SolidWorksDiagnostic> diagnostics,
+        out double originXMm,
+        out double originYMm)
+    {
+        originXMm = 0;
+        originYMm = 0;
+        var required = BoardModelValidator.ValidateFrameOrigin(snapshot);
+        foreach (var item in required)
+        {
+            diagnostics.Add(new SolidWorksDiagnostic(
+                item.Code,
+                item.Severity == PackageDiagnosticSeverity.Error
+                    ? SolidWorksDiagnosticSeverity.Error
+                    : SolidWorksDiagnosticSeverity.Warning,
+                item.Path,
+                item.Message));
+        }
+
+        if (required.Any(item => item.Severity == PackageDiagnosticSeverity.Error))
+            return false;
+
+        var properties = snapshot.Properties;
+        if (!TryResolveOrigin(properties.OriginX, "board.properties.originX", out var xMm, diagnostics)
+            || !TryResolveOrigin(properties.OriginY, "board.properties.originY", out var yMm, diagnostics))
+        {
+            return false;
+        }
+
+        originXMm = xMm;
+        originYMm = yMm;
+        return true;
+    }
+
+    private static bool TryResolveOrigin(
+        LengthValue value,
+        string path,
+        out double mm,
+        List<SolidWorksDiagnostic> diagnostics)
+    {
+        mm = 0;
+        if (value.Iu is not { } iu
+            || value.Mm is not { } candidate
+            || !double.IsFinite(candidate)
+            || Math.Abs(candidate - AltiumUnits.IuToMm(iu)) > UnitToleranceMm)
+        {
+            Error(
+                PackageDiagnosticCodes.MissingBoardOrigin,
+                path,
+                "Board frame origin is missing or inconsistent with its IU value.",
+                diagnostics);
+            return false;
+        }
+
+        mm = candidate;
+        return true;
     }
 
     /// <summary>

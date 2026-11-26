@@ -25,6 +25,7 @@ internal enum CutoutRegionMatchStatus
     Matched,
     Unmatched,
     Ambiguous,
+    Reused,
 }
 
 internal sealed record CutoutRegionMatch(
@@ -128,6 +129,38 @@ internal static class CutoutDeduplicator
             -1,
             "no existing geometric Hole matches the clip loop");
     }
+
+    /// <summary>Evaluates a Region source polyline against already proven geometric Holes.</summary>
+    public static CutoutDuplicateDecision EvaluatePolyline(
+        IReadOnlyList<Point2D> points,
+        IReadOnlyList<CutoutExistingHole> existingHoles)
+    {
+        if (points.Count < 3)
+        {
+            return new CutoutDuplicateDecision(
+                CutoutDuplicateStatus.NotDuplicate,
+                -1,
+                "polyline has fewer than three points");
+        }
+
+        return Evaluate(ToSegments(EnsureClosed(points)), existingHoles);
+    }
+
+    internal static IReadOnlyList<OutlineSegment> ToSegments(IReadOnlyList<Point2D> points)
+    {
+        var result = new List<OutlineSegment>(points.Count);
+        for (var i = 0; i < points.Count; i++)
+        {
+            var next = points.Count <= 2
+                ? points[0]
+                : points[(i + 1) % points.Count];
+            result.Add(new OutlineSegment(points[i], next, default, 0, null));
+        }
+        return result;
+    }
+
+    internal static IReadOnlyList<Point2D> ToPoints(IReadOnlyList<OutlineSegment> loop) =>
+        CutoutRegionMatcher.SampleLoop(loop, DedupArcSamples);
 
     private static bool TryApproximateDuplicate(
         IReadOnlyList<Point2D> hole,
@@ -408,10 +441,16 @@ internal static class CutoutRegionMatcher
 
     internal const int ArcSamples = 16;
 
+    /// <summary>
+    /// Matches one clipped loop to a source contour. Reuse of a source is only allowed when
+    /// the caller supplies an explicit, proven many-to-many contract; the normal reader
+    /// never does so.
+    /// </summary>
     public static CutoutRegionMatch Match(
         IReadOnlyList<OutlineSegment> clipLoop,
         IReadOnlyList<CutoutSourceContour> sources,
-        IReadOnlySet<CutoutSourceKey>? assigned = null)
+        IReadOnlySet<CutoutSourceKey>? assigned = null,
+        bool allowManyToMany = false)
     {
         var clipSamples = SampleLoop(clipLoop, ArcSamples);
         var clipBoundsResult = AnalyticBounds.GetAnalyticBounds(clipLoop);
@@ -443,29 +482,31 @@ internal static class CutoutRegionMatcher
             }
         }
 
-        var unused = verified
-            .Where(item => assigned is null || !assigned.Contains(item.Source.Key))
-            .ToArray();
+        var available = allowManyToMany
+            ? verified.ToArray()
+            : verified
+                .Where(item => assigned is null || !assigned.Contains(item.Source.Key))
+                .ToArray();
 
-        if (unused.Length == 1)
+        if (available.Length == 1)
         {
             return new CutoutRegionMatch(
                 CutoutRegionMatchStatus.Matched,
-                unused[0].Source,
-                new[] { unused[0].Source },
-                "single geometric candidate: " + unused[0].Reason + boundsNote);
+                available[0].Source,
+                new[] { available[0].Source },
+                "single geometric candidate: " + available[0].Reason + boundsNote);
         }
 
-        if (unused.Length > 1)
+        if (available.Length > 1)
         {
             return new CutoutRegionMatch(
                 CutoutRegionMatchStatus.Ambiguous,
                 null,
-                unused.Select(item => item.Source).ToArray(),
-                $"{unused.Length} geometric candidates match the same clip loop: " +
+                available.Select(item => item.Source).ToArray(),
+                $"{available.Length} geometric candidates match the same clip loop: " +
                 string.Join(
                     "; ",
-                    unused.Select(item =>
+                    available.Select(item =>
                         $"region {item.Source.RegionIndex}[{item.Source.ContourIndex}] {item.Reason}"))
                 + boundsNote);
         }
@@ -473,10 +514,11 @@ internal static class CutoutRegionMatcher
         if (verified.Count > 0)
         {
             return new CutoutRegionMatch(
-                CutoutRegionMatchStatus.Unmatched,
+                CutoutRegionMatchStatus.Reused,
                 null,
                 verified.Select(item => item.Source).ToArray(),
-                "all geometric candidates are already assigned to other clip loops" + boundsNote);
+                "all geometric candidates are already assigned to other clip loops and no " +
+                "many-to-many contract was supplied" + boundsNote);
         }
 
         var rejection = rejected.Count == 0 ? "no source contours" : string.Join("; ", rejected);

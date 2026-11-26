@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
+using EcadMcadBridge.Core.Diagnostics;
 using EcadMcadBridge.Core.Model;
 using EcadMcadBridge.Core.Packaging;
 using EcadMcadBridge.Core.Serialization;
@@ -143,6 +144,132 @@ public sealed class BoardModelPackageTests
         Assert.False(read.IsSuccess);
         Assert.Contains(read.Errors, diagnostic =>
             diagnostic.Code == PackageDiagnosticCodes.BoardOutlineNotComplete);
+    }
+
+    [Fact]
+    public void Writer_RejectsBoardModelWithMissingOriginX()
+    {
+        using var scenario = new Scenario();
+        var snapshot = SnapshotWithProperties(properties =>
+        {
+            properties["originXIu"] = null;
+            properties["originXMm"] = null;
+        });
+
+        var result = scenario.Write(snapshot: snapshot);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Errors, diagnostic =>
+            diagnostic.Code == PackageDiagnosticCodes.MissingBoardOrigin
+            && diagnostic.Path == "board.properties.originX");
+    }
+
+    [Fact]
+    public void Validator_RejectsBoardModelWithInconsistentOriginYMm()
+    {
+        var snapshot = SnapshotWithProperties(properties =>
+        {
+            properties["originYIu"] = 1_000_000;
+            properties["originYMm"] = 3.0;
+        });
+        const string sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var descriptor = new BoardModelDescriptor
+        {
+            AssetPath = "assets/board/" + sha + ".step",
+            Sha256 = sha,
+            Size = 1,
+            NominalThickness = LengthValue.FromIu(1_600_000),
+        };
+
+        var diagnostics = BoardModelValidator.ValidateStructure(descriptor, snapshot);
+
+        Assert.Contains(diagnostics, diagnostic =>
+            diagnostic.Code == PackageDiagnosticCodes.MissingBoardOrigin
+            && diagnostic.Path == "board.properties.originY");
+    }
+
+    [Fact]
+    public void Reader_RejectsBoardModelWithInconsistentOriginYMm()
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        var directory = written.PackageDirectory!;
+        var snapshotPath = Path.Combine(directory, PackageManifest.SnapshotFileName);
+        var root = JsonNode.Parse(File.ReadAllText(snapshotPath))!.AsObject();
+        var properties = (JsonObject)root["board"]!["properties"]!;
+        properties["originYIu"] = 1_000_000;
+        properties["originYMm"] = 3.0;
+        File.WriteAllText(snapshotPath, root.ToJsonString());
+        var snapshotBytes = File.ReadAllBytes(snapshotPath);
+        RewriteManifest(
+            directory,
+            manifest => CloneManifest(
+                manifest,
+                manifest.Files.Select(file =>
+                    file.Path == PackageManifest.SnapshotFileName
+                        ? new PackageFileEntry
+                        {
+                            Path = file.Path,
+                            Sha256 = Sha(snapshotBytes),
+                            Size = snapshotBytes.LongLength,
+                        }
+                        : file).ToArray(),
+                manifest.Capabilities));
+
+        var read = ExchangePackageReader.Read(directory);
+
+        Assert.False(read.IsSuccess);
+        Assert.Contains(read.Errors, diagnostic =>
+            diagnostic.Code == PackageDiagnosticCodes.MissingBoardOrigin
+            && diagnostic.Path == "board.properties.originY");
+    }
+
+    [Fact]
+    public void WriterAndReader_AcceptNegativeConsistentOrigin()
+    {
+        using var scenario = new Scenario();
+        var xIu = AltiumUnits.MmToIu(-3.5);
+        var yIu = AltiumUnits.MmToIu(-1.25);
+        var snapshot = SnapshotWithProperties(properties =>
+        {
+            properties["originXIu"] = xIu;
+            properties["originXMm"] = AltiumUnits.IuToMm(xIu);
+            properties["originYIu"] = yIu;
+            properties["originYMm"] = AltiumUnits.IuToMm(yIu);
+        });
+
+        var written = scenario.Write(snapshot: snapshot);
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.True(read.IsSuccess, Describe(read.Errors));
+        Assert.Equal(xIu, read.Snapshot!.Properties.OriginX.Iu);
+        Assert.Equal(yIu, read.Snapshot.Properties.OriginY.Iu);
+        Assert.True(read.Snapshot.Properties.OriginX.Mm < 0);
+        Assert.True(read.Snapshot.Properties.OriginY.Mm < 0);
+    }
+
+    [Fact]
+    public void WriterAndReader_AcceptLegacyPackageWithoutOrigin()
+    {
+        using var scenario = new Scenario();
+        var snapshot = SnapshotWithProperties(properties =>
+        {
+            properties["originXIu"] = null;
+            properties["originXMm"] = null;
+            properties["originYIu"] = null;
+            properties["originYMm"] = null;
+        });
+
+        var written = ExchangePackageWriter.Write(scenario.Root, snapshot, Options());
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        var read = ExchangePackageReader.Read(written.PackageDirectory!);
+
+        Assert.True(read.IsSuccess, Describe(read.Errors));
+        Assert.Null(read.BoardModel);
+        Assert.Null(read.Snapshot!.Properties.OriginX.Iu);
+        Assert.Null(read.Snapshot.Properties.OriginY.Iu);
     }
 
     [Fact]
@@ -396,6 +523,13 @@ public sealed class BoardModelPackageTests
     private static PackageManifest ReadManifest(string directory) =>
         PackageManifestJson.Deserialize(
             File.ReadAllText(Path.Combine(directory, PackageManifest.ManifestFileName)));
+
+    private static BoardSnapshot SnapshotWithProperties(Action<JsonObject> edit)
+    {
+        var root = JsonNode.Parse(BoardSnapshotJson.Serialize(BoardSnapshotFixture.CreateValid()))!.AsObject();
+        edit((JsonObject)root["board"]!["properties"]!);
+        return BoardSnapshotJson.Deserialize(root.ToJsonString());
+    }
 
     private static void EditDescriptor(string directory, Action<JsonObject> edit)
     {

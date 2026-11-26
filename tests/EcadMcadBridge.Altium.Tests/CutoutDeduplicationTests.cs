@@ -209,6 +209,22 @@ public sealed class CutoutDeduplicationTests
         Assert.False(decision.ShouldExport);
     }
 
+    [Fact]
+    public void A16_PreviouslyExportedClipLoop_IsDuplicate()
+    {
+        var first = Loop((0, 0), (100, 0), (100, 100), (0, 100));
+        var second = Loop((0, 0), (100, 0), (100, 100), (0, 100));
+        var exported = new[]
+        {
+            new CutoutExistingHole(0, CutoutDeduplicator.ToPoints(first)),
+        };
+
+        var decision = CutoutDeduplicator.Evaluate(second, exported);
+
+        Assert.Equal(CutoutDuplicateStatus.Duplicate, decision.Status);
+        Assert.False(decision.ShouldExport);
+    }
+
     private static CutoutExistingHole Hole(int index, params (int X, int Y)[] points) =>
         new(index, Points(points));
 

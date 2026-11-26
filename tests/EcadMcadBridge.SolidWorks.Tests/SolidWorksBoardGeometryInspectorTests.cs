@@ -1,5 +1,8 @@
+using System.Text.Json.Nodes;
 using EcadMcadBridge.Core.Diagnostics;
 using EcadMcadBridge.Core.Model;
+using EcadMcadBridge.Core.Packaging;
+using EcadMcadBridge.Core.Serialization;
 using EcadMcadBridge.SolidWorks.Importing;
 using Xunit;
 
@@ -315,6 +318,84 @@ public sealed class SolidWorksBoardGeometryInspectorTests
         Assert.False(accepted);
         Assert.Equal(0, mesh.TriangleCount);
         Assert.Contains(diagnostics, item => item.Severity == SolidWorksDiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void FrameOrigin_MissingX_IsRejected()
+    {
+        var snapshot = SnapshotWithOrigin(null, null, 0, 0.0);
+        var diagnostics = new List<SolidWorksDiagnostic>();
+
+        var accepted = SolidWorksBoardGeometryInspector.TryReadFrameOrigin(snapshot, diagnostics, out _, out _);
+
+        Assert.False(accepted);
+        Assert.Contains(diagnostics, item =>
+            item.Code == PackageDiagnosticCodes.MissingBoardOrigin
+            && item.Severity == SolidWorksDiagnosticSeverity.Error
+            && item.Path == "board.properties.originX");
+    }
+
+    [Fact]
+    public void FrameOrigin_MissingY_IsRejected()
+    {
+        var snapshot = SnapshotWithOrigin(0, 0.0, null, null);
+        var diagnostics = new List<SolidWorksDiagnostic>();
+
+        var accepted = SolidWorksBoardGeometryInspector.TryReadFrameOrigin(snapshot, diagnostics, out _, out _);
+
+        Assert.False(accepted);
+        Assert.Contains(diagnostics, item =>
+            item.Code == PackageDiagnosticCodes.MissingBoardOrigin
+            && item.Severity == SolidWorksDiagnosticSeverity.Error
+            && item.Path == "board.properties.originY");
+    }
+
+    [Fact]
+    public void FrameOrigin_InconsistentY_IsRejected()
+    {
+        var snapshot = SnapshotWithOrigin(0, 0.0, 1_000_000, 3.0);
+        var diagnostics = new List<SolidWorksDiagnostic>();
+
+        var accepted = SolidWorksBoardGeometryInspector.TryReadFrameOrigin(snapshot, diagnostics, out _, out _);
+
+        Assert.False(accepted);
+        Assert.Contains(diagnostics, item =>
+            item.Code == PackageDiagnosticCodes.MissingBoardOrigin
+            && item.Severity == SolidWorksDiagnosticSeverity.Error
+            && item.Path == "board.properties.originY");
+    }
+
+    [Fact]
+    public void FrameOrigin_NegativeConsistentOrigin_IsAccepted()
+    {
+        var xIu = AltiumUnits.MmToIu(-3.5);
+        var yIu = AltiumUnits.MmToIu(-1.25);
+        var snapshot = SnapshotWithOrigin(xIu, AltiumUnits.IuToMm(xIu), yIu, AltiumUnits.IuToMm(yIu));
+        var diagnostics = new List<SolidWorksDiagnostic>();
+
+        var accepted = SolidWorksBoardGeometryInspector.TryReadFrameOrigin(
+            snapshot,
+            diagnostics,
+            out var xMm,
+            out var yMm);
+
+        Assert.True(accepted);
+        Assert.Empty(Errors(diagnostics));
+        Assert.Equal(AltiumUnits.IuToMm(xIu), xMm);
+        Assert.Equal(AltiumUnits.IuToMm(yIu), yMm);
+        Assert.True(xMm < 0);
+        Assert.True(yMm < 0);
+    }
+
+    private static BoardSnapshot SnapshotWithOrigin(int? xIu, double? xMm, int? yIu, double? yMm)
+    {
+        var root = JsonNode.Parse(BoardSnapshotJson.Serialize(new BoardSnapshot()))!.AsObject();
+        var properties = (JsonObject)root["board"]!["properties"]!;
+        properties["originXIu"] = xIu;
+        properties["originXMm"] = xMm;
+        properties["originYIu"] = yIu;
+        properties["originYMm"] = yMm;
+        return BoardSnapshotJson.Deserialize(root.ToJsonString());
     }
 
     private static IReadOnlyList<SolidWorksDiagnostic> Errors(IEnumerable<SolidWorksDiagnostic> diagnostics) =>
