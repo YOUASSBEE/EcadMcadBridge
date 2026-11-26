@@ -5,11 +5,11 @@ status: awaiting_operator_approval
 from: local-agent
 to: operator
 created: 2026-11-26T21:14:11+03:00
-updated: 2026-11-26T21:14:11+03:00
+updated: 2026-11-26T21:20:00+03:00
 base: source
 base_sha: bdff118b288454be68c7c590d875142620a139e2
 branch: task/BRIDGE-000027-controlled-hot-reload
-commit: pending
+commit: 2edd26a87531347e85cd3814ff43cd3da6314254
 pr: none
 related:
   - BRIDGE-000024
@@ -347,7 +347,7 @@ EDA bridge `mcp_server 0.8.2` / bundled script `2026.11.25.1` (по данным
 Заполняется после коммита и push ветки:
 
 - branch: `task/BRIDGE-000027-controlled-hot-reload`
-- commit content: `<pending>`
+- commit content: `2edd26a87531347e85cd3814ff43cd3da6314254`
 - commit meta: `<pending>`
 - PR для BRIDGE-000027: не создаётся по условию задачи
 - PR #23: https://github.com/YOUASSBEE/EcadMcadBridge/pull/23 — `open`, `merged=false`,
