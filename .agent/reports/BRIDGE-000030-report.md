@@ -178,7 +178,7 @@ library identity и не закрывают требование Части C.
 
 ## 6. Commit SHA и ссылка на PR
 
-- Коммит с содержимым отчёта (SHA PR `head`): `8673ee3c3a945790e48b0bb10cc78ba82b33c82a`.
+- Коммит с содержимым отчёта, на котором создан PR: `8673ee3c3a945790e48b0bb10cc78ba82b33c82a`.
 - PR: <https://github.com/YOUASSBEE/EcadMcadBridge/pull/26> — открыт, `merged=false`, base
   `source` @ `ea817c9b1e52b6a86e5eb541cf814a578887a7d5`, head
   `task/BRIDGE-000030-native-library-identity`; GitHub API подтверждает `state=open`,
