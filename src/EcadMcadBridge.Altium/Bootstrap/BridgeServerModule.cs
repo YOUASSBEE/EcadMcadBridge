@@ -29,10 +29,15 @@ namespace CSharpPlugin
                 ExportBoardSnapshotHandler.CommandName,
                 ExportBoardSnapshotHandler.Execute,
                 ExportBoardSnapshotHandler.GetState);
+            launcher.RegisterCommand(
+                ReadBodyIdentityDiagnosticsHandler.CommandName,
+                ReadBodyIdentityDiagnosticsHandler.Execute,
+                ReadBodyIdentityDiagnosticsHandler.GetState);
             BridgeLogger.Write(
                 "INFO",
                 "BOOTSTRAP_COMMANDS",
-                "commands=" + ExportSmokeSnapshotHandler.CommandName + "," + ExportBoardSnapshotHandler.CommandName);
+                "commands=" + ExportSmokeSnapshotHandler.CommandName + "," +
+                ExportBoardSnapshotHandler.CommandName + "," + ReadBodyIdentityDiagnosticsHandler.CommandName);
         }
 
         protected override IServerDocument NewDocumentInstance(string kind, string fileName) => null!;
