@@ -5,11 +5,11 @@ status: blocked
 from: local-agent
 to: operator
 created: 2026-11-26T17:28:29+03:00
-updated: 2026-11-26T17:28:29+03:00
+updated: 2026-11-26T17:33:58+03:00
 base: source
 branch: task/BRIDGE-000023-bottom-calibration-evidence
-commit: pending
-pr: pending
+commit: dc7a6a044fe14b447ed8c067f56212f77ce02dbb
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/22
 related: [BRIDGE-000016, BRIDGE-000021, BRIDGE-000022, BRIDGE-000023]
 ---
 
@@ -140,18 +140,20 @@ Hash библиотек:
 - STEP headers: `FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'))` — AP214 подтверждён.
 - Full STEP board bbox and physical stack measured; discrepancy зафиксирована в §3.6.
 - Независимое сравнение landmark/bbox по полному STEP выполнено для 9 пар Bottom/Top; все D-024 proxy-residues > 0.001 mm, все no-flip proxy-residues ≤ 0.000006 mm. Результат не является валидацией D-024 из-за несоответствия входных данных определению `ModelOrigin`.
-- `git diff --check`: будет проверен перед коммитом; в отчёте фиксируется отдельно в истории после выполнения.
+- `git diff --check`: выполнен, без замечаний.
 - `dotnet build` / `dotnet test`: **не запускались по условию задачи** (только research materials; production-код не менялся).
 - CAD smoke в SOLIDWORKS: **не выполнялся по условию задачи**; package подготовлен только для будущего согласованного прогона.
 - Секреты, DLL, лицензии, PCB/STEP/SLDASM/SLDPRT в Git не добавлялись.
 
 ## 6. Commit SHA и PR
 
-- Commit: pending (будет обновлено после первого коммита).
-- PR: pending (будет обновлено отдельным коммитом после открытия PR в `source`).
+- Commit SHA, на котором открыт PR: `dc7a6a044fe14b447ed8c067f56212f77ce02dbb`.
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/22 — открыт из `task/BRIDGE-000023-bottom-calibration-evidence` в `source`; по состоянию на `2026-11-26T17:33:58+03:00` `state=open`, `merged=false`.
+- Обновление URL PR и SHA выполнено отдельным коммитом после создания PR; PR не мержен.
 
 ## 7. История изменений
 
 - 2026-11-26: создана ветка `task/BRIDGE-000023-bottom-calibration-evidence` от `source` (`ae9e0f7dd4407a3664cdf841210aeb6d828603d3`).
 - 2026-11-26: прочитана реальная плата AD26, выбраны 22 footprint/body наблюдения, экспортированы STEP assets и полный board STEP, подготовлен research package вне Git.
 - 2026-11-26: выполнена независимая проверка по full STEP; обнаружено, что доступный `obj_query X/Y` — bbox corner, а не `ModelOrigin`, и что обязательные ID D-024 недоступны. Статус переведён в `blocked`; production-изменения и smoke не выполнялись.
+- 2026-11-26: открыт PR #22 в `source`; в отдельном коммите добавлены URL PR и commit SHA, PR оставлен открытым и немерженным.
