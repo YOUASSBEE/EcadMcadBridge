@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T22:36:49+03:00
-updated: 2026-11-26T22:40:14+03:00
+updated: 2026-11-26T22:42:37+03:00
 base: source
 branch: task/BRIDGE-000030-native-library-identity
-commit: pending
-pr: pending
+commit: 8673ee3c3a945790e48b0bb10cc78ba82b33c82a
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/26
 related: [BRIDGE-000016, BRIDGE-000024, BRIDGE-000025, BRIDGE-000028, BRIDGE-000029, BRIDGE-000030]
 ---
 
@@ -178,10 +178,16 @@ library identity и не закрывают требование Части C.
 
 ## 6. Commit SHA и ссылка на PR
 
-- Финальный commit: `pending`.
-- PR: `pending`.
+- Коммит с содержимым отчёта (SHA PR `head`): `8673ee3c3a945790e48b0bb10cc78ba82b33c82a`.
+- PR: <https://github.com/YOUASSBEE/EcadMcadBridge/pull/26> — открыт, `merged=false`, base
+  `source` @ `ea817c9b1e52b6a86e5eb541cf814a578887a7d5`, head
+  `task/BRIDGE-000030-native-library-identity`; GitHub API подтверждает `state=open`,
+  `mergeable=true`, `commits=1`.
+- PR #25 остаётся открытым и не смерженным; в эту ветку он не влит.
 
 ## 7. История изменений
 
 1. Первая версия отчёта: статический контракт SDK, ограниченность EDA-маршрута, вариант C,
-   проверки build/test; коммит и PR будут добавлены отдельным коммитом после создания PR.
+   проверки build/test.
+2. Отдельным коммитом после создания PR добавлены URL PR #26 и SHA коммита,
+   отправленного на ревью.
