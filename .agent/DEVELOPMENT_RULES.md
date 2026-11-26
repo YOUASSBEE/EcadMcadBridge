@@ -7,7 +7,7 @@
 1. Не использовать DelphiScript.
 2. Не использовать Legacy API Altium.
 3. Не менять архитектуру без решения в `DECISIONS.md`.
-4. SOLIDWORKS backend реализуется в рамках D-020; Top-прототип placement — D-022. Полноценный Add-in, Registry и установщик требуют отдельного решения; Bottom/Native/External placement вне scope.
+4. SOLIDWORKS backend реализуется в рамках D-020; Top-прототип placement — D-022. Bottom placement — отдельный research-этап D-023; production Bottom/Native/External placement остаётся вне scope до отдельного ADR и CAD-подтверждения. Полноценный Add-in, Registry и установщик требуют отдельного решения.
 5. Не добавлять API в категорию «подтверждено» без доказательства.
 6. Не изменять ветку `source` напрямую; только через Pull Request.
 7. Не коммитить проприетарные сборки Altium/SOLIDWORKS, лицензии и данные заказчиков.
@@ -94,6 +94,7 @@ tests/
 - `AddComponent5(0,0,0)` — только API smoke. Для placement использовать
   рассчитанный Core transform и `SetTransformAndSolve3`/`GetTotalTransform`.
   Top-прототип `BRIDGE-000018` не доказывает Bottom/Native/External placement.
+  Research D-023 не активирует production Bottom.
 
 ### 4.2 Placement rules (BRIDGE-000018)
 
@@ -120,9 +121,9 @@ tests/
   `ComponentRotationDeg` нельзя применять второй раз.
 - `ModelRotationDegRaw` не игнорируется: отсутствие или ненулевое значение —
   диагностика Unsupported.
-- Неподдерживаемые режимы (Bottom, projection mismatch, Native, External,
-  NotAcquired, Unknown, неполные данные) не получают нулевую матрицу; они
-  получают явную диагностику.
+- Неподдерживаемые режимы (production Bottom, projection mismatch, Native,
+  External, NotAcquired, Unknown, неполные данные) не получают нулевую матрицу;
+  они получают явную диагностику.
 - SOLIDWORKS translation передаётся в метрах, rotation — в `ArrayData` как
   row-major `R^T`; Core 4×4 нельзя передавать напрямую.
 - После установки transform читается обратно; translation residual ≤ 0.001 mm,
@@ -176,6 +177,22 @@ tests/
 - Probe должен подтвердить каждый Outer и каждый Hole по точному `ContourId`;
   для нескольких Outer создаётся по одной независимой точке. Smoke `success`
   требует `outlineComplete=true`.
+
+### 4.5 Bottom placement research (D-023)
+
+- D-023 разрешает пересмотр scope и research калибровки; production Bottom
+  остаётся Unsupported до отдельного ADR (D-024) и реального CAD-прогона.
+- Значение `e` из R4-A (`+3.371315 mm`) — только fixture-данные `BRIDGE_ROT_3D`;
+  production-код не содержит designators, фикстурных координат и констант `e`.
+- Калибровка хранится вместе с catalog body entry и связывается точным ключом
+  `(footprintSourceUniqueId, bodyUniqueId, bodyOrdinal, stepAssetSha256)`;
+  designator и позиция на плате ключом не являются.
+- Применимость проверяется по SHA STEP-ассета и идентификатору footprint;
+  отсутствие, рассогласование или несовместимость калибровки даёт явную
+  диагностику `MissingFootprintCalibration`/`Unsupported`, но не zero/identity матрицу.
+- Core-формула Bottom rotation из BRIDGE-000017 — research-доказательство на
+  фикстуре, а не подтверждённый production-контракт; SOLIDWORKS builder продолжает
+  отклонять Bottom и projection mismatch до отдельного решения.
 
 ## 5. Работа с API и данными
 

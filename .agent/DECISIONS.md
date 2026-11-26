@@ -585,6 +585,69 @@ Core `PlacementTransformBuilder`. Нужен первый production-oriented ru
 - Получен первый реальный Top assembly (20 occurrences, R3 U101–U104 4/4).
 - Bottom/Native/External, board solid и reverse sync остаются следующими этапами.
 - Add-in registration, Registry, installer и UI не затрагиваются.
+- D-023 открывает отдельный research-этап Bottom, но не меняет production-поведение
+  D-022: SOLIDWORKS продолжает отклонять Bottom до отдельного ADR калибровки.
+
+---
+
+## D-023 — Bottom placement: research scope, не production activation
+
+**Статус:** Accepted (research only; production activation deferred).
+
+**Контекст.** BRIDGE-000021 исходно требовал production Bottom placement как
+продолжение D-022. Это противоречило D-022 и DEVELOPMENT_RULES §1.4/§4.2: Bottom
+имеет статус Unsupported. R4-A/R4-B подтвердили матрицы и feature residual только
+на scratch-фикстуре `BRIDGE_ROT_3D` с измеренным pivot `e=+3.371315 mm`; в
+Exchange Package нет per-footprint calibration, а `SolidWorksPlacementRequestBuilder`
+до сих пор отклоняет Bottom диагностиками `SW-PLC-006`/`SW-PLC-007`. Core
+`PlacementTransformBuilder` содержит Bottom-формулу, но тесты передают в неё
+fixture-значения вручную.
+
+**Решение.**
+
+- Bottom placement признаётся отдельным расширением scope, а не продолжением
+  уже принятого D-022. D-022 остаётся действующим для production-поведения и не
+  заменяется целиком.
+- Разрешены только: согласованное обновление документов, research per-footprint
+  calibration и подготовка минимального research-отчёта. Production-код,
+  изменение Exchange Package/catalog, активация Bottom в SOLIDWORKS и запись
+  в `.PcbDoc` не разрешаются этим решением.
+- До принятия отдельного ADR (D-024) и реального CAD-прогона SOLIDWORKS
+  возвращает Unsupported для Bottom и projection mismatch; zero/identity/reflection
+  fallback и ослабление допусков residual запрещены.
+
+**Предлагаемый контракт per-footprint calibration (требует D-024 до реализации).**
+
+- Хранение: опциональная секция `footprintCalibration` у `ComponentBodyEntry`
+  Component Model Catalog следующей версии (1.2.0), в Package вне Git; не в
+  `BoardSnapshot`, не в константах кода и не в пользовательских PCB/STEP.
+- Состав: `schemaVersion`, `calibrationId`, `footprintSourceUniqueId`,
+  `libraryDocumentSha256`, `bodyUniqueId`, `bodyOrdinal`, `stepAssetSha256`,
+  Top/Bottom offsets как пары IU/мм, идентификатор фикстуры/версия AD.
+- `e` не хранится отдельно: `bottomBoard=(bottomLocal.X,-bottomLocal.Y)`,
+  `e=bottomBoard-topLocal`. Значение из R4-A — только пример для фикстуры.
+- Привязка: точный ключ `(footprintSourceUniqueId, bodyUniqueId, bodyOrdinal,
+  stepAssetSha256)`; designator и board position ключом не служат.
+- Проверка применимости: SHA catalog asset == SHA STEP asset == SHA calibration;
+  совпадение footprint/body id; конечные IU/мм пары и конечный `e`; `SdkExport`,
+  `Generic`, `Embedded`, `PlacedBodyEffective`, Bottom/Bottom, нулевой compound
+  state и quarter-turn rotation. Любое рассогласование — явная диагностика,
+  матрица не строится.
+
+**Альтернативы.**
+
+- Оставить Bottom вне scope: отклонено оператором, выбран пересмотр через D-023.
+- Считать R4 fixture-level результат достаточным для production: отклонено,
+  отсутствует per-footprint calibration и CAD-доказательство на реальной плате.
+
+**Последствия.**
+
+- BRIDGE-000021 фиксируется как research с отчётом; PR может быть открыт, но
+  production Bottom остаётся заблокированным.
+- Изменение каталога/пакета и активация Bottom требуют D-024 и smoke в SOLIDWORKS
+  с Top/Bottom occurrences, save/reopen и проверкой transform readback.
+- Затронутые документы в этом PR: `AGENTS.md`, `PROJECT_CONTEXT.md`,
+  `ARCHITECTURE.md`, `DEVELOPMENT_RULES.md`, настоящий `DECISIONS.md`.
 
 ---
 
@@ -615,6 +678,7 @@ Core `PlacementTransformBuilder`. Нужен первый production-oriented ru
 | O-007 | Стабильность ID | V-07, D-010 | Эксперимент |
 | O-008 | Вложения runtime-пакета | D-005, D-016 | Определить формат вложений вне Git |
 | O-009 | Target Framework SOLIDWORKS Add-in | D-004, D-014 | Отдельное ТЗ/ADR MCAD-фазы |
+| O-010 | Per-footprint calibration для production Bottom | D-023, BRIDGE-000021 | Принять D-024: хранилище/ключ/проверку применимости `e`, затем CAD smoke на реальной плате |
 
 ## Процесс изменения решения
 

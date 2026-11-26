@@ -20,7 +20,7 @@
 - Не использовать DelphiScript.
 - Не использовать Legacy API Altium.
 - Не менять архитектуру без решения в `DECISIONS.md`.
-- SOLIDWORKS backend реализуется в рамках D-020; Top-прототип placement — D-022. Полноценный Add-in, Registry и установщик требуют отдельного решения; Bottom/Native/External placement вне scope.
+- SOLIDWORKS backend реализуется в рамках D-020; Top-прототип placement — D-022. Bottom placement открыт только как отдельный research-этап D-023; production Bottom/Native/External placement остаётся вне scope до отдельного ADR и CAD-подтверждения. Полноценный Add-in, Registry и установщик требуют отдельного решения.
 - Не добавлять API в категорию «подтверждено» без доказательства.
 - Не изменять ветку `source` напрямую.
 - Не коммитить проприетарные DLL, лицензии, секреты и данные заказчиков.
@@ -190,5 +190,6 @@ tests/
 платы, геометрическую классификацию Board Cutout/Clip контуров, ожидаемые объёмы
 по телам и строгую проверку tessellation в SOLIDWORKS. `board-3d-model` разрешён только
 при `complete`; старые пакеты без поля имеют `Unknown`.
-Bottom, projection mismatch, Native/External placement, полноценный Add-in host
-и reverse sync не входят в этот этап (D-021/D-022).
+Production Bottom, projection mismatch, Native/External placement, полноценный Add-in host
+и reverse sync не входят в этот этап (D-021/D-022); Bottom открыт только как research D-023
+без активации production.
