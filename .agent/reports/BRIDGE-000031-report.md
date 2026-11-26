@@ -144,8 +144,9 @@ BRIDGE-000030 вариант C остаются в силе.
 
 ### 3.4. Часть D — почему runtime заблокирован
 
-Наблюдаемая среда: Altium PID `27116`, `X2.EXE` из `E:\Program Files\Altium\AD26\X2.EXE`,
-Altium `26.12.2.9`, script bridge `2026.11.25.1`, EDA MCP `0.8.2`, `app_ping.success=true`.
+Время попытки runtime-проверки: `2026-11-26T22:55:56+03:00`. Наблюдаемая среда: Altium PID
+`27116`, `X2.EXE` из `E:\Program Files\Altium\AD26\X2.EXE`, Altium `26.12.2.9`,
+script bridge `2026.11.25.1`, EDA MCP `0.8.2`, `app_ping.success=true`.
 
 - EDA `tool_catalog`/`tool_guide` (backend `altium`) не предоставляют инструмент загрузки
   скомпилированной SDK-DLL в уже запущенный процесс и не предоставляют произвольный вызов
