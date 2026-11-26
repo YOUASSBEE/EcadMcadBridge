@@ -5,10 +5,10 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T13:25:00+03:00
-updated: 2026-11-26T14:45:00+03:00
+updated: 2026-11-26T14:41:00+03:00
 base: source
 branch: agent/BRIDGE-000020-board-outline-completeness
-commit: 75e7779fdbca55062563c34dfbf15e455a6480a2
+commit: aefa45227f16c95a0ed291c1016ac41fe1382a14
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/19
 related: [BRIDGE-000020, BRIDGE-000019, BRIDGE-000018]
 ---
@@ -286,8 +286,9 @@ Assembly `smoke-a7\assembly\smoke-placed-assembly.SLDASM` SHA-256
 
 ## 6. Commit SHA и Pull Request
 
-- Финальный commit кода: `7aab96a18ab3f5e1a9fc43275fb66c576cdba303`.
-- Report commit: `94ade6552d3f319e7aa2ca6f244600020731f328`.
+- Implementation commit BRIDGE-000020: `7aab96a18ab3f5e1a9fc43275fb66c576cdba303`.
+- Report commit BRIDGE-000020: `94ade6552d3f319e7aa2ca6f244600020731f328`.
+- REVIEW-FIX-001 commit (код + доказательства): `aefa45227f16c95a0ed291c1016ac41fe1382a14`.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/19, base `source`, branch
   `agent/BRIDGE-000020-board-outline-completeness`, state `open`; merge не выполнялся.
 - PR URL добавлен в report отдельным docs-коммитом после создания PR.
@@ -305,6 +306,9 @@ Assembly `smoke-a7\assembly\smoke-placed-assembly.SLDASM` SHA-256
    был запущен вручную, без изменения конфигурации.
 5. Финальные `build`, `test`, `diff --check` и документы; PR открывается отдельно,
    без merge в `source`.
+6. REVIEW-FIX-001: структурированные чтения, статусы source/loop, строгая topology,
+   обязательный origin; два interim-export выявили неверную семантику `IsHole` и
+   избыточно fail-closed `Unrelated`; после исправлений `smoke-b10` и `smoke-a8` прошли.
 
 ## 8. REVIEW-FIX-001 — fail-closed доработка PR #19
 
