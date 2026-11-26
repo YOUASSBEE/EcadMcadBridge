@@ -8,7 +8,7 @@ created: 2026-11-26T20:37:18+03:00
 updated: 2026-11-26T20:37:18+03:00
 base: source
 branch: task/BRIDGE-000025-runtime-validation
-commit: 0000000000000000000000000000000000000000
+commit: b1448547404dcba46a8a802bcdf1919f24db63fc
 pr: none
 related:
   - BRIDGE-000023
@@ -268,7 +268,8 @@ bbox-наблюдения. Точки сравнения из BRIDGE-000023 (`CA
 ## 13. Commit SHA и PR
 
 - Commit, создающий постановку: `3ec3d6219bfa2ad540242b2ce91190817466da2e`.
-- Коммит отчёта будет проставлен после `git commit` (см. историю изменений ниже).
+- Коммит отчёта: `b1448547404dcba46a8a802bcdf1919f24db63fc`. Следующий meta-коммит меняет
+  только ссылки на SHA в этом разделе.
 - PR для BRIDGE-000025 **не создаётся** по условию задачи.
 - PR #23: https://github.com/YOUASSBEE/EcadMcadBridge/pull/23 — `open`, `merged=false`,
   head `0b407e3f2d0a59fc300e4e0929633a406e9f0ffb`.
