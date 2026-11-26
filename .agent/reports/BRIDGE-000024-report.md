@@ -8,8 +8,8 @@ created: 2026-11-26T18:06:48+03:00
 updated: 2026-11-26T18:06:48+03:00
 base: source
 branch: task/BRIDGE-000024-readonly-diagnostics
-commit: <pending>
-pr: <pending>
+commit: b5d082c80098160d71d3921d3706796e047c4050
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/23
 related: [BRIDGE-000024]
 ---
 
@@ -223,8 +223,11 @@ Altium. Использовать bbox-corner proxy из BRIDGE-000023 запре
 
 ## 9. Commit SHA и PR
 
-- Commit: `<pending>`.
-- PR: `<pending>`.
+- Commit, на котором открыт PR: `b5d082c80098160d71d3921d3706796e047c4050`.
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/23 — открыт из
+  `task/BRIDGE-000024-readonly-diagnostics` в `source`; `state=open`, `merged=false`. PR не
+  мержится по условию задачи.
+- URL PR и финальный commit SHA добавлены отдельным коммитом после создания PR.
 
 ## 10. История изменений
 
