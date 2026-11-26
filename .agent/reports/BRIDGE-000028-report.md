@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T21:51:23+03:00
-updated: 2026-11-26T21:58:00+03:00
+updated: 2026-11-26T21:59:02+03:00
 base: source
 branch: task/BRIDGE-000028-library-identity-modelorigin-semantics
-commit: pending
-pr: pending
+commit: b967f7142aa1fba8ec490d1b08f6ebf742038521
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/24
 related: [BRIDGE-000023, BRIDGE-000024, BRIDGE-000025, BRIDGE-000027, BRIDGE-000028]
 ---
 
@@ -322,11 +322,13 @@ D-024: подставленное поле не соответствует оп�
 
 ## 6. Commit SHA и PR
 
-- Commit, на котором открыт PR: `<to be filled>`.
-- Финальный commit с обновлённым отчётом: `<to be filled>`.
-- PR: `<to be filled>` — ветка `task/BRIDGE-000028-library-identity-modelorigin-semantics` → `source`.
-  PR не мержится по условию задачи; PR #23 не изменяется.
-- URL PR и финальный commit SHA добавляются отдельным коммитом после создания PR.
+- Commit, на котором открыт PR: `b967f7142aa1fba8ec490d1b08f6ebf742038521`.
+- Финальный commit работы: `b967f7142aa1fba8ec490d1b08f6ebf742038521` (production-код не менялся).
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/24 — ветка
+  `task/BRIDGE-000028-library-identity-modelorigin-semantics` → `source`; по состоянию на
+  `2026-11-26T21:59:02+03:00` `state=open`, `merged=false`.
+- PR не мержится по условию задачи; PR #23 не изменяется. URL PR и commit SHA добавлены отдельным
+  коммитом после создания PR.
 
 ## 7. История изменений
 
