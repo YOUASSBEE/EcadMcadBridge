@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T13:25:00+03:00
-updated: 2026-11-26T13:25:00+03:00
+updated: 2026-11-26T13:45:00+03:00
 base: source
 branch: agent/BRIDGE-000020-board-outline-completeness
 commit: 7aab96a18ab3f5e1a9fc43275fb66c576cdba303
-pr: pending
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/19
 related: [BRIDGE-000020, BRIDGE-000019, BRIDGE-000018]
 ---
 
@@ -286,10 +286,11 @@ Assembly `smoke-a7\assembly\smoke-placed-assembly.SLDASM` SHA-256
 
 ## 6. Commit SHA и Pull Request
 
-- Implementation commit: `7aab96a18ab3f5e1a9fc43275fb66c576cdba303`.
-- Report commit: будет добавлен после записи PR URL.
-- PR: pending; base `source`, branch
-  `agent/BRIDGE-000020-board-outline-completeness`; merge не выполнялся.
+- Финальный commit кода: `7aab96a18ab3f5e1a9fc43275fb66c576cdba303`.
+- Report commit: `94ade6552d3f319e7aa2ca6f244600020731f328`.
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/19, base `source`, branch
+  `agent/BRIDGE-000020-board-outline-completeness`, state `open`; merge не выполнялся.
+- PR URL добавлен в report отдельным docs-коммитом после создания PR.
 
 ## 7. История изменений
 
