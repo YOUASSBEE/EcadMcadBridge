@@ -155,6 +155,29 @@ public static class ExchangePackageReader
                     "models/models.json requires the component-3d-models capability."));
         }
 
+        var boardCapability = manifest.Capabilities.Contains(
+            PackageManifest.BoardModelCapability,
+            StringComparer.Ordinal);
+        var boardListed = manifest.Files.Any(
+            file => string.Equals(file.Path, PackageManifest.BoardModelFileName, StringComparison.Ordinal));
+        var boardOnDisk = actualPaths.Contains(PackageManifest.BoardModelFileName);
+        if (boardCapability != boardListed)
+        {
+            diagnostics.Add(
+                Error(
+                    PackageDiagnosticCodes.BoardModelCapabilityMismatch,
+                    PackageManifest.BoardModelFileName,
+                    "The board-3d-model capability and board.model.json must be present together."));
+        }
+        else if (!boardListed && boardOnDisk)
+        {
+            diagnostics.Add(
+                Error(
+                    PackageDiagnosticCodes.BoardModelCapabilityMismatch,
+                    PackageManifest.BoardModelFileName,
+                    "board.model.json requires the board-3d-model capability."));
+        }
+
         foreach (var checksum in checksums)
         {
             if (!PackagePath.TryGetFullPath(root, checksum.Path, out var fullPath, out var pathReason))
@@ -313,7 +336,50 @@ public static class ExchangePackageReader
                 return PackageReadResult.Failure(manifest, null, diagnostics);
         }
 
-        return PackageReadResult.Success(manifest, snapshot, models, diagnostics);
+        BoardModelDescriptor? boardModel = null;
+        if (boardListed)
+        {
+            if (!PackagePath.TryGetFullPath(
+                    root,
+                    PackageManifest.BoardModelFileName,
+                    out var boardModelPath,
+                    out var boardModelPathReason))
+            {
+                return PackageReadResult.Failure(
+                    manifest,
+                    null,
+                    Add(
+                        diagnostics,
+                        Error(
+                            PackageDiagnosticCodes.InvalidBoardModelAsset,
+                            PackageManifest.BoardModelFileName,
+                            boardModelPathReason)));
+            }
+
+            try
+            {
+                boardModel = BoardModelJson.Deserialize(File.ReadAllText(boardModelPath, Utf8));
+            }
+            catch (Exception ex) when (ex is JsonException or IOException or DecoderFallbackException)
+            {
+                return PackageReadResult.Failure(
+                    manifest,
+                    null,
+                    Add(
+                        diagnostics,
+                        Error(
+                            PackageDiagnosticCodes.InvalidBoardModel,
+                            PackageManifest.BoardModelFileName,
+                            "Board model descriptor is not valid: " + ex.GetType().Name)));
+            }
+
+            diagnostics.AddRange(BoardModelValidator.ValidateStructure(boardModel, snapshot));
+            diagnostics.AddRange(BoardModelValidator.ValidateAssetLink(boardModel, manifest, actualPaths));
+            if (diagnostics.Any(item => item.Severity == PackageDiagnosticSeverity.Error))
+                return PackageReadResult.Failure(manifest, null, diagnostics);
+        }
+
+        return PackageReadResult.Success(manifest, snapshot, models, boardModel, diagnostics);
     }
 
     private static HashSet<string> CollectRegularFiles(

@@ -20,7 +20,15 @@ public static class ExchangePackageWriter
         string outputRoot,
         BoardSnapshot snapshot,
         PackageWriteOptions options,
-        ComponentModelsWriteRequest? models)
+        ComponentModelsWriteRequest? models) =>
+        Write(outputRoot, snapshot, options, models, boardModel: null);
+
+    public static PackageWriteResult Write(
+        string outputRoot,
+        BoardSnapshot snapshot,
+        PackageWriteOptions options,
+        ComponentModelsWriteRequest? models,
+        BoardModelWriteRequest? boardModel)
     {
         var diagnostics = new List<PackageDiagnostic>();
         if (string.IsNullOrWhiteSpace(outputRoot))
@@ -44,6 +52,7 @@ public static class ExchangePackageWriter
             return PackageWriteResult.Failure(diagnostics);
 
         var modelsRequested = models is not null;
+        var boardRequested = boardModel is not null;
         var requestedCapabilities = options.Capabilities ?? Array.Empty<string>();
         if (!modelsRequested
             && requestedCapabilities.Contains(ComponentModelCatalog.Capability, StringComparer.Ordinal))
@@ -52,6 +61,15 @@ public static class ExchangePackageWriter
                 PackageDiagnosticCodes.InvalidMetadata,
                 "capabilities",
                 "The component-3d-models capability requires a component model catalog.");
+        }
+
+        if (!boardRequested
+            && requestedCapabilities.Contains(BoardModelDescriptor.Capability, StringComparer.Ordinal))
+        {
+            return Fail(
+                PackageDiagnosticCodes.InvalidMetadata,
+                "capabilities",
+                "The board-3d-model capability requires a board model.");
         }
 
         string root;
@@ -120,6 +138,31 @@ public static class ExchangePackageWriter
                 catalogBytes = ComponentModelsJson.SerializeToUtf8(catalog);
             }
 
+            BoardModelDescriptor? boardDescriptor = null;
+            byte[]? boardDescriptorBytes = null;
+            StagedAsset? boardAsset = null;
+            if (boardRequested)
+            {
+                if (!TryStageBoardAsset(boardModel!, tempDirectory, diagnostics, out boardAsset))
+                    return PackageWriteResult.Failure(diagnostics);
+
+                boardDescriptor = new BoardModelDescriptor
+                {
+                    AssetPath = boardAsset!.RelativePath,
+                    AssetFormat = ComponentModelAssetFormat.StepAp214,
+                    Sha256 = boardAsset.Sha256,
+                    Size = boardAsset.Size,
+                    Units = "mm",
+                    Frame = BoardModelFrame.Reference,
+                    NominalThickness = snapshot.Properties.Thickness,
+                };
+                diagnostics.AddRange(BoardModelValidator.ValidateStructure(boardDescriptor, snapshot));
+                if (diagnostics.Any(item => item.Severity == PackageDiagnosticSeverity.Error))
+                    return PackageWriteResult.Failure(diagnostics);
+
+                boardDescriptorBytes = BoardModelJson.SerializeToUtf8(boardDescriptor);
+            }
+
             var files = new List<PackageFileEntry>
             {
                 new()
@@ -156,11 +199,29 @@ public static class ExchangePackageWriter
                 }
             }
 
+            if (boardDescriptor is not null && boardDescriptorBytes is not null && boardAsset is not null)
+            {
+                files.Add(new PackageFileEntry
+                {
+                    Path = PackageManifest.BoardModelFileName,
+                    Sha256 = PackageChecksums.ComputeSha256(boardDescriptorBytes),
+                    Size = boardDescriptorBytes.LongLength,
+                });
+                files.Add(new PackageFileEntry
+                {
+                    Path = boardAsset.RelativePath,
+                    Sha256 = boardAsset.Sha256,
+                    Size = boardAsset.Size,
+                });
+            }
+
             var capabilities = requestedCapabilities
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
             if (modelsRequested)
                 capabilities.Add(ComponentModelCatalog.Capability);
+            if (boardRequested)
+                capabilities.Add(BoardModelDescriptor.Capability);
 
             manifest = new PackageManifest
             {
@@ -201,6 +262,14 @@ public static class ExchangePackageWriter
                     checksums.Add(new PackageChecksumEntry(asset.RelativePath, asset.Sha256));
             }
 
+            if (boardDescriptorBytes is not null && boardAsset is not null)
+            {
+                checksums.Add(new PackageChecksumEntry(
+                    PackageManifest.BoardModelFileName,
+                    PackageChecksums.ComputeSha256(boardDescriptorBytes)));
+                checksums.Add(new PackageChecksumEntry(boardAsset.RelativePath, boardAsset.Sha256));
+            }
+
             var checksumBytes = PackageChecksums.Serialize(checksums);
 
             File.WriteAllBytes(
@@ -213,6 +282,15 @@ public static class ExchangePackageWriter
                     PackageManifest.ComponentModelsFileName.Replace('/', Path.DirectorySeparatorChar));
                 Directory.CreateDirectory(Path.GetDirectoryName(catalogPath)!);
                 File.WriteAllBytes(catalogPath, catalogBytes);
+            }
+
+            if (boardDescriptorBytes is not null)
+            {
+                var boardDescriptorPath = Path.Combine(
+                    tempDirectory,
+                    PackageManifest.BoardModelFileName.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(boardDescriptorPath)!);
+                File.WriteAllBytes(boardDescriptorPath, boardDescriptorBytes);
             }
 
             File.WriteAllBytes(
@@ -229,7 +307,9 @@ public static class ExchangePackageWriter
                 checksumBytes,
                 snapshotSha,
                 catalogBytes,
-                uniqueAssets);
+                uniqueAssets,
+                boardDescriptorBytes,
+                boardAsset);
             Directory.Move(tempDirectory, packageDirectory);
         }
         catch (Exception ex)
@@ -398,6 +478,134 @@ public static class ExchangePackageWriter
         }
     }
 
+    private static bool TryStageBoardAsset(
+        BoardModelWriteRequest board,
+        string tempDirectory,
+        List<PackageDiagnostic> diagnostics,
+        out StagedAsset? staged)
+    {
+        staged = null;
+        if (board.Format != ComponentModelAssetFormat.StepAp214)
+        {
+            diagnostics.Add(Error(
+                PackageDiagnosticCodes.InvalidBoardModelAsset,
+                "boardModel.assetFormat",
+                "Only step-ap214 board assets are supported."));
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(board.SourcePath) || !File.Exists(board.SourcePath))
+        {
+            diagnostics.Add(Error(
+                PackageDiagnosticCodes.InvalidBoardModelAsset,
+                "boardModel.assetPath",
+                "Board STEP source file is missing or unreadable."));
+            return false;
+        }
+
+        try
+        {
+            staged = StageBoardAsset(board.SourcePath, tempDirectory);
+            return true;
+        }
+        catch (AssetSourceChangedException)
+        {
+            diagnostics.Add(Error(
+                PackageDiagnosticCodes.InvalidBoardModelAsset,
+                "boardModel.assetPath",
+                "The board STEP source file changed while it was being copied."));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            diagnostics.Add(Error(
+                PackageDiagnosticCodes.InvalidBoardModelAsset,
+                "boardModel.assetPath",
+                "The board STEP source file could not be read: " + ex.GetType().Name));
+        }
+
+        return false;
+    }
+
+    private static StagedAsset StageBoardAsset(string sourcePath, string tempDirectory)
+    {
+        var before = new FileInfo(sourcePath);
+        if (!before.Exists || (before.Attributes & FileAttributes.Directory) != 0)
+            throw new AssetSourceChangedException();
+
+        var stagingDirectory = Path.Combine(tempDirectory, ".staging");
+        Directory.CreateDirectory(stagingDirectory);
+        var partialPath = Path.Combine(stagingDirectory, Guid.NewGuid().ToString("N") + ".tmp");
+        string sha;
+        long size;
+        try
+        {
+            using (var input = new FileStream(
+                       sourcePath,
+                       FileMode.Open,
+                       FileAccess.Read,
+                       FileShare.ReadWrite | FileShare.Delete,
+                       CopyBufferSize,
+                       FileOptions.SequentialScan))
+            using (var output = new FileStream(
+                       partialPath,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None,
+                       CopyBufferSize,
+                       FileOptions.SequentialScan))
+            using (var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+            {
+                var buffer = new byte[CopyBufferSize];
+                size = 0;
+                int read;
+                while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    output.Write(buffer, 0, read);
+                    hash.AppendData(buffer, 0, read);
+                    size += read;
+                }
+
+                output.Flush(flushToDisk: true);
+                sha = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            }
+
+            if (size <= 0)
+                throw new IOException("The board STEP file is empty.");
+
+            var after = new FileInfo(sourcePath);
+            if (!after.Exists
+                || after.Length != before.Length
+                || after.LastWriteTimeUtc != before.LastWriteTimeUtc
+                || size != before.Length)
+            {
+                throw new AssetSourceChangedException();
+            }
+
+            var fileName = sha + ".step";
+            var relativePath = BoardModelDescriptor.AssetDirectory + "/" + fileName;
+            var finalPath = Path.Combine(
+                tempDirectory,
+                BoardModelDescriptor.AssetDirectory.Replace('/', Path.DirectorySeparatorChar),
+                fileName);
+            Directory.CreateDirectory(Path.GetDirectoryName(finalPath)!);
+            if (File.Exists(finalPath))
+            {
+                File.Delete(partialPath);
+            }
+            else
+            {
+                File.Move(partialPath, finalPath);
+            }
+
+            return new StagedAsset(relativePath, sha, size, ComponentModelAssetFormat.StepAp214);
+        }
+        finally
+        {
+            if (File.Exists(partialPath))
+                TryDeleteFile(partialPath);
+        }
+    }
+
     private static ComponentModelCatalog ResolveCatalog(
         ComponentModelsWriteRequest models,
         IReadOnlyDictionary<string, StagedAsset> stagedAssets,
@@ -510,7 +718,9 @@ public static class ExchangePackageWriter
         byte[] checksumBytes,
         string snapshotSha,
         byte[]? catalogBytes,
-        IReadOnlyList<StagedAsset> assets)
+        IReadOnlyList<StagedAsset> assets,
+        byte[]? boardDescriptorBytes,
+        StagedAsset? boardAsset)
     {
         var manifestPath = Path.Combine(tempDirectory, PackageManifest.ManifestFileName);
         var snapshotPath = Path.Combine(tempDirectory, PackageManifest.SnapshotFileName);
@@ -533,6 +743,31 @@ public static class ExchangePackageWriter
                 PackageManifest.ComponentModelsFileName.Replace('/', Path.DirectorySeparatorChar));
             if (!File.ReadAllBytes(catalogPath).SequenceEqual(catalogBytes))
                 throw new IOException("component model catalog verification failed.");
+        }
+
+        if (boardDescriptorBytes is not null)
+        {
+            var boardDescriptorPath = Path.Combine(
+                tempDirectory,
+                PackageManifest.BoardModelFileName.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.ReadAllBytes(boardDescriptorPath).SequenceEqual(boardDescriptorBytes))
+                throw new IOException("board model descriptor verification failed.");
+        }
+
+        if (boardAsset is not null)
+        {
+            var boardAssetPath = Path.Combine(
+                tempDirectory,
+                boardAsset.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(boardAssetPath) || new FileInfo(boardAssetPath).Length != boardAsset.Size)
+                throw new IOException("board asset size verification failed.");
+            if (!string.Equals(
+                    PackageChecksums.ComputeFileSha256(boardAssetPath),
+                    boardAsset.Sha256,
+                    StringComparison.Ordinal))
+            {
+                throw new IOException("board asset hash verification failed.");
+            }
         }
 
         foreach (var asset in assets)
