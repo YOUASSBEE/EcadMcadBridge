@@ -8,7 +8,7 @@ created: 2026-11-27T00:57:13+03:00
 updated: 2026-11-27T00:57:13+03:00
 base: source
 branch: agent/BRIDGE-000038-report
-commit: pending
+commit: 6dcff9bdf8dcfc57e9c637c4a0ce91b296bf34f2
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/28
 related: [BRIDGE-000037]
 ---
@@ -86,3 +86,5 @@ Source branch `task/BRIDGE-000035-top-only-smoke` не удалялась.
 **Успех подтверждён GitHub:** PR #28 merged в `source` обычным merge commit
 `5da53446866f12f227953a03321c7af48489920c`; `source` указывает на этот commit.
 Оставшихся obstacles нет.
+
+Отчёт создан коммитом `6dcff9bdf8dcfc57e9c637c4a0ce91b296bf34f2`; финальная правка front matter выполняется отдельным metadata-коммитом.
