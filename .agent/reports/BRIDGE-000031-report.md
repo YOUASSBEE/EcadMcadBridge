@@ -5,11 +5,11 @@ status: blocked
 from: local-agent
 to: operator
 created: 2026-11-26T22:55:56+03:00
-updated: 2026-11-26T22:55:56+03:00
+updated: 2026-11-26T23:03:00+03:00
 base: source
 branch: task/BRIDGE-000031-sdk-diagnostic-host
-commit: pending
-pr: pending
+commit: bd987aab86c3205493283edf84fe5a55d862de0f
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/27
 related: [BRIDGE-000031]
 ---
 
@@ -216,11 +216,13 @@ execution evidence недоступны (`unavailable`). Пользовател�
 
 ## 6. Commit SHA и ссылка на PR
 
-- Коммит, отправленный на ревью: `pending`.
-- PR: `pending`.
+- Коммит, отправленный на ревью: `bd987aab86c3205493283edf84fe5a55d862de0f`.
+- PR: <https://github.com/YOUASSBEE/EcadMcadBridge/pull/27> — открыт, `state=open`,
+  `merged=false`, base `source` @ `ea817c9b1e52b6a86e5eb541cf814a578887a7d5`, head
+  `task/BRIDGE-000031-sdk-diagnostic-host` @ `bd987aab86c3205493283edf84fe5a55d862de0f`.
 
 ## 7. История изменений
 
 1. Первая версия отчёта: Part A evidence, Part B реализация, Part C статические проверки,
    Part D blocked и выбор варианта B.
-2. После создания PR отдельным коммитом будут добавлены URL PR и reviewed commit SHA.
+2. После создания PR отдельным коммитом добавлены URL PR #27 и reviewed commit SHA.
