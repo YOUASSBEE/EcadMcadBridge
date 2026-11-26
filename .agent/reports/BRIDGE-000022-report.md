@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T16:56:09+03:00
-updated: 2026-11-26T16:56:09+03:00
+updated: 2026-11-26T16:59:24+03:00
 base: source
 branch: task/BRIDGE-000022-calibration-contract
-commit: <pending>
-pr: <pending>
+commit: 7dadbc69c3ca0520fed9be1fa5c1c95acb2cee80
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/21
 related: [BRIDGE-000022, BRIDGE-000021, BRIDGE-000020]
 ---
 
@@ -136,11 +136,15 @@ occurrences в SOLIDWORKS; save/reopen; transform readback; residual прове�
 
 ## 6. Commit SHA и Pull Request
 
-- Commit (docs/report): `<pending>`
-- PR: `<pending>`
+- Docs/report commit: `7dadbc69c3ca0520fed9be1fa5c1c95acb2cee80` —
+  `docs(bridge-000022): accept D-024 calibration contract`.
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/21 — открыт в `source`,
+  оставлен открытым без merge; ветка `task/BRIDGE-000022-calibration-contract` сохранена.
 
 ## 7. История изменений
 
 - 2026-11-26: создана ветка `task/BRIDGE-000022-calibration-contract` от `source`
   (`ae9e0f7…`); принят D-024 как контракт без production activation; обновлены
   связанные документы и настоящий отчёт.
+- 2026-11-26: открыт PR #21 в `source`; отдельным docs-коммитом добавлены финальный
+  SHA и URL PR. PR не смержен.
