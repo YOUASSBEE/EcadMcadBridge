@@ -218,11 +218,14 @@ execution evidence недоступны (`unavailable`). Пользовател�
 
 - Коммит, отправленный на ревью: `bd987aab86c3205493283edf84fe5a55d862de0f`.
 - PR: <https://github.com/YOUASSBEE/EcadMcadBridge/pull/27> — открыт, `state=open`,
-  `merged=false`, base `source` @ `ea817c9b1e52b6a86e5eb541cf814a578887a7d5`, head
-  `task/BRIDGE-000031-sdk-diagnostic-host` @ `bd987aab86c3205493283edf84fe5a55d862de0f`.
+  `merged=false`, base `source` @ `ea817c9b1e52b6a86e5eb541cf814a578887a7d5`, head branch
+  `task/BRIDGE-000031-sdk-diagnostic-host`. Коммит, отправленный на ревью, указан выше;
+  последующие метаданные PR не меняют проверенный код.
 
 ## 7. История изменений
 
 1. Первая версия отчёта: Part A evidence, Part B реализация, Part C статические проверки,
    Part D blocked и выбор варианта B.
 2. После создания PR отдельным коммитом добавлены URL PR #27 и reviewed commit SHA.
+3. Следующим метаданным коммитом уточнено, что SHA в §6 относится к review-коммиту, а не к
+   меняющемуся head PR.
