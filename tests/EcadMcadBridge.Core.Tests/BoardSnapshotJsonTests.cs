@@ -28,6 +28,18 @@ public sealed class BoardSnapshotJsonTests
     }
 
     [Fact]
+    public void Deserialize_MissingCompleteness_ReturnsUnknown()
+    {
+        var json = BoardSnapshotJson.Serialize(BoardSnapshotFixture.CreateValid());
+        var root = JsonNode.Parse(json)!.AsObject();
+        ((JsonObject)root["board"]!)["outline"]!.AsObject().Remove("completeness");
+
+        var snapshot = BoardSnapshotJson.Deserialize(root.ToJsonString());
+
+        Assert.Equal(OutlineCompleteness.Unknown, snapshot.Outline.Completeness);
+    }
+
+    [Fact]
     public void Serialize_TextWithoutRotation_RoundTripsNull()
     {
         var snapshot = BoardSnapshotFixture.With(

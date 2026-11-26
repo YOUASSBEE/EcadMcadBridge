@@ -125,6 +125,24 @@ public enum ArcSweepDirection
     CounterClockwise,
 }
 
+/// <summary>
+/// Evidence level for board-outline extraction. Older packages without the field are
+/// <see cref="Unknown"/>, never assumed complete.
+/// </summary>
+public enum OutlineCompleteness
+{
+    Complete,
+    Incomplete,
+    Unknown,
+}
+
+public enum BoardCutoutRole
+{
+    BoardShape,
+    Hole,
+    Unrelated,
+}
+
 public enum PadShapeKind
 {
     Circular,

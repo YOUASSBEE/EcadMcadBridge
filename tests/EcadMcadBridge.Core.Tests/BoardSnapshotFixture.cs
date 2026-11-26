@@ -32,6 +32,7 @@ internal static class BoardSnapshotFixture
         var outline = new BoardOutline
         {
             Id = "outline-1",
+            Completeness = OutlineCompleteness.Complete,
             Contours = new[]
             {
                 new Contour
@@ -239,6 +240,8 @@ internal static class BoardSnapshotFixture
                 Name = "Synthetic board",
                 Material = "FR-4",
                 Thickness = LengthValue.FromIu(1_600_000),
+                OriginX = LengthValue.FromIu(0),
+                OriginY = LengthValue.FromIu(0),
             },
             Outline = outline,
             Layers = new[] { top, bottom, mechanical },

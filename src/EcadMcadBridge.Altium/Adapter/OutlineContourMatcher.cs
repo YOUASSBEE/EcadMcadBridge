@@ -21,7 +21,116 @@ internal static class OutlineContourMatcher
     public static bool TryExactMatch(
         IReadOnlyList<Point2D> contour,
         IReadOnlyList<OutlineSegment> loop) =>
-        TryExactMatch(contour, loop, ToleranceIu);
+        TryExactMatch(contour, loop, MatchingTolerance(contour, loop));
+
+    /// <summary>
+    /// Altium's geometric contour samples analytic arcs into short chords. The samples sit
+    /// inside the true arc by its sagitta, so exact matching must allow that measured chord
+    /// error. A coarse two-point replacement is not a sample and must not inflate tolerance.
+    /// </summary>
+    public static double MatchingTolerance(
+        IReadOnlyList<Point2D> contour,
+        IReadOnlyList<OutlineSegment> loop)
+    {
+        var tolerance = ToleranceIu;
+        foreach (var segment in loop)
+        {
+            var sampled = SampledArcTolerance(contour, segment);
+            if (sampled is not null)
+                tolerance = Math.Max(tolerance, sampled.Value);
+        }
+
+        return tolerance;
+    }
+
+    private static double? SampledArcTolerance(
+        IReadOnlyList<Point2D> contour,
+        OutlineSegment segment)
+    {
+        const int minimumSamples = 4;
+        const double maximumStepDegrees = 15.0;
+        if (segment.SweepDirection is null
+            || segment.Radius <= 0
+            || !TryCoordinates(segment.Center, out var cx, out var cy)
+            || !TryCoordinates(segment.Start, out var sx, out var sy)
+            || !TryCoordinates(segment.End, out var ex, out var ey))
+        {
+            return null;
+        }
+
+        var radius = (double)segment.Radius;
+        var radialTolerance = Math.Max(10.0, radius * 0.01);
+        var startAngle = NormalizeAngle(Math.Atan2(sy - cy, sx - cx));
+        var endAngle = NormalizeAngle(Math.Atan2(ey - cy, ex - cx));
+        var run = new List<Point2D>();
+        var maxStepDegrees = 0.0;
+        var sagitta = 0.0;
+
+        for (var i = 0; i <= contour.Count; i++)
+        {
+            var point = contour[i % contour.Count];
+            var onArc = IsNearCircle(point, cx, cy, radius, radialTolerance)
+                && TryCoordinates(point, out var px, out var py)
+                && IsAngleOnArc(
+                    NormalizeAngle(Math.Atan2(py - cy, px - cx)),
+                    startAngle,
+                    endAngle,
+                    segment.SweepDirection.Value,
+                    radius,
+                    radialTolerance);
+
+            if (!onArc)
+            {
+                if (run.Count >= minimumSamples && maxStepDegrees <= maximumStepDegrees)
+                    return (sagitta * 1.05) + ToleranceIu;
+                run.Clear();
+                maxStepDegrees = 0.0;
+                sagitta = 0.0;
+                continue;
+            }
+
+            if (run.Count > 0)
+            {
+                var chord = Distance(run[^1], point);
+                if (chord is null || chord.Value > 2.0 * radius)
+                    return null;
+
+                var stepDegrees = 2.0 * Math.Asin(chord.Value / (2.0 * radius)) * 180.0 / Math.PI;
+                if (stepDegrees > maximumStepDegrees)
+                {
+                    run.Clear();
+                    maxStepDegrees = 0.0;
+                    sagitta = 0.0;
+                    continue;
+                }
+
+                maxStepDegrees = Math.Max(maxStepDegrees, stepDegrees);
+                sagitta = Math.Max(
+                    sagitta,
+                    radius - Math.Sqrt((radius * radius) - ((chord.Value / 2.0) * (chord.Value / 2.0))));
+            }
+
+            run.Add(point);
+        }
+
+        return run.Count >= minimumSamples && maxStepDegrees <= maximumStepDegrees
+            ? (sagitta * 1.05) + ToleranceIu
+            : null;
+    }
+
+    private static bool IsNearCircle(
+        Point2D point,
+        double cx,
+        double cy,
+        double radius,
+        double tolerance)
+    {
+        if (!TryCoordinates(point, out var px, out var py))
+            return false;
+        var dx = px - cx;
+        var dy = py - cy;
+        return Math.Abs(Math.Sqrt((dx * dx) + (dy * dy)) - radius) <= tolerance;
+    }
 
     public static bool TryExactMatch(
         IReadOnlyList<Point2D> contour,
@@ -116,12 +225,16 @@ internal static class OutlineContourMatcher
         if (!IsContinuous(loop))
             return "loop is not continuous";
 
+        var tolerance = MatchingTolerance(contour, loop);
         var contourPoints = UniquePoints(contour);
         var loopPoints = UniquePoints(loop.SelectMany(segment => new[] { segment.Start, segment.End }));
-        var missingLoop = loopPoints.Where(point => !contourPoints.Contains(point)).Take(3).ToArray();
-        var notOnLoop = contourPoints.Where(point => !IsPointOnLoop(point, loop)).Take(3).ToArray();
+        var missingLoop = loopPoints
+            .Where(point => !contourPoints.Any(candidate => Distance(candidate, point) <= tolerance))
+            .Take(3)
+            .ToArray();
+        var notOnLoop = contourPoints.Where(point => !IsPointOnLoop(point, loop, tolerance)).Take(3).ToArray();
         var loopToContour = loopPoints.Select(point => DistanceToPolyline(point, contour)).DefaultIfEmpty(0).Max();
-        var contourToLoop = contourPoints.Select(point => DistanceToLoop(point, loop, ToleranceIu)).DefaultIfEmpty(0).Max();
+        var contourToLoop = contourPoints.Select(point => DistanceToLoop(point, loop, tolerance)).DefaultIfEmpty(0).Max();
         return $"uniqueLoop={loopPoints.Count} uniqueContour={contourPoints.Count} " +
             $"loopVerticesNotInContour={missingLoop.Length} contourPointsNotOnLoop={notOnLoop.Length} " +
             $"maxLoopToContour={loopToContour:F2} maxContourToLoop={contourToLoop:F2}" +

@@ -24,17 +24,17 @@ internal static class AltiumOutlineReader
             if (outline is null)
             {
                 warnings.Add("Board outline API returned null.");
-                return new BoardOutline { Id = OutlineId };
+                return new BoardOutline { Id = OutlineId, Completeness = OutlineCompleteness.Incomplete };
             }
 
             var geometricContours = ReadGeometricContours(outline, warnings, diagnostics);
             if (geometricContours.Count == 0)
             {
                 warnings.Add("Board outline geometric polygon returned no usable contours.");
-                return new BoardOutline { Id = OutlineId };
+                return new BoardOutline { Id = OutlineId, Completeness = OutlineCompleteness.Incomplete };
             }
 
-            var analyticLoops = ReadAnalyticLoops(outline, warnings, diagnostics);
+            var analyticLoops = ReadAnalyticLoops(outline, geometricContours, warnings, diagnostics);
             var usedLoops = new bool[analyticLoops.Count];
             var contours = new List<Contour>(geometricContours.Count);
 
@@ -72,13 +72,23 @@ internal static class AltiumOutlineReader
 
             contours.AddRange(ReadBoardCutoutContours(outline, regions, geometricContours, warnings, diagnostics));
 
-            return new BoardOutline { Id = OutlineId, Contours = contours };
+            var completeness = DeriveCompleteness(diagnostics);
+            return new BoardOutline
+            {
+                Id = OutlineId,
+                Completeness = completeness,
+                Contours = contours,
+            };
         }
         catch (Exception ex)
         {
             diagnostics.OutlineLoopErrors++;
             warnings.Add("Board outline read failed: " + ex.GetType().Name + ".");
-            return new BoardOutline { Id = OutlineId };
+            return new BoardOutline
+            {
+                Id = OutlineId,
+                Completeness = OutlineCompleteness.Incomplete,
+            };
         }
     }
 
@@ -94,12 +104,19 @@ internal static class AltiumOutlineReader
             .ToArray();
         var contours = new List<Contour>();
         var clipped = false;
-        var cutoutSources = BuildCutoutSources(cutoutRegions);
+        var outerContours = geometricContours
+            .Where(contour => contour.Role == ContourRole.Outer)
+            .Select(contour => ToCoreContour(contour.Points))
+            .ToArray();
+        var cutoutSources = BuildCutoutSources(
+            cutoutRegions,
+            outerContours,
+            warnings,
+            diagnostics);
         var existingHoles = geometricContours
             .Where(contour => contour.Role == ContourRole.Hole && contour.Points.Count >= 3)
             .Select(contour => new CutoutExistingHole(contour.Index, contour.Points))
             .ToArray();
-        var assigned = new HashSet<CutoutSourceKey>();
 
         try
         {
@@ -141,7 +158,7 @@ internal static class AltiumOutlineReader
                                 $"analyticBounds={FormatBounds(analyticBounds)} " +
                                 $"sampledBounds={clipBounds} analyticBoundsExact={analyticBounds.IsExact} " +
                                 $"boundsTolerance={CutoutRegionMatcher.BoundsToleranceIu}";
-                            var match = CutoutRegionMatcher.Match(loop, cutoutSources, assigned);
+                            var match = CutoutRegionMatcher.Match(loop, cutoutSources);
 
                             if (match.Status == CutoutRegionMatchStatus.Ambiguous)
                             {
@@ -163,7 +180,7 @@ internal static class AltiumOutlineReader
                             }
 
                             var owner = match.Source;
-                            assigned.Add(owner.Key);
+                            diagnostics.MatchedCutoutSources.Add(owner.Key);
                             diagnostics.ClipMatchedCutoutRegions++;
                             warnings.Add(
                                 $"Clipped cutout shape {i} loop {loopIndex} matched Board Cutout region " +
@@ -293,7 +310,10 @@ internal static class AltiumOutlineReader
     }
 
     private static IReadOnlyList<CutoutSourceContour> BuildCutoutSources(
-        IReadOnlyList<AltiumRegionInfo> cutoutRegions)
+        IReadOnlyList<AltiumRegionInfo> cutoutRegions,
+        IReadOnlyList<Contour> outerContours,
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
     {
         var result = new List<CutoutSourceContour>();
         foreach (var region in cutoutRegions)
@@ -301,6 +321,30 @@ internal static class AltiumOutlineReader
             for (var contourIndex = 0; contourIndex < region.Contours.Count; contourIndex++)
             {
                 var contour = region.Contours[contourIndex];
+                var role = BoardOutlineTopology.ClassifyRegionContour(
+                    ToCoreContour(contour.Points),
+                    outerContours);
+                if (role == BoardCutoutRole.BoardShape)
+                {
+                    diagnostics.BoardCutoutShapeContours++;
+                    warnings.Add(
+                        $"Board Cutout region {region.Index} contour {contourIndex} " +
+                        "(uniqueId='" + (region.UniqueId ?? string.Empty) + "') lies on the Outer contour; " +
+                        "it is board-shape/layer-stack evidence, not a hole.");
+                    continue;
+                }
+
+                if (role == BoardCutoutRole.Unrelated)
+                {
+                    diagnostics.BoardCutoutUnclassifiedContours++;
+                    warnings.Add(
+                        $"Board Cutout region {region.Index} contour {contourIndex} " +
+                        "(uniqueId='" + (region.UniqueId ?? string.Empty) + "') is neither on an Outer " +
+                        "contour nor inside the board; it was not exported.");
+                    continue;
+                }
+
+                diagnostics.BoardCutoutHoles++;
                 var bounds = CutoutRegionMatcher.GetBounds(
                     CutoutDeduplicator.EnsureClosed(contour.Points));
                 result.Add(new CutoutSourceContour(
@@ -337,6 +381,39 @@ internal static class AltiumOutlineReader
     private static string FormatBounds(AnalyticBoundsResult bounds) =>
         FormatBounds((bounds.MinX, bounds.MinY, bounds.MaxX, bounds.MaxY))
         + (bounds.Error is null ? string.Empty : " (error: " + bounds.Error + ")");
+
+    private static OutlineCompleteness DeriveCompleteness(AltiumAdapterDiagnostics diagnostics)
+    {
+        var incomplete =
+            diagnostics.OutlineLoopErrors > 0
+            || diagnostics.OmittedOutlineContours > 0
+            || diagnostics.FallbackOutlineContours > 0
+            || diagnostics.UnmatchedAnalyticLoops > 0
+            || diagnostics.AmbiguousOutlineMatches > 0
+            || diagnostics.PartialOutlineMatches > 0
+            || diagnostics.ClipCutoutErrors > 0
+            || diagnostics.ClipUnmatchedCutoutRegions > 0
+            || diagnostics.ClipAmbiguousCutoutRegions > 0
+            || diagnostics.BoardCutoutUnclassifiedContours > 0
+            || diagnostics.BoardCutoutShapeContours + diagnostics.MatchedCutoutSources.Count
+                != diagnostics.BoardCutoutContours;
+        return incomplete ? OutlineCompleteness.Incomplete : OutlineCompleteness.Complete;
+    }
+
+    private static Contour ToCoreContour(IReadOnlyList<Point2D> points)
+    {
+        var segments = new List<ContourSegment>();
+        for (var i = 0; i + 1 < points.Count; i++)
+            segments.Add(new LineSegment { Start = points[i], End = points[i + 1] });
+        if (points.Count > 2 && PointsEqual(points[0], points[^1]) == false)
+            segments.Add(new LineSegment { Start = points[^1], End = points[0] });
+        return new Contour
+        {
+            Id = "altium:topology:" + points.Count,
+            Role = ContourRole.Outer,
+            Segments = segments,
+        };
+    }
 
     private static IReadOnlyList<GeometricContour> ReadGeometricContours(
         IPCB_BoardOutline outline,
@@ -379,6 +456,7 @@ internal static class AltiumOutlineReader
 
     private static IReadOnlyList<List<OutlineSegment>> ReadAnalyticLoops(
         IPCB_BoardOutline outline,
+        IReadOnlyList<GeometricContour> geometricContours,
         List<string> warnings,
         AltiumAdapterDiagnostics diagnostics)
     {
@@ -415,7 +493,7 @@ internal static class AltiumOutlineReader
                 segment.Angle2));
         }
 
-        var segments = BuildOutlineSegments(raw);
+        var segments = BuildOutlineSegments(raw, geometricContours);
         var (loops, invalid) = BuildLoops(segments);
         if (invalid > 0)
         {
@@ -549,7 +627,12 @@ internal static class AltiumOutlineReader
         return (loops, invalid);
     }
 
-    internal static List<OutlineSegment> BuildOutlineSegments(IReadOnlyList<RawSegment> raw)
+    internal static List<OutlineSegment> BuildOutlineSegments(IReadOnlyList<RawSegment> raw) =>
+        BuildOutlineSegments(raw, Array.Empty<GeometricContour>());
+
+    internal static List<OutlineSegment> BuildOutlineSegments(
+        IReadOnlyList<RawSegment> raw,
+        IReadOnlyList<GeometricContour> references)
     {
         var segments = new List<OutlineSegment>(raw.Count);
         for (var i = 0; i < raw.Count; i++)
@@ -565,14 +648,16 @@ internal static class AltiumOutlineReader
 
             if (current.Kind == TPolySegmentType.ePolySegmentArc)
             {
-                // Altium stores arc endpoints as CCW angles; crossing 0 degrees makes
-                // Angle2 smaller than Angle1. There is no separate direction field.
+                // Altium stores arc endpoints as angles but no sweep direction. The SDK's
+                // geometric contour is authoritative: sample both candidate sweeps and keep
+                // the one that lies on the package's own contour coordinates.
+                var direction = ChooseArcDirection(current, references);
                 segments.Add(new OutlineSegment(
                     start,
                     end,
                     Point2D.FromIu(current.Cx, current.Cy),
                     current.Radius,
-                    ArcSweepDirection.CounterClockwise));
+                    direction));
             }
             else
             {
@@ -581,6 +666,131 @@ internal static class AltiumOutlineReader
         }
 
         return segments;
+    }
+
+    private static ArcSweepDirection ChooseArcDirection(
+        RawSegment arc,
+        IReadOnlyList<GeometricContour> references)
+    {
+        if (references.Count == 0)
+            return ArcSweepDirection.CounterClockwise;
+
+        var clockwise = IsArcOnReferences(arc, ArcSweepDirection.Clockwise, references);
+        var counterClockwise = IsArcOnReferences(arc, ArcSweepDirection.CounterClockwise, references);
+        if (clockwise && !counterClockwise)
+            return ArcSweepDirection.Clockwise;
+        return ArcSweepDirection.CounterClockwise;
+    }
+
+    private static bool IsArcOnReferences(
+        RawSegment arc,
+        ArcSweepDirection direction,
+        IReadOnlyList<GeometricContour> references)
+    {
+        const int steps = 16;
+        var toleranceIu = ArcReferenceTolerance(arc, references);
+        var start = arc.Angle1;
+        var delta = direction == ArcSweepDirection.Clockwise
+            ? -PositiveModulo(start - arc.Angle2, 360.0)
+            : PositiveModulo(arc.Angle2 - start, 360.0);
+        for (var i = 0; i <= steps; i++)
+        {
+            var point = Polar(
+                arc.Cx,
+                arc.Cy,
+                arc.Radius,
+                start + ((delta * i) / steps));
+            if (!references.Any(contour => IsPointOnPolyline(point, contour.Points, toleranceIu)))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// The SDK geometric contour is a polyline sampled from the same analytic arc. Its
+    /// chords sit inside the true arc, so the comparison tolerance must include the
+    /// measured chord sagitta; a fixed IU tolerance rejects valid large-radius arcs.
+    /// </summary>
+    private static double ArcReferenceTolerance(
+        RawSegment arc,
+        IReadOnlyList<GeometricContour> references)
+    {
+        const double minimumIu = 3.0;
+        var tolerance = minimumIu;
+        if (arc.Radius <= 0)
+            return tolerance;
+
+        foreach (var contour in references)
+        {
+            for (var i = 0; i + 1 < contour.Points.Count; i++)
+            {
+                if (!TryCircleAngle(contour.Points[i], arc, out var first)
+                    || !TryCircleAngle(contour.Points[i + 1], arc, out var second))
+                    continue;
+
+                var gapDegrees = Math.Abs(PositiveModulo(second - first + 180.0, 360.0) - 180.0);
+                if (gapDegrees <= 0 || gapDegrees >= 180)
+                    continue;
+
+                var sagitta = arc.Radius * (1.0 - Math.Cos(gapDegrees * Math.PI / 360.0));
+                tolerance = Math.Max(tolerance, (sagitta * 1.25) + minimumIu);
+            }
+        }
+
+        return tolerance;
+    }
+
+    private static bool TryCircleAngle(Point2D point, RawSegment arc, out double degrees)
+    {
+        degrees = 0;
+        if (point.XIu is not int x || point.YIu is not int y || arc.Radius <= 0)
+            return false;
+
+        var dx = x - arc.Cx;
+        var dy = y - arc.Cy;
+        var distance = Math.Sqrt(((double)dx * dx) + ((double)dy * dy));
+        if (Math.Abs(distance - arc.Radius) > Math.Max(10.0, arc.Radius * 0.01))
+            return false;
+
+        degrees = Math.Atan2(dy, dx) * 180.0 / Math.PI;
+        return true;
+    }
+
+    private static bool IsPointOnPolyline(
+        Point2D point,
+        IReadOnlyList<Point2D> polyline,
+        double tolerance)
+    {
+        if (point.XIu is not int px || point.YIu is not int py)
+            return false;
+        for (var i = 0; i + 1 < polyline.Count; i++)
+        {
+            var a = polyline[i];
+            var b = polyline[i + 1];
+            if (a.XIu is not int ax || a.YIu is not int ay
+                || b.XIu is not int bx || b.YIu is not int by)
+                continue;
+            var dx = (double)bx - ax;
+            var dy = (double)by - ay;
+            var lengthSquared = (dx * dx) + (dy * dy);
+            var t = lengthSquared <= 0
+                ? 0
+                : Math.Clamp(
+                    ((((double)px - ax) * dx) + (((double)py - ay) * dy)) / lengthSquared,
+                    0,
+                    1);
+            var ex = (double)px - (ax + (t * dx));
+            var ey = (double)py - (ay + (t * dy));
+            if (Math.Sqrt((ex * ex) + (ey * ey)) <= tolerance)
+                return true;
+        }
+        return false;
+    }
+
+    private static double PositiveModulo(double value, double modulus)
+    {
+        var result = value % modulus;
+        return result < 0 ? result + modulus : result;
     }
 
     private static Point2D StartPoint(RawSegment segment)
@@ -616,7 +826,7 @@ internal static class AltiumOutlineReader
         };
     }
 
-    private sealed record GeometricContour(
+    internal sealed record GeometricContour(
         int Index,
         ContourRole Role,
         IReadOnlyList<Point2D> Points);

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using EcadMcadBridge.Core.Model;
 using EcadMcadBridge.Core.Packaging;
+using EcadMcadBridge.Core.Serialization;
 using Xunit;
 
 namespace EcadMcadBridge.Core.Tests;
@@ -92,6 +93,56 @@ public sealed class BoardModelPackageTests
         Assert.False(result.IsSuccess);
         Assert.Contains(result.Errors, diagnostic => diagnostic.Code == PackageDiagnosticCodes.InvalidMetadata);
         Assert.False(Directory.Exists(Path.Combine(scenario.Root, PackageId.ToString("D"))));
+    }
+
+    [Fact]
+    public void Writer_RejectsIncompleteBoardOutlineForBoardModel()
+    {
+        using var scenario = new Scenario();
+        var json = BoardSnapshotJson.Serialize(BoardSnapshotFixture.CreateValid());
+        var root = JsonNode.Parse(json)!.AsObject();
+        ((JsonObject)root["board"]!)["outline"]!.AsObject()["completeness"] = "incomplete";
+        var snapshot = BoardSnapshotJson.Deserialize(root.ToJsonString());
+
+        var result = scenario.Write(snapshot: snapshot);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Errors, diagnostic =>
+            diagnostic.Code == PackageDiagnosticCodes.BoardOutlineNotComplete);
+    }
+
+    [Fact]
+    public void Reader_RejectsLegacyBoardModelWithoutCompleteness()
+    {
+        using var scenario = new Scenario();
+        var written = scenario.Write();
+        Assert.True(written.IsSuccess, Describe(written.Errors));
+        var directory = written.PackageDirectory!;
+        var snapshotPath = Path.Combine(directory, PackageManifest.SnapshotFileName);
+        var root = JsonNode.Parse(File.ReadAllText(snapshotPath))!.AsObject();
+        ((JsonObject)root["board"]!)["outline"]!.AsObject().Remove("completeness");
+        File.WriteAllText(snapshotPath, root.ToJsonString());
+        var snapshotBytes = File.ReadAllBytes(snapshotPath);
+        RewriteManifest(
+            directory,
+            manifest => CloneManifest(
+                manifest,
+                manifest.Files.Select(file =>
+                    file.Path == PackageManifest.SnapshotFileName
+                        ? new PackageFileEntry
+                        {
+                            Path = file.Path,
+                            Sha256 = Sha(snapshotBytes),
+                            Size = snapshotBytes.LongLength,
+                        }
+                        : file).ToArray(),
+                manifest.Capabilities));
+
+        var read = ExchangePackageReader.Read(directory);
+
+        Assert.False(read.IsSuccess);
+        Assert.Contains(read.Errors, diagnostic =>
+            diagnostic.Code == PackageDiagnosticCodes.BoardOutlineNotComplete);
     }
 
     [Fact]
@@ -445,12 +496,13 @@ public sealed class BoardModelPackageTests
 
         public PackageWriteResult Write(
             BoardModelWriteRequest? board = null,
-            string? root = null)
+            string? root = null,
+            BoardSnapshot? snapshot = null)
         {
             board ??= new BoardModelWriteRequest { SourcePath = BoardPath };
             return ExchangePackageWriter.Write(
                 root ?? Root,
-                BoardSnapshotFixture.CreateValid(),
+                snapshot ?? BoardSnapshotFixture.CreateValid(),
                 Options(),
                 models: null,
                 board);

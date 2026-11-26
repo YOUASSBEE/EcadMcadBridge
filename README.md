@@ -10,10 +10,11 @@
 - сохранить прослеживаемость каждой передачи данных;
 - обеспечить возможность развития обмена в обе стороны без переделки архитектуры.
 
-> **Текущий этап:** `BRIDGE-000009` — Altium BoardSnapshot дополняется Tracks, Vias,
-> Regions и Texts; `ExportBoardSnapshot` формирует Exchange Package через Core Writer.
-> Требуется сохранённая плата без несохранённых изменений. Полный обмен с SOLIDWORKS
-> не реализуется.
+> **Текущий этап:** `BRIDGE-000020` — подтверждённая полнота контура платы и вырезов:
+> `outline.completeness`, геометрическая классификация Board Cutout/Clip контуров,
+> origin платы, объём по каждому телу и строгую tessellation. Capability `board-3d-model`
+> разрешён только при `complete`; старые пакеты имеют `Unknown`.
+> Board-only STEP/native `board.SLDPRT` и Top placement добавлены в `BRIDGE-000019/000018`.
 
 ## Согласованный стек
 
@@ -59,7 +60,8 @@ Altium Add-in ──► Core ◄── SOLIDWORKS Add-in (будущая фаз�
 
 - `EcadMcadBridge.Core` — домен, валидация и формат пакета; не зависит от CAD SDK.
 - `EcadMcadBridge.Altium` — ECAD Add-in; bootstrap, adapter, application, UI.
-- `EcadMcadBridge.SolidWorks` — не создаётся до отдельного ТЗ.
+- `EcadMcadBridge.SolidWorks` — backend STEP import/native SLDPRT и Top placement;
+  полноценный Add-in host не реализуется.
 - Add-in не ссылаются друг на друга.
 - Обмен идёт только через версионируемый файловый пакет Core.
 - Все линейные величины из Altium IU сохраняются парой: исходное целое IU и вычисленные мм

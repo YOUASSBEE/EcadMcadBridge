@@ -185,9 +185,10 @@ tests/
 
 ## 13. Текущий этап
 
-`BRIDGE-000018` — первый Top placed assembly. PR #13–#16 интегрированы в `source`.
-Component Model Catalog 1.1.0 хранит BodyProjection, Standoff/Overall heights и
-ModelStateSource. Top/Top Generic Embedded bodies размещаются в native `.SLDASM`
-через Core Placement Engine, save/reopen verification и cleanup `Verified`.
-Bottom, projection mismatch, Native/External, board solid и reverse sync не входят
-в этот этап (D-021/D-022).
+`BRIDGE-000020` — подтверждённая полнота контура платы и вырезов. PR #13–#18
+интегрированы в `source`; текущая ветка добавляет `outline.completeness`, origin
+платы, геометрическую классификацию Board Cutout/Clip контуров, ожидаемые объёмы
+по телам и строгую проверку tessellation в SOLIDWORKS. `board-3d-model` разрешён только
+при `complete`; старые пакеты без поля имеют `Unknown`.
+Bottom, projection mismatch, Native/External placement, полноценный Add-in host
+и reverse sync не входят в этот этап (D-021/D-022).

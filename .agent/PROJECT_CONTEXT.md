@@ -5,10 +5,10 @@
 | Проект | ECAD-MCAD Bridge |
 | Репозиторий | `https://github.com/YOUASSBEE/EcadMcadBridge` |
 | Базовая ветка | `source` |
-| Текущая ветка | `agent/BRIDGE-000018-first-placed-pcb-assembly` |
-| Статус | `BRIDGE-000018`: первый Top-прототип размещения в `.SLDASM`; PR #13–#16 интегрированы |
+| Текущая ветка | `agent/BRIDGE-000020-board-outline-completeness` |
+| Статус | `BRIDGE-000020`: полная проверка контура платы/вырезов и board-3d-model gate; PR #18/BRIDGE-000019 интегрирован |
 
-| Дата фиксации | 2026-11-25 |
+| Дата фиксации | 2026-11-26 |
 | Владелец продукта | Оператор проекта (человек) |
 
 ## 1. Назначение
@@ -58,12 +58,17 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
   (`BRIDGE-000015`);
 - первый Top-прототип размещения: Component Model Catalog 1.1.0, Core placement,
   Top/Top Generic Embedded occurrences, save/reopen transform verification
-  (`BRIDGE-000018`).
+  (`BRIDGE-000018`);
+- board substrate как отдельный asset/capability `board-3d-model`, board-only STEP,
+  native `board.SLDPRT` и board occurrence (`BRIDGE-000019`);
+- подтверждённая полнота Outer/Hole и Board Cutout: completeness-контракт,
+  геометрическая классификация region/clip contours, frame origin, per-body
+  объём по телам и строгую tessellation (`BRIDGE-000020`).
 
 Не входит в scope текущего этапа:
 
 - полноценный SOLIDWORKS Add-in, регистрация `ISwAddin` и UI;
-- Bottom, projection mismatch, Native/External placement и board solid/outline;
+- Bottom, projection mismatch, Native/External placement и обратная синхронизация;
 - ECO, обратная аннотация, синхронизация изменений;
 - установщик, CI/CD, подпись сборок, публикация расширения;
 - изменение архитектуры без отдельного согласования.
@@ -164,6 +169,15 @@ ECAD-MCAD Bridge — это интеграционный слой между э�
 
 ## 8. Текущий статус
 
+- `source` интегрировал PR #13–#18 (`BRIDGE-000018`, `BRIDGE-000019`); ветка
+  `agent/BRIDGE-000020-board-outline-completeness` готовит PR с completeness-контрактом
+  и полной геометрической проверкой board/вырезов.
+- AD26.12.2.9 на копии `board with cutout.PcbDoc`: `outlineExact=1`, 5 Board Cutout
+  regions → 3 board-shape + 2 Hole, `clipCutouts=2`, `exportedCutoutContours=2`,
+  `outline.completeness=complete`; исходный `.PcbDoc` не изменён.
+- SOLIDWORKS 2026 SP3.2: Desktop cutout `success=true`, 3 body, probes Outer/2 Hole,
+  save/reopen и cleanup `Verified`; MiniPC `success=true`, 21/21 occurrences,
+  cleanup `Verified`.
 - `source` содержит bootstrap-документацию; код добавляется ветками `task/BRIDGE-000001`
   и `agent/BRIDGE-000002-core-model` через PR.
 - Созданы `EcadMcadBridge.Core`, `EcadMcadBridge.Altium` и `EcadMcadBridge.Core.Tests`;

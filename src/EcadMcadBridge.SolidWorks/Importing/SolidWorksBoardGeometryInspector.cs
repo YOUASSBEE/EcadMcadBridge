@@ -37,7 +37,26 @@ public sealed record SolidWorksBoardGeometry(
     double ExpectedHeightMm,
     double XyBoundsResidualMm,
     double ZTopResidualMm,
+    double FrameOriginXMm,
+    double FrameOriginYMm,
+    IReadOnlyList<SolidWorksBodyMeasurement> Bodies,
     IReadOnlyList<SolidWorksBoardProbe> Probes);
+
+/// <summary>One imported solid body's measured volume and its outline-derived expectation.</summary>
+public sealed record SolidWorksBodyMeasurement(
+    int Index,
+    double MinX,
+    double MinY,
+    double MinZ,
+    double MaxX,
+    double MaxY,
+    double MaxZ,
+    double ThicknessMm,
+    double MeasuredVolumeMm3,
+    double OutlineAreaMm2,
+    double ExpectedVolumeMm3,
+    double VolumeResidualMm3,
+    int TriangleCount);
 
 public sealed record SolidWorksBoardGeometryResult(
     SolidWorksBoardGeometry? Geometry,
@@ -52,6 +71,20 @@ public sealed record SolidWorksBoardGeometryResult(
 /// Measures an imported board part and validates it against the snapshot outline. It never
 /// substitutes nominal properties for measured geometry.
 /// </summary>
+internal readonly record struct SolidWorksBodyBox(
+    double MinX,
+    double MinY,
+    double MinZ,
+    double MaxX,
+    double MaxY,
+    double MaxZ,
+    double VolumeMm3);
+
+internal readonly record struct SolidWorksBodyVolume(
+    double ThicknessMm,
+    double OutlineAreaMm2,
+    double ExpectedVolumeMm3);
+
 internal static class SolidWorksBoardGeometryInspector
 {
     private const double BoundsToleranceMm = 0.05;
@@ -74,47 +107,41 @@ internal static class SolidWorksBoardGeometryInspector
             return new SolidWorksBoardGeometryResult(null, diagnostics);
         }
 
-        var minX = double.PositiveInfinity;
-        var minY = double.PositiveInfinity;
-        var minZ = double.PositiveInfinity;
-        var maxX = double.NegativeInfinity;
-        var maxY = double.NegativeInfinity;
-        var maxZ = double.NegativeInfinity;
-        var volume = 0.0;
-        var bodyList = new List<Body2>();
-        foreach (var item in bodies)
+        var inputs = new List<(Body2 Body, SolidWorksBodyBox Box)>();
+        for (var i = 0; i < bodies.Length; i++)
         {
-            if (item is not Body2 body)
+            if (bodies[i] is not Body2 body)
             {
-                Error("SW-BRD-002", "board", "A body entry is not IBody2.", diagnostics);
+                Error("SW-BRD-002", "board.body[" + i + "]", "A body entry is not IBody2.", diagnostics);
                 continue;
             }
 
-            bodyList.Add(body);
             var box = body.GetBodyBox() as double[];
             if (box is not { Length: >= 6 })
             {
-                Error("SW-BRD-003", "board", "IBody2.GetBodyBox returned no usable box.", diagnostics);
+                Error("SW-BRD-003", "board.body[" + i + "]", "IBody2.GetBodyBox returned no usable box.", diagnostics);
                 continue;
             }
 
-            minX = Math.Min(minX, box[0] * MetresToMm);
-            minY = Math.Min(minY, box[1] * MetresToMm);
-            minZ = Math.Min(minZ, box[2] * MetresToMm);
-            maxX = Math.Max(maxX, box[3] * MetresToMm);
-            maxY = Math.Max(maxY, box[4] * MetresToMm);
-            maxZ = Math.Max(maxZ, box[5] * MetresToMm);
             var mass = body.GetMassProperties(1.0) as double[];
             if (mass is not { Length: > 3 })
             {
-                Error("SW-BRD-004", "board", "IBody2.GetMassProperties returned no usable volume.", diagnostics);
+                Error("SW-BRD-004", "board.body[" + i + "]", "IBody2.GetMassProperties returned no usable volume.", diagnostics);
                 continue;
             }
 
-            volume += mass[3] * CubicMetresToCubicMm;
+            inputs.Add((body, new SolidWorksBodyBox(
+                box[0] * MetresToMm,
+                box[1] * MetresToMm,
+                box[2] * MetresToMm,
+                box[3] * MetresToMm,
+                box[4] * MetresToMm,
+                box[5] * MetresToMm,
+                mass[3] * CubicMetresToCubicMm)));
         }
 
-        if (bodyList.Count == 0 || !double.IsFinite(volume) || volume <= 0)
+        var volume = inputs.Sum(item => item.Box.VolumeMm3);
+        if (inputs.Count == 0 || !double.IsFinite(volume) || volume <= 0)
         {
             Error("SW-BRD-004", "board", "Imported board volume is missing or not positive.", diagnostics);
             return new SolidWorksBoardGeometryResult(null, diagnostics);
@@ -136,14 +163,26 @@ internal static class SolidWorksBoardGeometryInspector
             return new SolidWorksBoardGeometryResult(null, diagnostics);
         }
 
+        var originX = snapshot.Properties.OriginX.Mm ?? 0;
+        var originY = snapshot.Properties.OriginY.Mm ?? 0;
+        var localMinX = inputs.Min(item => item.Box.MinX);
+        var localMinY = inputs.Min(item => item.Box.MinY);
+        var minZ = inputs.Min(item => item.Box.MinZ);
+        var localMaxX = inputs.Max(item => item.Box.MaxX);
+        var localMaxY = inputs.Max(item => item.Box.MaxY);
+        var maxZ = inputs.Max(item => item.Box.MaxZ);
+        var minX = localMinX + originX;
+        var minY = localMinY + originY;
+        var maxX = localMaxX + originX;
+        var maxY = localMaxY + originY;
         var expectedWidth = bounds.MaxX - bounds.MinX;
         var expectedHeight = bounds.MaxY - bounds.MinY;
         var width = maxX - minX;
         var height = maxY - minY;
         var thickness = maxZ - minZ;
         var xyResidual = Math.Max(
-            Math.Max(Math.Abs(minX), Math.Abs(minY)),
-            Math.Max(Math.Abs(maxX - expectedWidth), Math.Abs(maxY - expectedHeight)));
+            Math.Max(Math.Abs(minX - bounds.MinX), Math.Abs(minY - bounds.MinY)),
+            Math.Max(Math.Abs(maxX - bounds.MaxX), Math.Abs(maxY - bounds.MaxY)));
 
         if (!double.IsFinite(thickness) || thickness <= 0)
         {
@@ -171,32 +210,13 @@ internal static class SolidWorksBoardGeometryInspector
                 diagnostics);
         }
 
-        var outerArea = 0.0;
-        var holeArea = 0.0;
-        var outerContours = (snapshot.Outline?.Contours ?? Array.Empty<Contour>())
-            .Where(contour => contour.Role == ContourRole.Outer)
-            .ToArray();
-        var holeContours = (snapshot.Outline?.Contours ?? Array.Empty<Contour>())
-            .Where(contour => contour.Role == ContourRole.Hole)
-            .ToArray();
-        foreach (var contour in outerContours.Concat(holeContours))
-        {
-            if (IsContourClosed(contour))
-                continue;
-
-            Error(
-                "SW-BRD-018",
-                contour.Id,
-                "The board outline contour is not closed; its area and cutout probes cannot be validated.",
-                diagnostics);
-        }
-
-        foreach (var contour in outerContours)
-            outerArea += Math.Abs(PolygonArea(SampleContour(contour)));
-        foreach (var contour in holeContours)
-            holeArea += Math.Abs(PolygonArea(SampleContour(contour)));
-
-        var expectedVolume = Math.Max(0, outerArea - holeArea) * thickness;
+        var bodyVolumes = EstimateBodyVolumes(
+            inputs.Select(item => item.Box).ToArray(),
+            snapshot.Outline,
+            originX,
+            originY,
+            diagnostics);
+        var expectedVolume = bodyVolumes.Sum(item => item.ExpectedVolumeMm3);
         var volumeResidual = volume - expectedVolume;
         var volumeTolerance = Math.Max(
             VolumeAbsoluteToleranceMm3,
@@ -207,32 +227,41 @@ internal static class SolidWorksBoardGeometryInspector
                 "SW-BRD-010",
                 "board",
                 "Imported board volume " + volume.ToString("R", CultureInfo.InvariantCulture) +
-                " mm^3 does not match outline area x measured thickness " +
+                " mm^3 does not match per-body outline area x measured thickness " +
                 expectedVolume.ToString("R", CultureInfo.InvariantCulture) + " mm^3.",
                 diagnostics);
         }
 
-        var mesh = BuildMesh(bodyList, diagnostics);
+        var mesh = BuildMesh(inputs.Select(item => item.Body).ToArray(), diagnostics, out var triangleCounts);
         var probes = new List<SolidWorksBoardProbe>();
         var nominalThickness = snapshot.Properties.Thickness.Mm ?? 0;
         if (mesh is not null)
         {
             var midZ = (minZ + maxZ) / 2.0;
-            var outerPoints = outerContours.Select(SampleContour).ToArray();
+            var outerContours = (snapshot.Outline?.Contours ?? Array.Empty<Contour>())
+                .Where(contour => contour.Role == ContourRole.Outer)
+                .ToArray();
+            var holeContours = (snapshot.Outline?.Contours ?? Array.Empty<Contour>())
+                .Where(contour => contour.Role == ContourRole.Hole)
+                .ToArray();
+            var outerPoints = outerContours
+                .Select(contour => (contour.Id, Points: SampleContour(contour)))
+                .ToArray();
             var holePoints = holeContours
                 .Select(contour => (contour.Id, Points: SampleContour(contour)))
                 .ToArray();
 
             probes.AddRange(ProbeGeometry(
                 mesh,
-                bounds.MinX,
-                bounds.MinY,
+                originX,
+                originY,
                 midZ,
                 outerPoints,
                 holePoints,
                 diagnostics));
             ValidateProbes(
                 probes,
+                outerContours.Select(contour => contour.Id).ToArray(),
                 holeContours.Select(contour => contour.Id).ToArray(),
                 diagnostics);
         }
@@ -241,6 +270,20 @@ internal static class SolidWorksBoardGeometryInspector
             Error("SW-BRD-016", "board", "Board tessellation is unavailable; cutouts cannot be probed.", diagnostics);
         }
 
+        var measurements = inputs.Select((item, index) => new SolidWorksBodyMeasurement(
+            index + 1,
+            item.Box.MinX + originX,
+            item.Box.MinY + originY,
+            item.Box.MinZ,
+            item.Box.MaxX + originX,
+            item.Box.MaxY + originY,
+            item.Box.MaxZ,
+            bodyVolumes[index].ThicknessMm,
+            item.Box.VolumeMm3,
+            bodyVolumes[index].OutlineAreaMm2,
+            bodyVolumes[index].ExpectedVolumeMm3,
+            item.Box.VolumeMm3 - bodyVolumes[index].ExpectedVolumeMm3,
+            triangleCounts[index])).ToArray();
         var geometry = new SolidWorksBoardGeometry(
             bodies.Length,
             minX,
@@ -261,8 +304,68 @@ internal static class SolidWorksBoardGeometryInspector
             expectedHeight,
             xyResidual,
             zTopResidual,
+            originX,
+            originY,
+            measurements,
             probes);
         return new SolidWorksBoardGeometryResult(geometry, diagnostics);
+    }
+
+    /// <summary>
+    /// Measured body boxes bound slices of the package outline. Their own Z extent
+    /// supplies each slice thickness; no nominal thickness is imposed on a body.
+    /// </summary>
+    internal static IReadOnlyList<SolidWorksBodyVolume> EstimateBodyVolumes(
+        IReadOnlyList<SolidWorksBodyBox> bodies,
+        BoardOutline? outline,
+        double originX,
+        double originY,
+        List<SolidWorksDiagnostic> diagnostics)
+    {
+        var outerContours = (outline?.Contours ?? Array.Empty<Contour>())
+            .Where(contour => contour.Role == ContourRole.Outer)
+            .ToArray();
+        var holeContours = (outline?.Contours ?? Array.Empty<Contour>())
+            .Where(contour => contour.Role == ContourRole.Hole)
+            .ToArray();
+        foreach (var contour in outerContours.Concat(holeContours))
+        {
+            if (IsContourClosed(contour))
+                continue;
+
+            Error(
+                "SW-BRD-018",
+                contour.Id,
+                "The board outline contour is not closed; its area and cutout probes cannot be validated.",
+                diagnostics);
+        }
+
+        var result = new List<SolidWorksBodyVolume>(bodies.Count);
+        foreach (var body in bodies)
+        {
+            var minX = body.MinX + originX;
+            var minY = body.MinY + originY;
+            var maxX = body.MaxX + originX;
+            var maxY = body.MaxY + originY;
+            var area = 0.0;
+            foreach (var contour in outerContours)
+            {
+                area += Math.Abs(BoardOutlineTopology.PolygonArea(
+                    BoardOutlineTopology.ClipToBox(contour, minX, minY, maxX, maxY)));
+            }
+
+            foreach (var contour in holeContours)
+            {
+                area -= Math.Abs(BoardOutlineTopology.PolygonArea(
+                    BoardOutlineTopology.ClipToBox(contour, minX, minY, maxX, maxY)));
+            }
+
+            area = Math.Max(0, area);
+            var thickness = body.MaxZ - body.MinZ;
+            result.Add(new SolidWorksBodyVolume(thickness, area, area * thickness));
+        }
+
+        return result;
     }
 
     internal static IReadOnlyList<SolidWorksBoardProbe> ProbeGeometry(
@@ -270,27 +373,36 @@ internal static class SolidWorksBoardGeometryInspector
         double minX,
         double minY,
         double midZ,
-        IReadOnlyList<IReadOnlyList<(double X, double Y)>> outerPoints,
+        IReadOnlyList<(string Id, IReadOnlyList<(double X, double Y)> Points)> outerPoints,
         IReadOnlyList<(string Id, IReadOnlyList<(double X, double Y)> Points)> holePoints,
         List<SolidWorksDiagnostic> diagnostics)
     {
         var probes = new List<SolidWorksBoardProbe>();
-        if (TryFindSolidPoint(outerPoints, holePoints.Select(item => item.Points).ToArray(), out var solidX, out var solidY))
+        foreach (var (id, points) in outerPoints)
         {
+            Func<double, double, bool> isSolidAtProbeHeight = (candidateX, candidateY) =>
+                mesh.Contains(candidateX - minX, candidateY - minY, midZ);
+            if (!TryFindSolidPoint(
+                    new[] { points },
+                    holePoints.Select(item => item.Points).ToArray(),
+                    out var solidX,
+                    out var solidY,
+                    isSolidAtProbeHeight))
+            {
+                Error("SW-BRD-011", id, "No interior board probe point could be found at the probe height.", diagnostics);
+                continue;
+            }
+
             var localX = solidX - minX;
             var localY = solidY - minY;
             probes.Add(new SolidWorksBoardProbe(
                 "board",
-                "outer",
+                id,
                 localX,
                 localY,
                 midZ,
                 true,
                 mesh.Contains(localX, localY, midZ)));
-        }
-        else
-        {
-            Error("SW-BRD-011", "board", "No interior board probe point could be found.", diagnostics);
         }
 
         foreach (var (id, points) in holePoints)
@@ -335,9 +447,25 @@ internal static class SolidWorksBoardGeometryInspector
 
     internal static void ValidateProbes(
         IReadOnlyList<SolidWorksBoardProbe> probes,
+        IReadOnlyList<string> outerContourIds,
         IReadOnlyList<string> holeContourIds,
         List<SolidWorksDiagnostic> diagnostics)
     {
+        var materialIds = probes.Where(probe => probe.Kind == "board")
+            .Select(probe => probe.ContourId)
+            .ToArray();
+        if (materialIds.Length != outerContourIds.Count
+            || !materialIds.ToHashSet(StringComparer.Ordinal).SetEquals(outerContourIds))
+        {
+            Error(
+                "SW-BRD-019",
+                "board",
+                "Verified " + materialIds.Length.ToString(CultureInfo.InvariantCulture) +
+                " material probes; expected one per " + outerContourIds.Count.ToString(CultureInfo.InvariantCulture) +
+                " Outer contours.",
+                diagnostics);
+        }
+
         foreach (var probe in probes)
         {
             if (probe.InsideSolid == probe.ExpectedInsideSolid)
@@ -372,28 +500,35 @@ internal static class SolidWorksBoardGeometryInspector
         }
     }
 
-    private static TriangleMesh? BuildMesh(IReadOnlyList<Body2> bodies, List<SolidWorksDiagnostic> diagnostics)
+    private static TriangleMesh? BuildMesh(
+        IReadOnlyList<Body2> bodies,
+        List<SolidWorksDiagnostic> diagnostics,
+        out int[] triangleCounts)
     {
         var mesh = new TriangleMesh();
-        foreach (var body in bodies)
+        triangleCounts = new int[bodies.Count];
+        var failed = false;
+        for (var i = 0; i < bodies.Count; i++)
         {
+            var path = "board.body[" + i + "]";
             ITessellation? tessellation;
             try
             {
-                tessellation = body.GetTessellation(null) as ITessellation;
+                tessellation = bodies[i].GetTessellation(null) as ITessellation;
             }
             catch (Exception ex)
             {
-                diagnostics.Add(new SolidWorksDiagnostic(
-                    "SW-BRD-017",
-                    SolidWorksDiagnosticSeverity.Warning,
-                    "board",
-                    "IBody2.GetTessellation failed: " + ex.GetType().Name + "."));
+                Error("SW-BRD-017", path, "IBody2.GetTessellation failed: " + ex.GetType().Name + ".", diagnostics);
+                failed = true;
                 continue;
             }
 
             if (tessellation is null)
+            {
+                Error("SW-BRD-022", path, "IBody2.GetTessellation returned null.", diagnostics);
+                failed = true;
                 continue;
+            }
 
             tessellation.ImprovedQuality = true;
             tessellation.SurfacePlaneTolerance = 0.01;
@@ -403,46 +538,143 @@ internal static class SolidWorksBoardGeometryInspector
             tessellation.NeedVertexParams = false;
             tessellation.NeedVertexNormal = false;
             if (!tessellation.Tessellate())
+            {
+                Error("SW-BRD-023", path, "ITessellation.Tessellate returned false.", diagnostics);
+                failed = true;
                 continue;
+            }
 
+            var bodyMesh = new TriangleMesh();
             var vertexCount = tessellation.GetVertexCount();
-            var vertexMap = new Dictionary<int, int>();
-            for (var i = 0; i < vertexCount; i++)
-            {
-                if (tessellation.GetVertexPoint(i) is not double[] point || point.Length < 3)
-                    continue;
-                vertexMap[i] = mesh.AddVertex(
-                    point[0] * MetresToMm,
-                    point[1] * MetresToMm,
-                    point[2] * MetresToMm);
-            }
-
+            var finCount = tessellation.GetFinCount();
             var facetCount = tessellation.GetFacetCount();
-            for (var facet = 0; facet < facetCount; facet++)
+            if (!TryAddBodyMesh(
+                    i,
+                    vertexCount,
+                    index => tessellation.GetVertexPoint(index) as double[],
+                    finCount,
+                    facetCount,
+                    tessellation.GetFacetFins,
+                    tessellation.GetFinVertices,
+                    bodyMesh,
+                    diagnostics))
             {
-                var fins = AsIntArray(tessellation.GetFacetFins(facet));
-                if (fins is null)
-                    continue;
-
-                var vertices = new List<int>(3);
-                foreach (var fin in fins)
-                {
-                    var finVertices = AsIntArray(tessellation.GetFinVertices(fin));
-                    if (finVertices is null)
-                        continue;
-                    foreach (var vertex in finVertices)
-                    {
-                        if (vertexMap.TryGetValue(vertex, out var mapped) && !vertices.Contains(mapped))
-                            vertices.Add(mapped);
-                    }
-                }
-
-                if (vertices.Count == 3)
-                    mesh.AddTriangle(vertices[0], vertices[1], vertices[2]);
+                failed = true;
+                continue;
             }
+
+            triangleCounts[i] = bodyMesh.TriangleCount;
+            mesh.Append(bodyMesh);
         }
 
-        return mesh.TriangleCount > 0 ? mesh : null;
+        if (failed || mesh.TriangleCount == 0)
+        {
+            triangleCounts = new int[bodies.Count];
+            return null;
+        }
+
+        return mesh;
+    }
+
+    /// <summary>
+    /// Strict mesh ingestion: one bad vertex, fin, facet or index rejects the whole body.
+    /// Callers never receive a partial mesh.
+    /// </summary>
+    internal static bool TryAddBodyMesh(
+        int bodyIndex,
+        int vertexCount,
+        Func<int, double[]?> vertexPoint,
+        int finCount,
+        int facetCount,
+        Func<int, object?> facetFins,
+        Func<int, object?> finVertices,
+        TriangleMesh mesh,
+        List<SolidWorksDiagnostic> diagnostics)
+    {
+        var path = "board.body[" + bodyIndex + "]";
+        if (vertexCount <= 0)
+        {
+            Error("SW-BRD-024", path, "Tessellation has no vertices.", diagnostics);
+            return false;
+        }
+
+        var vertexMap = new Dictionary<int, int>();
+        for (var i = 0; i < vertexCount; i++)
+        {
+            var point = vertexPoint(i);
+            if (point is not { Length: >= 3 }
+                || !double.IsFinite(point[0]) || !double.IsFinite(point[1]) || !double.IsFinite(point[2]))
+            {
+                Error("SW-BRD-024", path, "Tessellation vertex " + i + " is missing or invalid.", diagnostics);
+                return false;
+            }
+
+            vertexMap[i] = mesh.AddVertex(
+                point[0] * MetresToMm,
+                point[1] * MetresToMm,
+                point[2] * MetresToMm);
+        }
+
+        if (finCount <= 0)
+        {
+            Error("SW-BRD-025", path, "Tessellation has no fins.", diagnostics);
+            return false;
+        }
+
+        if (facetCount <= 0)
+        {
+            Error("SW-BRD-025", path, "Tessellation has no facets.", diagnostics);
+            return false;
+        }
+
+        for (var facet = 0; facet < facetCount; facet++)
+        {
+            var fins = AsIntArray(facetFins(facet));
+            if (fins is null || fins.Length != 3)
+            {
+                Error("SW-BRD-025", path, "Tessellation facet " + facet + " does not have exactly three fins.", diagnostics);
+                return false;
+            }
+
+            var vertices = new List<int>(3);
+            foreach (var fin in fins)
+            {
+                if (fin < 0 || fin >= finCount)
+                {
+                    Error("SW-BRD-026", path, "Tessellation facet " + facet + " references unknown fin " + fin + ".", diagnostics);
+                    return false;
+                }
+
+                var points = AsIntArray(finVertices(fin));
+                if (points is null || points.Length != 2)
+                {
+                    Error("SW-BRD-025", path, "Tessellation fin " + fin + " does not have exactly two vertices.", diagnostics);
+                    return false;
+                }
+
+                foreach (var vertex in points)
+                {
+                    if (vertex < 0 || vertex >= vertexCount || !vertexMap.TryGetValue(vertex, out var mapped))
+                    {
+                        Error("SW-BRD-026", path, "Tessellation fin " + fin + " references unknown vertex " + vertex + ".", diagnostics);
+                        return false;
+                    }
+
+                    if (!vertices.Contains(mapped))
+                        vertices.Add(mapped);
+                }
+            }
+
+            if (vertices.Count != 3)
+            {
+                Error("SW-BRD-026", path, "Tessellation facet " + facet + " does not resolve to three vertices.", diagnostics);
+                return false;
+            }
+
+            mesh.AddTriangle(vertices[0], vertices[1], vertices[2]);
+        }
+
+        return mesh.TriangleCount > 0;
     }
 
     private static int[]? AsIntArray(object? value) => value switch
@@ -450,6 +682,7 @@ internal static class SolidWorksBoardGeometryInspector
         null => null,
         int single => new[] { single },
         int[] array => array,
+        IEnumerable<int> sequence => sequence.ToArray(),
         _ => null,
     };
 
@@ -457,7 +690,8 @@ internal static class SolidWorksBoardGeometryInspector
         IReadOnlyList<IReadOnlyList<(double X, double Y)>> outerContours,
         IReadOnlyList<IReadOnlyList<(double X, double Y)>> holeContours,
         out double x,
-        out double y)
+        out double y,
+        Func<double, double, bool>? accepts = null)
     {
         x = 0;
         y = 0;
@@ -478,6 +712,8 @@ internal static class SolidWorksBoardGeometryInspector
                 if (!PointInPolygon(outer, candidateX, candidateY))
                     continue;
                 if (holeContours.Any(hole => PointInPolygon(hole, candidateX, candidateY)))
+                    continue;
+                if (accepts is not null && !accepts(candidateX, candidateY))
                     continue;
 
                 x = candidateX;

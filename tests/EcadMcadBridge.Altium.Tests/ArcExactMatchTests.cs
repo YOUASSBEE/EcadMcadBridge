@@ -78,6 +78,78 @@ public sealed class ArcExactMatchTests
     }
 
     [Fact]
+    public void ArcSweep_IsInferredFromGeometricTraversal()
+    {
+        var raw = new[]
+        {
+            new AltiumOutlineReader.RawSegment(
+                TPolySegmentType.ePolySegmentArc,
+                0,
+                -1000,
+                0,
+                0,
+                1000,
+                270,
+                0),
+        };
+
+        var counterClockwise = AltiumOutlineReader.BuildOutlineSegments(
+            raw,
+            new[]
+            {
+                new AltiumOutlineReader.GeometricContour(
+                    0,
+                    ContourRole.Outer,
+                    ArcDegrees(0, 0, 1000, 270, 360, 5).ToArray()),
+            });
+        var references = new[]
+        {
+            new AltiumOutlineReader.GeometricContour(
+                0,
+                ContourRole.Outer,
+                ArcDegrees(0, 0, 1000, 270, 0, -5).ToArray()),
+        };
+
+        Assert.Equal(
+            ArcSweepDirection.CounterClockwise,
+            Assert.Single(AltiumOutlineReader.BuildOutlineSegments(raw, new[]
+            {
+                new AltiumOutlineReader.GeometricContour(
+                    0,
+                    ContourRole.Outer,
+                    ArcDegrees(0, 0, 1000, 270, 360, 5).ToArray()),
+            })).SweepDirection);
+        Assert.Equal(
+            ArcSweepDirection.Clockwise,
+            Assert.Single(AltiumOutlineReader.BuildOutlineSegments(raw, references)).SweepDirection);
+    }
+
+    [Fact]
+    public void LargeRadiusSampledArc_UsesMeasuredSagittaWithoutAcceptingCoarseReplacement()
+    {
+        const int cx = 606046232;
+        const int cy = 388861257;
+        const int radius = 5115655;
+        var start = PointOnCircle(cx, cy, radius, 112);
+        var end = PointOnCircle(cx, cy, radius, 272);
+        var centre = Point(cx, cy);
+        var loop = new[]
+        {
+            Arc(AsTuple(start), AsTuple(end), AsTuple(centre), radius, ArcSweepDirection.CounterClockwise),
+            Segment(AsTuple(end), AsTuple(centre)),
+            Segment(AsTuple(centre), AsTuple(start)),
+        };
+
+        var sampled = new List<Point2D>();
+        sampled.AddRange(ArcDegrees(cx, cy, radius, 112, 272, 5));
+        sampled.Add(centre);
+
+        Assert.True(OutlineContourMatcher.TryExactMatch(sampled, loop));
+        Assert.True(OutlineContourMatcher.MatchingTolerance(sampled, loop) > 1000);
+        Assert.False(OutlineContourMatcher.TryExactMatch(new[] { start, end, centre }, loop));
+    }
+
+    [Fact]
     public void C4_ExactMatch_HandlesTwoArcsWithDifferentSweepDirections()
     {
         var loop = new[]
@@ -117,6 +189,18 @@ public sealed class ArcExactMatchTests
     }
 
     private static Point2D Point(int x, int y) => Point2D.FromIu(x, y);
+
+    private static (int X, int Y) AsTuple(Point2D point) =>
+        (point.XIu ?? throw new InvalidOperationException("Missing IU coordinate."),
+         point.YIu ?? throw new InvalidOperationException("Missing IU coordinate."));
+
+    private static Point2D PointOnCircle(int cx, int cy, int radius, int degrees)
+    {
+        var radians = degrees * Math.PI / 180.0;
+        return Point(
+            (int)Math.Round(cx + (radius * Math.Cos(radians)), MidpointRounding.AwayFromZero),
+            (int)Math.Round(cy + (radius * Math.Sin(radians)), MidpointRounding.AwayFromZero));
+    }
 
     private static IEnumerable<Point2D> ArcDegrees(
         int centreX,

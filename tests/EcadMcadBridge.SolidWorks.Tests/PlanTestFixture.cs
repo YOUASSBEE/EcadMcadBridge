@@ -32,6 +32,7 @@ internal static class PlanTestFixture
             Outline = new BoardOutline
             {
                 Id = "outline-solidworks-test",
+                Completeness = OutlineCompleteness.Complete,
                 Contours = new[]
                 {
                     new Contour

@@ -29,6 +29,15 @@ internal sealed class TriangleMesh
         _triangles.Add((a, b, c));
     }
 
+    public void Append(TriangleMesh other)
+    {
+        var offset = _vertices.Count;
+        foreach (var vertex in other._vertices)
+            _vertices.Add(new[] { vertex[0], vertex[1], vertex[2] });
+        foreach (var triangle in other._triangles)
+            AddTriangle(triangle.A + offset, triangle.B + offset, triangle.C + offset);
+    }
+
     /// <summary>
     /// Odd/even ray parity against the closed mesh. The direction is deliberately skewed from
     /// all coordinate axes to avoid passing exactly through shared triangle edges.

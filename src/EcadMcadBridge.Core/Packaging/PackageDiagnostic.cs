@@ -45,4 +45,5 @@ public static class PackageDiagnosticCodes
     public const string UnsupportedBoardModelSchema = "EMB-PKG-028";
     public const string BoardModelCapabilityMismatch = "EMB-PKG-029";
     public const string InvalidBoardModelAsset = "EMB-PKG-030";
+    public const string BoardOutlineNotComplete = "EMB-PKG-031";
 }

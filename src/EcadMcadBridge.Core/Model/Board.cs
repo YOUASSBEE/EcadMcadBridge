@@ -62,11 +62,18 @@ public sealed class BoardProperties
     public string? Material { get; init; }
 
     public LengthValue Thickness { get; init; } = LengthValue.FromIu(null);
+
+    /// <summary>Altium board origin in source IU; board STEP geometry is relative to it.</summary>
+    public LengthValue OriginX { get; init; } = LengthValue.FromIu(null);
+
+    public LengthValue OriginY { get; init; } = LengthValue.FromIu(null);
 }
 
 public sealed class BoardOutline
 {
     public string Id { get; init; } = string.Empty;
+
+    public OutlineCompleteness Completeness { get; init; } = OutlineCompleteness.Unknown;
 
     public IReadOnlyList<Contour> Contours { get; init; } = Array.Empty<Contour>();
 }

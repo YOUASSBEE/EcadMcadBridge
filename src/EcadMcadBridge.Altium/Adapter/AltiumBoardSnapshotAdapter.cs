@@ -60,6 +60,9 @@ internal sealed class AltiumAdapterDiagnostics
     public int BoardCutoutRegions { get; set; }
     public int BoardCutoutContours { get; set; }
     public int BoardCutoutHoles { get; set; }
+    public int BoardCutoutShapeContours { get; set; }
+    public int BoardCutoutUnclassifiedContours { get; set; }
+    public HashSet<CutoutSourceKey> MatchedCutoutSources { get; } = new();
     public int ClipCutoutsCount { get; set; }
     public int ClipNewPrimsCount { get; set; }
     public int ClipInoperablePrimsCount { get; set; }
@@ -124,7 +127,9 @@ internal sealed class AltiumAdapterDiagnostics
             $"geometricContours={GeometricContourCount} geometricPoints={GeometricPointCount} " +
             $"geometricHoles={GeometricHoleCount} totalRegions={TotalRegions} " +
             $"boardCutoutRegions={BoardCutoutRegions} boardCutoutContours={BoardCutoutContours} " +
-            $"boardCutoutHoles={BoardCutoutHoles} clipCutouts={ClipCutoutsCount} " +
+            $"boardCutoutHoles={BoardCutoutHoles} boardCutoutShapes={BoardCutoutShapeContours} " +
+            $"boardCutoutUnclassified={BoardCutoutUnclassifiedContours} " +
+            $"clipCutouts={ClipCutoutsCount} " +
             $"clipNewPrims={ClipNewPrimsCount} clipInoperable={ClipInoperablePrimsCount} " +
             $"clipCutoutContours={ClipCutoutContours} clipCutoutSegments={ClipCutoutSegments} " +
             $"clipCutoutErrors={ClipCutoutErrors} clipMatchedRegions={ClipMatchedCutoutRegions} " +
@@ -229,6 +234,8 @@ internal static class AltiumBoardSnapshotAdapter
                 Id = "altium:board",
                 Name = Path.GetFileNameWithoutExtension(fileName),
                 Thickness = thickness,
+                OriginX = ReadBoardOrigin(board, xOrigin: true, warnings),
+                OriginY = ReadBoardOrigin(board, xOrigin: false, warnings),
             },
             Outline = outline,
             Layers = layers.Layers.Values.OrderBy(layer => layer.Id, StringComparer.Ordinal).ToArray(),
@@ -1115,6 +1122,24 @@ internal static class AltiumBoardSnapshotAdapter
                 return null;
             default:
                 return null;
+        }
+    }
+
+    private static LengthValue ReadBoardOrigin(
+        IPCB_Board board,
+        bool xOrigin,
+        List<string> warnings)
+    {
+        try
+        {
+            return LengthValue.FromIu(xOrigin ? board.GetState_XOrigin() : board.GetState_YOrigin());
+        }
+        catch (Exception ex)
+        {
+            warnings.Add(
+                "Board origin " + (xOrigin ? "X" : "Y") +
+                " is unavailable: " + ex.GetType().Name + ".");
+            return LengthValue.FromIu(null);
         }
     }
 

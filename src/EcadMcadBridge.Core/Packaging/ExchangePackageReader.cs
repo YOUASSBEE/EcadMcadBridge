@@ -283,6 +283,19 @@ public static class ExchangePackageReader
             diagnostics.AddRange(validation.Diagnostics.Select(ToPackageDiagnostic));
             if (!validation.IsValid)
                 return PackageReadResult.Failure(manifest, null, diagnostics);
+
+            if (boardCapability && snapshot.Outline?.Completeness != OutlineCompleteness.Complete)
+            {
+                return PackageReadResult.Failure(
+                    manifest,
+                    null,
+                    Add(
+                        diagnostics,
+                        Error(
+                            PackageDiagnosticCodes.BoardOutlineNotComplete,
+                            "board.outline.completeness",
+                            "The board-3d-model capability requires a confirmed complete board outline.")));
+            }
         }
         catch (Exception ex) when (ex is JsonException or IOException or DecoderFallbackException)
         {
