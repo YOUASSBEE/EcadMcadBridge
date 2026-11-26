@@ -8,7 +8,7 @@ created: 2026-11-26T04:00:00+03:00
 updated: 2026-11-26T11:25:00+03:00
 base: source
 branch: agent/BRIDGE-000019-board-substrate-assembly
-commit: 703717255a11e75649387287e9c833629bd97d9b
+commit: e152c91296433a827b76bd273acd2f59074f564e
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/18
 related: [BRIDGE-000019, BRIDGE-000018]
 ---
@@ -20,6 +20,8 @@ related: [BRIDGE-000019, BRIDGE-000018]
 - Base `source`: `0ed4a56d9db41e4ce79a91317be49f2920188866`.
 - Branch: `agent/BRIDGE-000019-board-substrate-assembly`.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/18, base `source`, открыт, merge не выполнялся.
+- FIX-001 commit: `e152c91296433a827b76bd273acd2f59074f564e` (execution), затем
+  отдельный docs-commit с финальным SHA в front matter.
 - Runtime: Altium Designer 26.12.2.9; SOLIDWORKS 2026 SP3.2, interop 34.3.2.3.
 
 ## 2. Подтверждённый board-only API
