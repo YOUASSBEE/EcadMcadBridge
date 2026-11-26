@@ -722,7 +722,7 @@ Placement request:
 |---|---|
 | Top component + Top BodyProjection, Generic Embedded, STEP AP214, SdkExport, PlacedBodyEffective | Supported |
 | Top compound model state + component rotation | Supported через PlacementTransformBuilder |
-| Bottom/Bottom (production), projection mismatch, Native, External, NotAcquired, Unknown | Unsupported с диагностикой; Bottom открыт только как research D-023 |
+| Bottom/Bottom (production), projection mismatch, Native, External, NotAcquired, Unknown | Unsupported с диагностикой; D-023 research, D-024 контракт калибровки, production не активирован |
 | Отсутствующая толщина/позиция/origin/state/калибровка | Unsupported, матрица не строится |
 
 SOLIDWORKS transform:
@@ -762,29 +762,34 @@ JSON содержит package ID, версии, выбранные designators,
 asset/native/SLDPRT mapping, requested/readback matrices, residuals, lifecycle и
 cleanup status.
 
-#### 6.6.1 Bottom placement research (D-023)
+#### 6.6.1 Per-footprint calibration contract (D-023/D-024)
 
-D-023 разрешает только исследование калибровки; production-конвейер §6.6
-остаётся Top-only, а SOLIDWORKS builder по-прежнему отклоняет Bottom через
-`SW-PLC-006`/`SW-PLC-007`. Core `BuildBottom` и R4-A/R4-B — fixture-level
+D-023 разрешил research, D-024 зафиксировал окончательный контракт. Production
+конвейер §6.6 остаётся Top-only; SOLIDWORKS builder по-прежнему отклоняет Bottom
+через `SW-PLC-006`/`SW-PLC-007`. Core `BuildBottom` и R4-A/R4-B — fixture-level
 доказательства, а не активированный контракт пакета.
 
-Предлагаемый контракт (требует отдельного ADR D-024 до реализации):
-
 ```text
-ComponentBodyEntry.footprintCalibration (catalog 1.2.0, package only)
+ComponentBodyEntry.footprintCalibration (catalog 1.2.0 зарезервирован, не реализован)
   key      = (footprintSourceUniqueId, bodyUniqueId, bodyOrdinal, stepAssetSha256)
-  fields   = schemaVersion, calibrationId, libraryDocumentSha256,
-             top/bottomModelOriginOffset (IU+mm), fixtureId, adVersion
+  meta     = schemaVersion="1.0.0", calibrationId, libraryDocumentSha256,
+             top/bottom offsets (IU+mm), fixtureId, adVersion, measuredAtUtc,
+             methodVersion, residual
   bottomBoard = (bottomLocal.X, -bottomLocal.Y)
-  e           = bottomBoard - topLocal
+  e           = bottomBoard - topLocal     // mm, no Z, pivot = P_board + e
+  M_base      = T(P_board + bottomBoard, BottomSurfaceZ - Standoff)
+                * Rx(180) * T(-AssetOriginLocal)
+  M           = T(P_board + e) * Rz(theta) * T(-P_board - e) * M_base
 ```
 
-Калибровка проверяется по SHA STEP-ассета и footprint/body id; расхождение,
-отсутствие или несовместимость даёт Unsupported без матрицы. Значение
-`e=+3.371315 mm` из R4-A относится только к `BRIDGE_ROT_3D` и не является
-production-константой. Projection mismatch и compound Bottom остаются вне
-этого research-контракта.
+`theta` — quarter turn `{0,+90,180,-90}`; Core проверяет rigidity/determinant `+1`,
+SOLIDWORKS readback — `≤ 0.001 mm` / `≤ 1e-8`. Любое расхождение ключа, SHA STEP,
+`libraryDocumentSha256`, `schemaVersion`, `calibrationId`, несколько подходящих
+записей или неоднозначный body даёт Unsupported без матрицы. Catalog 1.2.0 не
+выписывается текущим writer; пакеты 1.0.0/1.1.0 читаются без калибровки.
+`e=+3.371315…316 mm` из R4-A — fixture-only, не production-константа.
+Projection mismatch и compound Bottom остаются Unsupported. Полный контракт,
+fail-closed условия и критерии валидации — в D-024.
 
 ### 6.7 Board substrate export and assembly (BRIDGE-000019)
 

@@ -585,8 +585,9 @@ Core `PlacementTransformBuilder`. Нужен первый production-oriented ru
 - Получен первый реальный Top assembly (20 occurrences, R3 U101–U104 4/4).
 - Bottom/Native/External, board solid и reverse sync остаются следующими этапами.
 - Add-in registration, Registry, installer и UI не затрагиваются.
-- D-023 открывает отдельный research-этап Bottom, но не меняет production-поведение
-  D-022: SOLIDWORKS продолжает отклонять Bottom до отдельного ADR калибровки.
+- D-023/D-024 открывают отдельный research-этап и фиксируют контракт калибровки,
+  но не меняют production-поведение D-022: SOLIDWORKS продолжает отклонять Bottom
+  до отдельного PR по реализации и CAD-подтверждения.
 
 ---
 
@@ -648,6 +649,196 @@ fixture-значения вручную.
   с Top/Bottom occurrences, save/reopen и проверкой transform readback.
 - Затронутые документы в этом PR: `AGENTS.md`, `PROJECT_CONTEXT.md`,
   `ARCHITECTURE.md`, `DEVELOPMENT_RULES.md`, настоящий `DECISIONS.md`.
+- D-024 принят в `BRIDGE-000022`: исследовательский проект заменён окончательным
+  контрактом; production-поведение D-022 не изменено.
+
+---
+
+## D-024 — Per-footprint calibration contract for Bottom placement
+
+**Статус:** Accepted (contract only; production activation deferred).
+
+**Контекст.** D-023 зафиксировал Bottom как отдельный research-этап и наметил
+проект калибровки. R4-A/R4-B дали feature-level доказательства только для
+`BRIDGE_ROT_3D`, а `SourceUniqueId` для новых компонентов после `LoadFromLibrary`
+может быть `null` (C-112, V-07). Необходим однозначный, проверяемый контракт,
+который отделяет исследовательский результат от будущей production-реализации.
+
+**Решение.**
+
+### 1. Идентичность калибровки
+
+Обязательный ключ записи — упорядоченный кортеж:
+
+```text
+(footprintSourceUniqueId, bodyUniqueId, bodyOrdinal, stepAssetSha256)
+```
+
+| Поле | Назначение | Отсутствие | Уникальность / дублирование | Устаревание |
+|---|---|---|---|---|
+| `footprintSourceUniqueId` | Непрозрачный стабильный ID исходного footprint из библиотеки; не designator и не instance ID | Не допускается: Unsupported | Один footprint может иметь несколько body; полный ключ должен быть уникален. Любая вторая запись с тем же полным ключом — `AmbiguousFootprintCalibration`, даже если содержимое совпадает | Изменение ID или `libraryDocumentSha256`; стабильность должна быть подтверждена (V-07) |
+| `bodyUniqueId` | Стабильный ID библиотечного 3D body; не выводится из designator, имени модели, ordinal или пути asset | Не допускается; если подтверждённый SDK не даёт стабильный ID, калибровка не создаётся | Один `bodyUniqueId` + `bodyOrdinal` внутри footprint описывает ровно одно body; дублирование — fail-closed | Замена/пересоздание body, изменение его геометрии или источника |
+| `bodyOrdinal` | Локальный порядок body внутри `ComponentModelEntry`, уже присутствует в catalog 1.1.0 | Не допускается; отрицательное значение некорректно | Уникален внутри компонента; повтор уже отвергается валидатором catalog. Повтор в калибровках — fail-closed | Изменение нумерации/порядка body в footprint |
+| `stepAssetSha256` | SHA-256 точных байт STEP AP214 asset в пакете, нижний hex, 64 символа | Не допускается | Должен совпадать с checksum пакета и catalog asset; дублирование полного ключа — fail-closed | Любой реэкспорт/изменение байт STEP, даже без изменения видимой геометрии |
+
+Дополнительные обязательные поля записи (не часть ключа, но проверяемые):
+`schemaVersion`, `calibrationId`, `libraryDocumentSha256`, Top/Bottom offsets как
+пары IU/mm, provenance (`fixtureId`, `adVersion`, `measuredAtUtc`, `methodVersion`)
+и измеренный residual. Калибровка относится к конкретной геометрии и конкретному
+STEP asset, а не к имени компонента/модели.
+
+Полный обязательный набор полей записи `schemaVersion = "1.0.0"`:
+
+```text
+schemaVersion, calibrationId,
+footprintSourceUniqueId, bodyUniqueId, bodyOrdinal, libraryDocumentSha256,
+stepAssetSha256,
+topModelOriginOffsetIuX, topModelOriginOffsetIuY,
+topModelOriginOffsetMmX, topModelOriginOffsetMmY,
+bottomModelOriginOffsetLocalIuX, bottomModelOriginOffsetLocalIuY,
+bottomModelOriginOffsetLocalMmX, bottomModelOriginOffsetLocalMmY,
+bottomModelOriginOffsetBoardIuX, bottomModelOriginOffsetBoardIuY,
+bottomModelOriginOffsetBoardMmX, bottomModelOriginOffsetBoardMmY,
+representation, sourceOrigin, assetAcquisition, assetFormat, modelStateSource,
+fixtureId, adVersion, measuredAtUtc, methodVersion, residualMm
+```
+
+`representation`, `sourceOrigin`, `assetAcquisition`, `assetFormat` и
+`modelStateSource` повторяют значения catalog и обязаны совпадать с ними;
+`measuredAtUtc` — ISO-8601 UTC `yyyy-MM-ddTHH:mm:ssZ`; `residualMm` — измеренный
+feature residual в мм. Производные `e`/`bottomPivotOffsetMm` не являются
+авторитетными полями и в `calibrationId` не входят; если они присутствуют как
+кэш, они обязаны совпадать с вычисленным `e` в пределах `1e-9 mm`, иначе fail-closed.
+
+`calibrationId` — нижний hex SHA-256 от UTF-8 байт канонического JSON-объекта,
+содержащего все перечисленные поля, кроме самого `calibrationId`, в указанном
+выше порядке. Канонический вид: без незначащих пробелов, имена полей в указанном
+порядке, строки экранируются по JSON, целые — десятичные без разделителей,
+мм-числа — invariant culture с фиксированными 9 знаками после точки (`F9`),
+значения enum — точные имена catalog. Любое несовпадение — fail-closed.
+
+### 2. Математический контракт
+
+- **Система координат:** board-local right-handed, мм; XY origin — подтверждённый
+  origin контура Outer (BRIDGE-000020); Z: `TopSurfaceZ=+T/2`,
+  `BottomSurfaceZ=−T/2`, где `T` — только `BoardSnapshot.Properties.Thickness.Mm`.
+- **Единицы:** каждый offset хранится парой целых IU и вычисленных мм;
+  1 IU = 0.00000254 mm; пары обязаны проходить существующую проверку
+  `LengthValue.HasConsistentMm`; в матрицу идут только конечные мм-значения.
+- **Top offset** `d_top` — локальный model-origin offset того же footprint/body,
+  измеренный на Top reference:
+  `d_top = Rz(−θ_top) · (ModelOrigin_top.XY − ComponentPosition_top.XY)`.
+- **Bottom local offset** `d_bottom_local` — тот же нормализованный offset после
+  flip: `Rz(−θ_bottom) · (ModelOrigin_bottom.XY − ComponentPosition_bottom.XY)`.
+- **Bottom board offset:** `d_bottom_board = (d_bottom_local.X, −d_bottom_local.Y)`;
+  знак Y меняется при переходе из local bottom frame в board frame.
+- **Pivot offset:** `e = d_bottom_board − d_top`. `e` — двумерный вектор, `e.z=0`,
+  измеряется в мм в board frame. Положительный `e.x` в R4-A означает, что pivot
+  смещён в +X от component position; знак не инвертируется. `e` не является asset
+  origin, standoff или универсальной константой.
+- **Порядок применения** (Bottom/Bottom, продолжение формулы BRIDGE-000018):
+
+```text
+M_base = T(P_board + d_bottom_board, BottomSurfaceZ − StandoffHeight)
+         · Rx(180)
+         · T(−AssetOriginLocal)
+M       = T(P_board + e) · Rz(θ) · T(−P_board − e) · M_base
+```
+
+  где `θ = ComponentRotationDeg` из `{0, +90, 180, −90}`, детерминант `+1`.
+  `Rx(180)` задаёт Bottom projection; `Rz(+θ)` применяется в board frame, а не
+  как `Rx(180)·Rz·Rx(−180)`. Формула R4-A `T(Pi+e)·Rz(θ)·T(−P0−e)·M0` — частный
+  случай этой формулы для одного footprint/asset. Core-формула BRIDGE-000017 уже
+  соответствует этому порядку; scale, centering и значения по умолчанию для `dz`
+  запрещены.
+- **Допуски:** finite + rigid inverse + determinant `+1` с существующим Core
+  допуском `1e-9`; SOLIDWORKS readback translation `≤ 0.001 mm`, rotation basis
+  `≤ 1e-8`. Landmark/feature residual при независимой проверке `e` должен быть
+  `≤ 0.001 mm`. R4-A residual `≈0.000024 mm` — только справочный fixture результат,
+  а не новый порог и не доказательство для других footprint.
+
+**Связь с R4-A/R4-B и недоказанные предположения.** Для фикстуры
+`BRIDGE_ROT_3D` R4-B измерил `d_top=(-4.314346,+1.740448) mm` и
+`d_bottom_local=(-0.943031,-1.740448) mm`; после смены знака Y получится
+`d_bottom_board=(-0.943031,+1.740448) mm` и `e=(+3.371315,0) mm`. В отчёте
+BRIDGE-000016 записан только `e.x`, так как на этом footprint `e.y=0`; это не
+общее правило. Ненулевое `e.y` для произвольного footprint остаётся
+недоказанным и должно измеряться, а не полагаться равным нулю. Дополнительно
+недоказаны: применимость знака Y к любым библиотечным body; отсутствие
+скрытого Z-offset в model origin; соответствие `Thickness` из пакета STEP-геометрии
+(R4-B: `2.00800208 mm` в BoardProperties против `2.02800204 mm` в STEP);
+стабильность `footprintSourceUniqueId`/`bodyUniqueId` после `LoadFromLibrary`
+(V-07); распространение правила на compound state и projection mismatch. Эти
+пункты входят в критерии будущей валидации и не ослабляют fail-closed правил.
+
+### 3. Применимость и fail-closed
+
+Калибровка применима только при полном совпадении всех четырёх полей ключа,
+совпадении `libraryDocumentSha256`, поддерживаемом `schemaVersion` и согласованном
+`calibrationId`. Дополнительно требуются `SdkExport`, `Generic`, `Embedded`,
+`PlacedBodyEffective`, `BodyProjection=Bottom`, `Component.Side=Bottom`, нулевой
+model state, `ModelRotationDegRaw=0` и quarter-turn rotation. Fail-closed без
+матрицы при: отсутствии калибровки; нескольких подходящих записях; несовпадении
+любого идентификатора; изменении STEP SHA-256; изменении footprint/body;
+некорректных/неконсистентных числовых значениях; неизвестной версии схемы;
+невозможности однозначно определить body. Запрещены zero/identity/reflection
+fallback, «первая подходящая запись» и ослабление допусков.
+
+Повторной калибровки требуют: изменение любого поля ключа; смена
+`libraryDocumentSha256`; замена/пересоздание body; изменение representation,
+source origin или state source; реэкспорт STEP; изменение методики измерения
+или версии AD, влияющей на экспорт (требуется либо повторное измерение, либо
+доказательство эквивалентности при том же asset SHA). Изменение thickness или
+standoff не меняет XY-калибровку, но значения обязаны читаться из пакета, а не
+запекаться в записи.
+
+### 4. Версионирование
+
+- Catalog `1.2.0` **резервируется** этим ADR, но не реализуется: production
+  writer остаётся на `1.1.0`, API ledger и Exchange Package не меняются.
+- Версия записи калибровки — `schemaVersion = "1.0.0"`. Читатель будущей версии
+  `1.2.0` обязан принимать записи `1.0.0`; writer будущей реализации выпускает
+  только `1.0.0`.
+- Пакеты `1.0.0`/`1.1.0` без `footprintCalibration` остаются читаемыми;
+  Bottom остаётся Unsupported из-за отсутствия калибровки.
+- Неизвестная будущая версия catalog или `schemaVersion` даёт Unsupported без
+  молчаливого downgrade/парсинга.
+- Миграции с неверсионированных исследовательских записей D-023 нет: такие
+  записи недействительны и должны быть измерены заново. Откат к `1.1.0` возможен
+  только как отказ от калибровки, а не как частичное применение полей.
+
+### 5. Критерии будущей production-реализации
+
+До активации Bottom требуются: не менее трёх калибровочных записей для минимум
+двух разных footprint/body, включая хотя бы один ненулевой rotation; измеренные
+Top/Bottom offsets и независимая проверка знака и величины `e` по landmark-точкам
+полного STEP (не переиспользующая ту же формулу); реальный Bottom STEP package
+из AD26 с AP214/`SdkExport`/`PlacedBodyEffective` и неизменённым SHA исходного
+`.PcbDoc`; `.SLDASM` с Top и Bottom occurrences и повторным использованием
+native `.SLDPRT`; save/reopen, count/mapping, transform readback, board fixed,
+`CleanupStatus=Verified`; отсутствие регрессии Top (текущие 20/20 и 4/4 smoke
+и полный test suite); подтверждённые diagnostic tests для всех fail-closed
+условий. CAD smoke в рамках BRIDGE-000022 не выполняется.
+
+**Альтернативы.**
+
+- Оставить исследовательский проект без версии: отклонено — не обеспечивает
+  однозначности и проверяемости.
+- Использовать `e=+3.371315…316 mm` как универсальную константу: отклонено —
+  значение относится только к `BRIDGE_ROT_3D`.
+- Принять несколько подходящих записей по первой из них: отклонено —
+  неоднозначность недопустима.
+
+**Последствия.**
+
+- D-024 заменяет research-проект D-023 окончательным контрактом, но не меняет
+  production-поведение: SOLIDWORKS продолжает отклонять Bottom.
+- Production catalog/API ledger/Exchange Package/transform engine в этом ADR
+  не изменяются; реализация потребует отдельного PR с тестами и CAD-доказательствами.
+- V-07 (стабильность `SourceUniqueId`) остаётся открытым вопросом и входит в
+  критерии будущей валидации, а не является основанием для ослабления ключа.
+- Затронутые документы: `DECISIONS.md`, `ARCHITECTURE.md`,
+  `DEVELOPMENT_RULES.md`, `PROJECT_CONTEXT.md`, `AGENTS.md`, `README.md`.
 
 ---
 
@@ -678,7 +869,7 @@ fixture-значения вручную.
 | O-007 | Стабильность ID | V-07, D-010 | Эксперимент |
 | O-008 | Вложения runtime-пакета | D-005, D-016 | Определить формат вложений вне Git |
 | O-009 | Target Framework SOLIDWORKS Add-in | D-004, D-014 | Отдельное ТЗ/ADR MCAD-фазы |
-| O-010 | Per-footprint calibration для production Bottom | D-023, BRIDGE-000021 | Принять D-024: хранилище/ключ/проверку применимости `e`, затем CAD smoke на реальной плате |
+| O-010 | ~~Per-footprint calibration для production Bottom~~ | D-023, D-024, BRIDGE-000021/022 | Закрыт: контракт принят D-024; активация production требует evidence gate из D-024 §5 |
 
 ## Процесс изменения решения
 
