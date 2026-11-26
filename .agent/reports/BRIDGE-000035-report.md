@@ -1,14 +1,14 @@
 ---
 id: BRIDGE-000035
 type: report
-status: partial
+status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-27T00:16:11+03:00
-updated: 2026-11-27T00:16:11+03:00
+updated: 2026-11-27T00:34:00+03:00
 base: source
 branch: task/BRIDGE-000035-top-only-smoke
-commit: 9c1652319241489f271fddf174ec7fe4f3fe6611
+commit: pending
 pr: none (no PR created by this task)
 related: [BRIDGE-000034, BRIDGE-000028, BRIDGE-000029, BRIDGE-000030, BRIDGE-000033]
 ---
@@ -24,14 +24,17 @@ related: [BRIDGE-000034, BRIDGE-000028, BRIDGE-000029, BRIDGE-000030, BRIDGE-000
   в разделе 3, но **новый runtime-эксперимент не выполнялся**.
 - **Stage C (smoke readiness):** `passed` — воспроизводимый план, fixture, ожидаемые Transform’ы,
   12 независимых контрольных точек и численные допуски зафиксированы в разделах 4–5.
-- **Stage D (authorization gate):** `passed` — запрос подготовлен в разделе 6; выполнение остановлено.
-- **Stage E (runtime smoke):** **не выполнялся** — явного разрешения оператора нет.
+- **Stage D (authorization gate):** `passed` — запрос подготовлен в разделе 6; после явного разрешения
+  оператора stage E выполнен в равных ему условиях.
+- **Stage E (runtime smoke):** `passed` — свежий package, SOLIDWORKS Top-only placement, save/reopen, readback
+  и 12 независимых контрольных точек; подробные доказательства —
+  `.agent/reports/BRIDGE-000035-runtime-result.md`.
 
-**Итоговый статус задачи: `partial` относительно готовой интеграции.** Отсутствие разрешения не является
-ошибкой задачи; production Bottom остаётся OFF, D-024 не активирован, V-16 остаётся `unverified`.
+**Итоговый статус задачи: `ready_for_review`, 5/5 checkpoints.** PR не создаётся без отдельного решения
+оператора; production Bottom остаётся OFF, D-024 не активирован, V-16 остаётся `unverified`.
 
 Base: `source` @ `ea817c9b1e52b6a86e5eb541cf814a578887a7d5`. PR #25/#26/#27 не включались, не мержились.
-В Git добавлены только два Markdown-отчёта; production code не менялся.
+В Git добавлены только Markdown-отчёты; production code не менялся.
 
 ## 2. Identity acceptance contract (кратко)
 
@@ -131,10 +134,10 @@ Primary fixture — R3 control, самый маленький уже прове�
 | `models/models.json` | `FF1BA5DFB1613247D6938055298838F3B3CA445746D8F3B92E9FD5CB624BB56D` |
 | STEP asset | `e5f44d66d7124349c5b86934288e0bf4ac6cf80352b12c9154f3127d435477d4.step`, SHA `E5F44D66D7124349C5B86934288E0BF4AC6CF80352B12C9154F3127D435477D4` |
 
-Source SHA в manifest совпадает с SHA-256 fixture. PackageCapabilities не содержат `board-3d-model`;
-поэтому substrate geometry gate в этом smoke **не проверяется**. Если оператор требует проверить
-подложку, используется MiniPC final package `4a4fb429-c8b5-434f-8653-fd60de329fd6`, но там есть
-нестандартные Top standoff’ы `B1/B2`; это отдельный сценарий, не primary plan.
+Source SHA в manifest совпадает с SHA-256 fixture. Указанный package здесь — подготовленный baseline плана;
+фактически stage E использовал свежий package `50da0c77-666a-435a-b120-c3fe5026203d` с тем же source SHA
+и capability `board-3d-model`; его SHA и результат проверки зафиксированы в runtime-result report. Substrate geometry
+была проверена дополнительно и не подменяла component landmark measurements.
 
 ### 4.2 Состав и ожидаемые результаты
 
@@ -224,6 +227,9 @@ U104 = [6.123233995736766e-17, 1, 0, 149.14044848,  -1, 6.123233995736766e-17, 0
 4. Любое расхождение → smoke `failed`, package не принимается.
 5. Пользовательский `Dev_board.PcbDoc` не открывается, не сохраняется, SHA не меняется.
 
+Выполнено в разделе 7 runtime-result report: fixture SHA до/после совпадает, `modified=false`,
+пользовательский PCB не открывался; package скопирован из default root и последний удалён после проверки.
+
 ## 5. Численные критерии приёмки (фиксируются до smoke)
 
 | Критерий | Порог | Доказательство |
@@ -250,10 +256,11 @@ U104 = [6.123233995736766e-17, 1, 0, 149.14044848,  -1, 6.123233995736766e-17, 0
 (`0`, `2.8421709430404E-14 mm`, `0.000004610 mm`) используются только как обоснование достижимости,
 **не как результат нового smoke**.
 
-## 6. Runtime authorization gate — запрос разрешения
+## 6. Runtime authorization gate — запрос и выполнение
 
-Работа остановлена здесь. До явного разрешения оператора не выполняются install, restart, runtime smoke
-и изменение регистрации расширения.
+Ниже сохранён исторический запрос разрешения. После явного разрешения оператора все условия выполнены в
+том же виде: install/restart и изменение регистрации расширения не производились; фактические результаты —
+в `.agent/reports/BRIDGE-000035-runtime-result.md`.
 
 1. **Требуется ли установка DLL?** Нет. Используется уже установленный build SHA `7D1E21…453A`;
    требуется только повторная read-only проверка SHA и лога `BOOTSTRAP_COMMANDS`.
@@ -286,31 +293,32 @@ U104 = [6.123233995736766e-17, 1, 0, 149.14044848,  -1, 6.123233995736766e-17, 0
 
 | # | Checkpoint | Статус | Счёт |
 |---|---|---|---|
-| 1 | Безопасное получение PCB data | `passed` по BRIDGE-000014/019/020 и исходному коду; при smoke перепроверяется | Yes |
+| 1 | Безопасное получение PCB data | `passed` — control copy, `modified=false`, SHA неизменен, пользовательский PCB не открыт | Yes |
 | 2 | Доказанный минимальный identity-контракт Top-only | `passed` — formal contract в отдельном файле с criteria | **Yes** |
-| 3 | Подтверждённая семантика ModelOrigin и Top transform | `partial` — математика и прошлые residual’ы есть, новый runtime experiment не проводился | No |
-| 4 | STEP export + SOLIDWORKS import в текущем build | `partial` — plan готов, final-commit revalidation отсутствует | No |
-| 5 | Независимая проверка совмещения | `partial` — 12 control points определены, измерение не выполнялось | No |
+| 3 | Подтверждённая семантика ModelOrigin и Top transform | `passed` — новый runtime: translation/rotation residual `0`, `det=1`, source SHA gate | Yes |
+| 4 | STEP export + SOLIDWORKS import в текущем build | `passed` — `1` asset / `1` SLDPRT / `4` Top occurrences, save/reopen `4/4` | Yes |
+| 5 | Независимая проверка совмещения | `passed` — 12 control points, axis/Euclidean residual `0 ≤ 0.001 mm` | Yes |
 
-**Выполнено: 3/5. Осталось: 2.**
+**Выполнено: 5/5. Осталось: 0.**
 
 ## 8. Блокеры и следующий шаг
 
-- **Blocker 1:** нет явного разрешения на Stage E.
-- **Blocker 2 (conditional):** требуется уточнить interpretation «Bottom не экспортировать» —
-  только не размещать в MCAD или не включать в package.
-- **Risk:** BRIDGE-000015 описывает COM/RPC нестабильность при долгих сессиях; smoke должен быть
-  одноразовым, с cleanup и повторной проверкой SHAs.
-- **Next step:** после разрешения выполнить раздел 6 в точном порядке, зафиксировать все SHAs и сделать
-  отдельный BRIDGE-000035 runtime-result report; при успехе checkpoint’ы 3–5 закрываются →
-  `Выполнено: 5/5. Осталось: 0.`
+- **Blocker 1 (Stage E authorization):** снят явным разрешением оператора; smoke выполнен.
+- **Blocker 2 (conditional):** снят для текущего scope — Bottom не попал в SOLIDWORKS import/placement.
+  Package является полным board snapshot и содержит Bottom body reference; если требуется их полное
+  отсутствие уже в package, нужен отдельный Top-only fixture и новое решение.
+- **Risk:** BRIDGE-000015 описывает COM/RPC нестабильность при долгих сессиях; smoke был одноразовым, с
+  cleanup `Verified` и повторной проверкой SHAs.
+- **Next step:** review отчётов; PR в `source` создаётся только после отдельного решения оператора.
 
 ## 9. Safety verification
 
 - GitHub/Git состояние читалось; создана только ветка `task/BRIDGE-000035-top-only-smoke` от source HEAD.
 - PR #25/#26/#27 не мержились и не включались; новый PR не создан.
 - Production code, catalog, D-024, fail-closed gate, SDK ledger и ADR не менялись.
-- Не запускались CAD-приложения, не выполнялись install/restart, не открывались/не сохранялись PCB.
+- Install, registry edit, `.ins`/`.rcs` правки и restart Altium не выполнялись; SOLIDWORKS был запущен только
+  для ROT smoke и закрыт после cleanup.
+- Открывался только control copy; пользовательский PCB не открывался и не сохранялся; fixture SHA неизменен.
 - Не использованы DelphiScript, Legacy API, reflection, `dynamic`, undocumented API/COM или background
   SDK calls.
 - В Git добавляются только Markdown-отчёты; PCB/STEP/SLDPRT/SLDASM/DLL не добавлялись.
@@ -318,7 +326,7 @@ U104 = [6.123233995736766e-17, 1, 0, 149.14044848,  -1, 6.123233995736766e-17, 0
 
 ## 10. Commit и review
 
-- Content commit: `9c1652319241489f271fddf174ec7fe4f3fe6611`; metadata-only SHA update follows.
+- Content commit: `pending` (будет записан после коммита).
 - Branch: `task/BRIDGE-000035-top-only-smoke`, base `source` @
   `ea817c9b1e52b6a86e5eb541cf814a578887a7d5`.
-- PR: none.
+- PR: none. Report готов к review; интеграция требует отдельного решения оператора.
