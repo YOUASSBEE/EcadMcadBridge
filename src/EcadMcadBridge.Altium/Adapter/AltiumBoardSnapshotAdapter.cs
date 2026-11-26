@@ -15,7 +15,41 @@ internal sealed record AltiumBoardSnapshotResult(
     IReadOnlyList<AltiumRegionInfo> Regions,
     AltiumAdapterDiagnostics Diagnostics);
 
-internal sealed record AltiumRegionContour(bool IsHole, IReadOnlyList<Point2D> Points);
+internal sealed record AltiumRegionContour(
+    bool IsHole,
+    IReadOnlyList<Point2D> Points,
+    string Source = "unknown",
+    int SourceIndex = -1,
+    int ContourIndex = -1);
+
+internal readonly record struct RegionContourProbe(bool IsHole, IReadOnlyList<Point2D> Points);
+
+internal readonly record struct SkippedRegionContour(
+    int Index,
+    bool? IsHole,
+    IReadOnlyList<Point2D> Points);
+
+internal enum AltiumReadIssueKind
+{
+    GeometricPolygonUnavailable,
+    GeometricContourReadError,
+    AnalyticSegmentReadError,
+    RegionContourReadError,
+    RegionContourSkipped,
+    RegionContourRecovered,
+    RegionContourRecoveryDuplicate,
+    RegionContourUnproven,
+    BoardCutoutRegionEmpty,
+    ClipResultUnavailable,
+    ClipShapesUnavailable,
+    ClipSegmentReadError,
+}
+
+internal sealed record AltiumReadIssue(
+    AltiumReadIssueKind Kind,
+    string Source,
+    int Index,
+    string Reason);
 
 internal sealed record AltiumRegionInfo(
     int Index,
@@ -56,19 +90,39 @@ internal sealed class AltiumAdapterDiagnostics
     public int GeometricContourCount { get; set; }
     public int GeometricPointCount { get; set; }
     public int GeometricHoleCount { get; set; }
+    public List<AltiumReadIssue> ReadIssues { get; } = new();
     public int TotalRegions { get; set; }
     public int BoardCutoutRegions { get; set; }
     public int BoardCutoutContours { get; set; }
     public int BoardCutoutHoles { get; set; }
+    public int BoardCutoutEmptyRegions { get; set; }
+    public int BoardCutoutContourReadErrors { get; set; }
+    public int RegionContourRecoveredCount { get; set; }
+    public int RegionContourRecoveryDuplicateCount { get; set; }
+    public int BoardCutoutUnprovenSkippedContours { get; set; }
+    public int BoardCutoutShapeContours { get; set; }
+    public int BoardCutoutShapeFragments { get; set; }
+    public int BoardCutoutNestedIslandContours { get; set; }
+    public int BoardCutoutUnrelatedContours { get; set; }
+    public int BoardCutoutUnsupportedContours { get; set; }
+    public HashSet<CutoutSourceKey> MatchedCutoutSources { get; } = new();
+    public HashSet<CutoutSourceKey> DuplicateCutoutSources { get; } = new();
+    public HashSet<CutoutSourceKey> UnresolvedCutoutSources { get; } = new();
     public int ClipCutoutsCount { get; set; }
     public int ClipNewPrimsCount { get; set; }
     public int ClipInoperablePrimsCount { get; set; }
+    public int ClipResultUnavailableCount { get; set; }
+    public int ClipShapesUnavailableCount { get; set; }
     public int ClipCutoutContours { get; set; }
     public int ClipCutoutSegments { get; set; }
     public int ClipCutoutErrors { get; set; }
     public int ClipMatchedCutoutRegions { get; set; }
     public int ClipUnmatchedCutoutRegions { get; set; }
     public int ClipAmbiguousCutoutRegions { get; set; }
+    public int ClipReusedSources { get; set; }
+    public int UnresolvedClipLoops { get; set; }
+    public int DuplicateClipLoops { get; set; }
+    public int PartialClipMatches { get; set; }
     public int DuplicateCutoutContours { get; set; }
     public int ExportedCutoutContours { get; set; }
     public Dictionary<TRegionKind, int> RegionsByKind { get; } = new();
@@ -111,6 +165,9 @@ internal sealed class AltiumAdapterDiagnostics
         return count;
     }
 
+    public void AddIssue(AltiumReadIssueKind kind, string source, int index, string reason) =>
+        ReadIssues.Add(new AltiumReadIssue(kind, source, index, reason));
+
     public string Summary()
     {
         var shapes = string.Join(
@@ -122,14 +179,30 @@ internal sealed class AltiumAdapterDiagnostics
             $"outlineUnmatchedLoops={UnmatchedAnalyticLoops} " +
             $"outlineAmbiguous={AmbiguousOutlineMatches} outlinePartial={PartialOutlineMatches} " +
             $"geometricContours={GeometricContourCount} geometricPoints={GeometricPointCount} " +
-            $"geometricHoles={GeometricHoleCount} totalRegions={TotalRegions} " +
+            $"geometricHoles={GeometricHoleCount} readIssues={ReadIssues.Count} " +
+            $"totalRegions={TotalRegions} " +
             $"boardCutoutRegions={BoardCutoutRegions} boardCutoutContours={BoardCutoutContours} " +
-            $"boardCutoutHoles={BoardCutoutHoles} clipCutouts={ClipCutoutsCount} " +
+            $"boardCutoutHoles={BoardCutoutHoles} boardCutoutEmpty={BoardCutoutEmptyRegions} " +
+            $"boardCutoutErrors={BoardCutoutContourReadErrors} " +
+            $"regionContourRecovered={RegionContourRecoveredCount} " +
+            $"regionContourRecoveryDuplicates={RegionContourRecoveryDuplicateCount} " +
+            $"boardCutoutUnprovenSkipped={BoardCutoutUnprovenSkippedContours} " +
+            $"boardCutoutShapes={BoardCutoutShapeContours} " +
+            $"boardCutoutShapeFragments={BoardCutoutShapeFragments} " +
+            $"boardCutoutNestedIslands={BoardCutoutNestedIslandContours} " +
+            $"boardCutoutUnrelated={BoardCutoutUnrelatedContours} " +
+            $"boardCutoutUnsupported={BoardCutoutUnsupportedContours} " +
+            $"unresolvedSources={UnresolvedCutoutSources.Count} " +
+            $"clipCutouts={ClipCutoutsCount} " +
             $"clipNewPrims={ClipNewPrimsCount} clipInoperable={ClipInoperablePrimsCount} " +
+            $"clipResultUnavailable={ClipResultUnavailableCount} " +
+            $"clipShapesUnavailable={ClipShapesUnavailableCount} " +
             $"clipCutoutContours={ClipCutoutContours} clipCutoutSegments={ClipCutoutSegments} " +
             $"clipCutoutErrors={ClipCutoutErrors} clipMatchedRegions={ClipMatchedCutoutRegions} " +
             $"clipUnmatchedRegions={ClipUnmatchedCutoutRegions} " +
             $"clipAmbiguousRegions={ClipAmbiguousCutoutRegions} " +
+            $"clipReusedSources={ClipReusedSources} unresolvedLoops={UnresolvedClipLoops} " +
+            $"duplicateClipLoops={DuplicateClipLoops} partialClipMatches={PartialClipMatches} " +
             $"duplicateCutoutContours={DuplicateCutoutContours} exportedCutoutContours={ExportedCutoutContours} " +
             $"regionsByKind=[{FormatRegionKinds()}] " +
             $"tracksDetected={TracksDetected} tracksExported={TracksExported} tracksSkipped={TracksSkipped} " +
@@ -229,6 +302,8 @@ internal static class AltiumBoardSnapshotAdapter
                 Id = "altium:board",
                 Name = Path.GetFileNameWithoutExtension(fileName),
                 Thickness = thickness,
+                OriginX = ReadBoardOrigin(board, xOrigin: true, warnings),
+                OriginY = ReadBoardOrigin(board, xOrigin: false, warnings),
             },
             Outline = outline,
             Layers = layers.Layers.Values.OrderBy(layer => layer.Id, StringComparer.Ordinal).ToArray(),
@@ -336,12 +411,13 @@ internal static class AltiumBoardSnapshotAdapter
                 diagnostics.RegionsByKind.TryGetValue(kind, out var kindCount);
                 diagnostics.RegionsByKind[kind] = kindCount + 1;
 
-                var contours = ReadRegionContours(region, warnings);
+                var regionIndex = index++;
+                var contours = ReadRegionContours(region, regionIndex, warnings, diagnostics);
                 var bounds = GetBounds(contours.SelectMany(contour => contour.Points));
                 var layerId = layers.GetOrAdd((int)region.GetState_Layer(), null, warnings);
                 var netId = nets.GetOrAdd(region.GetState_Net(), warnings);
                 var info = new AltiumRegionInfo(
-                    index++,
+                    regionIndex,
                     primitive.GetType().FullName ?? primitive.GetType().Name,
                     kind,
                     region.GetState_Name(),
@@ -362,7 +438,15 @@ internal static class AltiumBoardSnapshotAdapter
                 {
                     diagnostics.BoardCutoutRegions++;
                     diagnostics.BoardCutoutContours += contours.Count;
-                    diagnostics.BoardCutoutHoles += contours.Count(contour => contour.IsHole);
+                    if (contours.Count == 0)
+                    {
+                        diagnostics.BoardCutoutEmptyRegions++;
+                        diagnostics.AddIssue(
+                            AltiumReadIssueKind.BoardCutoutRegionEmpty,
+                            "BoardCutoutRegion",
+                            regionIndex,
+                            "No usable contour was read from the Board Cutout region.");
+                    }
                 }
             }
         }
@@ -728,53 +812,407 @@ internal static class AltiumBoardSnapshotAdapter
 
     private static IReadOnlyList<AltiumRegionContour> ReadRegionContours(
         IPCB_Region region,
-        List<string> warnings)
+        int regionIndex,
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
     {
+        var isBoardCutout = false;
+        try
+        {
+            isBoardCutout = region.GetState_Kind() == TRegionKind.eRegionKind_BoardCutout;
+        }
+        catch (Exception ex)
+        {
+            warnings.Add("Region kind read failed: " + ex.GetType().Name + ".");
+        }
+
+        void RecordError(string source, int index, string reason)
+        {
+            diagnostics.AddIssue(AltiumReadIssueKind.RegionContourReadError, source, index, reason);
+            if (isBoardCutout)
+            {
+                diagnostics.BoardCutoutContourReadErrors++;
+                diagnostics.UnresolvedCutoutSources.Add(SkippedContourKey(regionIndex, index));
+            }
+        }
+
+        void RecordContourError(int index, string reason)
+        {
+            // A per-contour failure is recoverable until reconciliation proves otherwise.
+            // BoardCutoutContourReadErrors is reserved for an unreadable whole source.
+            diagnostics.AddIssue(
+                AltiumReadIssueKind.RegionContourReadError,
+                "RegionGeometricPolygon",
+                index,
+                reason);
+            if (isBoardCutout)
+                diagnostics.UnresolvedCutoutSources.Add(SkippedContourKey(regionIndex, index));
+        }
+
         var result = new List<AltiumRegionContour>();
+        var skipped = new List<SkippedRegionContour>();
+        var polygonUnavailable = false;
         try
         {
             var polygon = region.GetGeometricPolygon();
-            if (polygon is not null && polygon.GetState_Count() > 0)
+            var count = polygon?.GetState_Count() ?? 0;
+            if (polygon is null || count == 0)
             {
-                for (var i = 0; i < polygon.GetState_Count(); i++)
+                polygonUnavailable = true;
+                diagnostics.AddIssue(
+                    AltiumReadIssueKind.GeometricPolygonUnavailable,
+                    "RegionGeometricPolygon",
+                    regionIndex,
+                    "Region geometric polygon is null or empty.");
+                if (isBoardCutout)
+                    diagnostics.UnresolvedCutoutSources.Add(SkippedContourKey(regionIndex, -1));
+            }
+            else
+            {
+                for (var i = 0; i < count; i++)
                 {
-                    var points = ReadContourPoints(polygon.GetState_Contour(i));
-                    if (points.Count >= 2)
-                        result.Add(new AltiumRegionContour(polygon.GetState_IsHole(i), points));
+                    bool? isHole = null;
+                    try
+                    {
+                        isHole = polygon.GetState_IsHole(i);
+                    }
+                    catch (Exception ex)
+                    {
+                        warnings.Add(
+                            $"Region geometric contour {i} role read failed: {ex.GetType().Name}.");
+                    }
+
+                    if (isHole is null)
+                    {
+                        RecordContourError(i, "Contour role is unavailable.");
+                        skipped.Add(new SkippedRegionContour(i, null, Array.Empty<Point2D>()));
+                        continue;
+                    }
+
+                    var contour = polygon.GetState_Contour(i);
+                    if (contour is null)
+                    {
+                        RecordContourError(i, "Contour is null.");
+                        skipped.Add(new SkippedRegionContour(i, isHole, Array.Empty<Point2D>()));
+                        continue;
+                    }
+
+                    IReadOnlyList<Point2D> points;
+                    try
+                    {
+                        points = ReadContourPoints(contour);
+                    }
+                    catch (Exception ex)
+                    {
+                        RecordContourError(
+                            i,
+                            "Point read failed: " + ex.GetType().Name + ".");
+                        skipped.Add(new SkippedRegionContour(i, isHole, Array.Empty<Point2D>()));
+                        continue;
+                    }
+
+                    if (points.Count < 2)
+                    {
+                        diagnostics.AddIssue(
+                            AltiumReadIssueKind.RegionContourSkipped,
+                            "RegionGeometricPolygon",
+                            i,
+                            $"Contour has {points.Count} point(s); at least two are required.");
+                        skipped.Add(new SkippedRegionContour(i, isHole, points));
+                        if (isBoardCutout)
+                            diagnostics.UnresolvedCutoutSources.Add(SkippedContourKey(regionIndex, i));
+                        continue;
+                    }
+
+                    result.Add(new AltiumRegionContour(
+                        isHole.Value,
+                        points,
+                        "RegionGeometricPolygon",
+                        i,
+                        i));
                 }
             }
         }
         catch (Exception ex)
         {
+            polygonUnavailable = true;
+            RecordError("RegionGeometricPolygon", -1, "Read failed: " + ex.GetType().Name + ".");
             warnings.Add(
                 $"Region geometry read failed for kind={region.GetState_Kind()} " +
                 $"name='{region.GetState_Name()}': {ex.GetType().Name}.");
         }
 
-        if (result.Count > 0)
-            return result;
-
-        try
+        var fallback = new List<AltiumRegionContour>();
+        if (polygonUnavailable || result.Count == 0 || skipped.Count > 0)
         {
-            var main = ReadContourPoints(region.GetMainContour());
-            if (main.Count >= 2)
-                result.Add(new AltiumRegionContour(false, main));
-
-            var holeCount = region.GetHoleCount();
-            for (var i = 0; i < holeCount; i++)
+            try
             {
-                var hole = ReadContourPoints(region.GetHole(i));
-                if (hole.Count >= 2)
-                    result.Add(new AltiumRegionContour(true, hole));
+                var main = ReadContourPoints(region.GetMainContour());
+                if (main.Count >= 2)
+                    fallback.Add(new AltiumRegionContour(false, main, "MainContour", 0));
+
+                var holeCount = region.GetHoleCount();
+                for (var i = 0; i < holeCount; i++)
+                {
+                    var hole = ReadContourPoints(region.GetHole(i));
+                    if (hole.Count >= 2)
+                        fallback.Add(new AltiumRegionContour(true, hole, "HoleContour", i));
+                }
+            }
+            catch (Exception ex)
+            {
+                RecordError("RegionMainAndHoleContours", -1, "Read failed: " + ex.GetType().Name + ".");
+                warnings.Add(
+                    $"Region contour read failed for kind={region.GetState_Kind()} " +
+                    $"name='{region.GetState_Name()}': {ex.GetType().Name}.");
             }
         }
-        catch (Exception ex)
+
+        return RecoverRegionContours(
+            regionIndex,
+            isBoardCutout,
+            result,
+            skipped,
+            fallback,
+            index => TryReReadRegionContour(region, index),
+            warnings,
+            diagnostics);
+    }
+
+    /// <summary>
+    /// Re-reads the same geometric-polygon contour index. A skipped contour can only be
+    /// recovered when this independent request still yields the original geometry; a
+    /// missing or short second read leaves the source unresolved.
+    /// </summary>
+    private static RegionContourProbe? TryReReadRegionContour(IPCB_Region region, int index)
+    {
+        try
         {
-            warnings.Add(
-                $"Region contour read failed for kind={region.GetState_Kind()} " +
-                $"name='{region.GetState_Name()}': {ex.GetType().Name}.");
+            var polygon = region.GetGeometricPolygon();
+            if (polygon is null || index < 0 || index >= polygon.GetState_Count())
+                return null;
+
+            var contour = polygon.GetState_Contour(index);
+            if (contour is null)
+                return null;
+
+            var points = ReadContourPoints(contour);
+            if (points.Count < 2)
+                return null;
+
+            return new RegionContourProbe(polygon.GetState_IsHole(index), points);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Recovers only production-reachable skipped contours: the original contour index must
+    /// still be readable on a second request, its role must match, and the main/hole fallback
+    /// must contain one unique exact geometric match with the same topological role.
+    /// Nothing is removed from source accounting unless exact geometry and role are proven.
+    /// </summary>
+    internal static IReadOnlyList<AltiumRegionContour> RecoverRegionContours(
+        int regionIndex,
+        bool isBoardCutout,
+        IReadOnlyList<AltiumRegionContour> geometricContours,
+        IReadOnlyList<SkippedRegionContour> skipped,
+        IReadOnlyList<AltiumRegionContour> fallback,
+        Func<int, RegionContourProbe?> reReadContour,
+        List<string> warnings,
+        AltiumAdapterDiagnostics diagnostics)
+    {
+        var result = new List<AltiumRegionContour>(geometricContours);
+
+        void MarkUnproven(SkippedRegionContour item, string reason)
+        {
+            if (!isBoardCutout)
+                return;
+
+            diagnostics.AddIssue(
+                AltiumReadIssueKind.RegionContourUnproven,
+                "RegionGeometricPolygon",
+                item.Index,
+                reason);
+            diagnostics.BoardCutoutUnprovenSkippedContours++;
+            diagnostics.UnresolvedCutoutSources.Add(SkippedContourKey(regionIndex, item.Index));
         }
 
+        foreach (var item in skipped)
+        {
+            var skippedKey = SkippedContourKey(regionIndex, item.Index);
+            if (item.IsHole is not bool role)
+            {
+                MarkUnproven(item, "Skipped contour topological role is unavailable.");
+                continue;
+            }
+
+            RegionContourProbe? probe;
+            try
+            {
+                probe = reReadContour(item.Index);
+            }
+            catch
+            {
+                probe = null;
+            }
+
+            if (probe is null || probe.Value.Points.Count < 2)
+            {
+                MarkUnproven(
+                    item,
+                    "Skipped contour could not be re-read with at least two points.");
+                continue;
+            }
+
+            if (probe.Value.IsHole != role)
+            {
+                MarkUnproven(
+                    item,
+                    "Re-read contour has a different topological role from the skipped contour.");
+                continue;
+            }
+
+            var fallbackIndex = FindUniqueExactContourIndex(
+                probe.Value.Points,
+                role,
+                fallback);
+            if (fallbackIndex < 0)
+            {
+                MarkUnproven(
+                    item,
+                    "No unique exact main/hole contour with the same topological role was found.");
+                continue;
+            }
+
+            var recovered = fallback[fallbackIndex] with { ContourIndex = item.Index };
+            var duplicateOf = FindExactContourIndex(recovered.Points, recovered.IsHole, result);
+            diagnostics.UnresolvedCutoutSources.Remove(skippedKey);
+
+            if (duplicateOf >= 0)
+            {
+                diagnostics.DuplicateCutoutSources.Add(skippedKey);
+                diagnostics.RegionContourRecoveryDuplicateCount++;
+                diagnostics.AddIssue(
+                    AltiumReadIssueKind.RegionContourRecoveryDuplicate,
+                    recovered.Source,
+                    recovered.SourceIndex,
+                    $"Region {regionIndex} contour {item.Index} exactly duplicates contour {duplicateOf}.");
+                warnings.Add(
+                    $"Region {regionIndex} contour {item.Index} was proven as an exact duplicate of " +
+                    $"contour {duplicateOf} via {recovered.Source}[{recovered.SourceIndex}]; " +
+                    "no second contour was exported.");
+                continue;
+            }
+
+            result.Add(recovered);
+            diagnostics.RegionContourRecoveredCount++;
+            diagnostics.AddIssue(
+                AltiumReadIssueKind.RegionContourRecovered,
+                recovered.Source,
+                recovered.SourceIndex,
+                $"Region {regionIndex} contour {item.Index} was recovered exactly.");
+            warnings.Add(
+                $"Region {regionIndex} contour {item.Index} was recovered exactly via " +
+                $"{recovered.Source}[{recovered.SourceIndex}] and forwarded for geometry processing.");
+        }
+
+        return result;
+    }
+
+    private static int FindUniqueExactContourIndex(
+        IReadOnlyList<Point2D> points,
+        bool isHole,
+        IReadOnlyList<AltiumRegionContour> candidates)
+    {
+        var found = -1;
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            var candidate = candidates[i];
+            if (candidate.IsHole != isHole || !ContourPointsEqual(points, candidate.Points))
+                continue;
+
+            if (found >= 0)
+                return -1;
+
+            found = i;
+        }
+
+        return found;
+    }
+
+    private static int FindExactContourIndex(
+        IReadOnlyList<Point2D> points,
+        bool isHole,
+        IReadOnlyList<AltiumRegionContour> candidates)
+    {
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            var candidate = candidates[i];
+            if (candidate.IsHole == isHole && ContourPointsEqual(points, candidate.Points))
+                return i;
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Keys for skipped/error contours use a negative sentinel space that cannot collide with
+    /// a real non-negative contour index. Index -1 (whole read failure) maps to int.MinValue.
+    /// </summary>
+    internal static CutoutSourceKey SkippedContourKey(int regionIndex, int contourIndex) =>
+        new(regionIndex, contourIndex < 0
+            ? int.MinValue
+            : -1 - Math.Min(contourIndex, int.MaxValue - 1));
+
+    internal static bool ContourPointsEqual(
+        IReadOnlyList<Point2D> left,
+        IReadOnlyList<Point2D> right)
+    {
+        // A closing point is a representation detail: rotate over unique vertices only.
+        var first = CanonicalRing(left);
+        var second = CanonicalRing(right);
+        if (first.Count == 0 || first.Count != second.Count)
+            return false;
+
+        for (var offset = 0; offset < first.Count; offset++)
+        {
+            var forward = true;
+            var reverse = true;
+            for (var i = 0; i < first.Count; i++)
+            {
+                var candidate = first[(offset + i) % first.Count];
+                if (!candidate.Equals(second[i]))
+                    forward = false;
+                if (!candidate.Equals(second[(second.Count - 1 - i + second.Count) % second.Count]))
+                    reverse = false;
+                if (!forward && !reverse)
+                    break;
+            }
+
+            if (forward || reverse)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static IReadOnlyList<Point2D> CanonicalRing(IReadOnlyList<Point2D> points)
+    {
+        if (points.Count == 0)
+            return Array.Empty<Point2D>();
+
+        var count = points.Count >= 2 && points[0].Equals(points[^1])
+            ? points.Count - 1
+            : points.Count;
+        if (count <= 0)
+            return Array.Empty<Point2D>();
+
+        var result = new Point2D[count];
+        for (var i = 0; i < count; i++)
+            result[i] = points[i];
         return result;
     }
 
@@ -1115,6 +1553,24 @@ internal static class AltiumBoardSnapshotAdapter
                 return null;
             default:
                 return null;
+        }
+    }
+
+    private static LengthValue ReadBoardOrigin(
+        IPCB_Board board,
+        bool xOrigin,
+        List<string> warnings)
+    {
+        try
+        {
+            return LengthValue.FromIu(xOrigin ? board.GetState_XOrigin() : board.GetState_YOrigin());
+        }
+        catch (Exception ex)
+        {
+            warnings.Add(
+                "Board origin " + (xOrigin ? "X" : "Y") +
+                " is unavailable: " + ex.GetType().Name + ".");
+            return LengthValue.FromIu(null);
         }
     }
 

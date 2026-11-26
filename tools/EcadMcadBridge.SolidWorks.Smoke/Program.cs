@@ -199,6 +199,11 @@ internal static class SmokeRunner
                 remainingDocuments.Identities.Contains(item, StringComparer.OrdinalIgnoreCase));
         }
 
+        var boardModelRequested = read.Manifest?.Capabilities.Contains(
+            BoardModelDescriptor.Capability,
+            StringComparer.Ordinal) == true;
+        var outlineCompleteness = read.Snapshot?.Outline?.Completeness ?? OutlineCompleteness.Unknown;
+        var outlineComplete = !boardModelRequested || outlineCompleteness == OutlineCompleteness.Complete;
         var diagnostics = plan.Diagnostics
             .Concat(placementPlan?.Diagnostics ?? Array.Empty<SolidWorksDiagnostic>())
             .Concat(importResult.Diagnostics)
@@ -240,6 +245,7 @@ internal static class SmokeRunner
             && baselinePreserved == true
             && createdDocumentsRemaining is { Length: 0 }
             && cleanupVerified
+            && outlineComplete
             && diagnostics.All(item => item.Severity != SolidWorksDiagnosticSeverity.Error);
 
         var report = new
@@ -250,6 +256,9 @@ internal static class SmokeRunner
             solidWorksBuild = build,
             packageId = read.Manifest?.PackageId,
             packageReadSuccess = read.IsSuccess,
+            boardModelRequested,
+            outlineCompleteness = outlineCompleteness.ToString(),
+            outlineComplete,
             packageComponents = read.Snapshot?.Components.Count ?? 0,
             catalogComponents = read.Models?.Components.Count ?? 0,
             selectedUniqueAssets = selectedPlan.Assets.Count,

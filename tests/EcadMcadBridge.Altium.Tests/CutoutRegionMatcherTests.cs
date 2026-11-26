@@ -72,9 +72,25 @@ public sealed class CutoutRegionMatcherTests
             new[] { source },
             assigned);
 
-        Assert.Equal(CutoutRegionMatchStatus.Unmatched, match.Status);
+        Assert.Equal(CutoutRegionMatchStatus.Reused, match.Status);
         Assert.Null(match.Source);
         Assert.Contains("already assigned", match.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void B5b_ExplicitManyToManyContract_AllowsReusedSource()
+    {
+        var source = Source(0, 0, Rectangle(0, 0, 100, 100));
+        var assigned = new HashSet<CutoutSourceKey> { source.Key };
+
+        var match = CutoutRegionMatcher.Match(
+            RectangleLoop(0, 0, 100, 100),
+            new[] { source },
+            assigned,
+            allowManyToMany: true);
+
+        Assert.Equal(CutoutRegionMatchStatus.Matched, match.Status);
+        Assert.Same(source, match.Source);
     }
 
     [Fact]

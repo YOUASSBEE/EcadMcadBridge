@@ -125,6 +125,35 @@ public enum ArcSweepDirection
     CounterClockwise,
 }
 
+/// <summary>
+/// Evidence level for board-outline extraction. Older packages without the field are
+/// <see cref="Unknown"/>, never assumed complete.
+/// </summary>
+public enum OutlineCompleteness
+{
+    Complete,
+    Incomplete,
+    Unknown,
+}
+
+public enum BoardCutoutRole
+{
+    /// <summary>The whole source contour coincides with one whole Outer contour.</summary>
+    BoardShape,
+
+    /// <summary>The whole source contour lies on part of an Outer contour, so it is board-shape evidence but not a hole.</summary>
+    BoardShapeFragment,
+
+    /// <summary>The whole source contour lies strictly inside one Outer contour.</summary>
+    Hole,
+
+    /// <summary>The contour is neither on nor inside the board boundary.</summary>
+    Unrelated,
+
+    /// <summary>The contour's nesting/flag semantics cannot be proven; fail closed.</summary>
+    Unsupported,
+}
+
 public enum PadShapeKind
 {
     Circular,

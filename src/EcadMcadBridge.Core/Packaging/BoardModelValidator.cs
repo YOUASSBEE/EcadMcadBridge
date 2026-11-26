@@ -13,6 +13,19 @@ public static class BoardModelValidator
 
     private const double UnitToleranceMm = 1e-9;
 
+    /// <summary>
+    /// Validates the mandatory board frame origin. A snapshot may exist without a board asset;
+    /// the origin is required only when a board-3d-model is published, read or inspected.
+    /// </summary>
+    public static IReadOnlyList<PackageDiagnostic> ValidateFrameOrigin(BoardSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var diagnostics = new List<PackageDiagnostic>();
+        ValidateOrigin(snapshot.Properties.OriginX, "board.properties.originX", diagnostics);
+        ValidateOrigin(snapshot.Properties.OriginY, "board.properties.originY", diagnostics);
+        return diagnostics;
+    }
+
     public static IReadOnlyList<PackageDiagnostic> ValidateStructure(
         BoardModelDescriptor? descriptor,
         BoardSnapshot snapshot)
@@ -24,6 +37,8 @@ public static class BoardModelValidator
             Error(PackageDiagnosticCodes.InvalidBoardModel, "boardModel", "Board model descriptor is required.", diagnostics);
             return diagnostics;
         }
+
+        diagnostics.AddRange(ValidateFrameOrigin(snapshot));
 
         if (!string.Equals(descriptor.Schema, BoardModelDescriptor.SchemaName, StringComparison.Ordinal))
         {
@@ -179,6 +194,31 @@ public static class BoardModelValidator
         }
 
         return diagnostics;
+    }
+
+    private static void ValidateOrigin(
+        LengthValue value,
+        string path,
+        List<PackageDiagnostic> diagnostics)
+    {
+        if (!value.Iu.HasValue || value.Mm is not { } mm || !double.IsFinite(mm))
+        {
+            Error(
+                PackageDiagnosticCodes.MissingBoardOrigin,
+                path,
+                "Board frame origin must be known in IU and finite millimetres.",
+                diagnostics);
+            return;
+        }
+
+        if (!value.HasConsistentMm(UnitToleranceMm))
+        {
+            Error(
+                PackageDiagnosticCodes.MissingBoardOrigin,
+                path,
+                "Board frame origin millimetres do not match its IU value.",
+                diagnostics);
+        }
     }
 
     private static void ValidateAssetPath(

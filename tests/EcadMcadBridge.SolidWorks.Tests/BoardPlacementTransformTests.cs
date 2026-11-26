@@ -75,5 +75,8 @@ public sealed class BoardPlacementTransformTests
             20 - minY,
             0,
             0,
+            0,
+            0,
+            Array.Empty<SolidWorksBodyMeasurement>(),
             Array.Empty<SolidWorksBoardProbe>());
 }

@@ -132,6 +132,8 @@ public static class BoardSnapshotJson
         WriteNullableString(writer, "name", properties.Name);
         WriteNullableString(writer, "material", properties.Material);
         WriteLengthPair(writer, "thickness", properties.Thickness);
+        WriteLengthPair(writer, "originX", properties.OriginX);
+        WriteLengthPair(writer, "originY", properties.OriginY);
         writer.WriteEndObject();
     }
 
@@ -139,6 +141,7 @@ public static class BoardSnapshotJson
     {
         writer.WriteStartObject();
         writer.WriteString("id", outline.Id);
+        writer.WriteString("completeness", FormatOutlineCompleteness(outline.Completeness));
         WriteContours(writer, "contours", outline.Contours);
         writer.WriteEndObject();
     }
@@ -469,6 +472,8 @@ public static class BoardSnapshotJson
             Name = ReadString(element, "name"),
             Material = ReadString(element, "material"),
             Thickness = ReadLengthPair(element, "thicknessIu", "thicknessMm"),
+            OriginX = ReadLengthPair(element, "originXIu", "originXMm"),
+            OriginY = ReadLengthPair(element, "originYIu", "originYMm"),
         };
     }
 
@@ -477,9 +482,19 @@ public static class BoardSnapshotJson
         return new BoardOutline
         {
             Id = ReadString(element, "id") ?? string.Empty,
+            Completeness = ReadOutlineCompleteness(element),
             Contours = ReadContours(element),
         };
     }
+
+    private static OutlineCompleteness ReadOutlineCompleteness(JsonElement element) =>
+        ReadString(element, "completeness") switch
+        {
+            "complete" => OutlineCompleteness.Complete,
+            "incomplete" => OutlineCompleteness.Incomplete,
+            "unknown" => OutlineCompleteness.Unknown,
+            _ => OutlineCompleteness.Unknown,
+        };
 
     private static LayerRef ReadLayer(JsonElement element)
     {
@@ -880,6 +895,14 @@ public static class BoardSnapshotJson
         "drill" => LayerKind.Drill,
         "other" => LayerKind.Other,
         _ => null,
+    };
+
+    private static string FormatOutlineCompleteness(OutlineCompleteness value) => value switch
+    {
+        OutlineCompleteness.Complete => "complete",
+        OutlineCompleteness.Incomplete => "incomplete",
+        OutlineCompleteness.Unknown => "unknown",
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),
     };
 
     private static string FormatContourRole(ContourRole value) => value switch

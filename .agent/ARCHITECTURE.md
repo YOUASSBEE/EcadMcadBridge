@@ -213,8 +213,8 @@ EcadMcadBridge.Core ────────► BCL только
 |---|---|---|
 | `source` | `BoardSnapshotSource` | `cad`, `cadVersion`, `documentFileName`, `exportedAtUtc`, `toolVersion`; абсолютный путь документа не входит в контракт |
 | `sourceUnits`, `units` | строки | всегда `altium-iu` и `mm` |
-| `board.properties` | `BoardProperties` | `id`, `name`, `material`, `thicknessIu/thicknessMm` |
-| `board.outline` | `BoardOutline` | `id`, `contours` (outer/hole) |
+| `board.properties` | `BoardProperties` | `id`, `name`, `material`, `thicknessIu/thicknessMm`, `originX/originY` (IU/мм) |
+| `board.outline` | `BoardOutline` | `id`, `completeness`, `contours` (outer/hole) |
 | `layers` | `LayerRef` | `id`, `name`, `kind`, `side` |
 | `components` | `ComponentInstance` | `id`, `designator`, `comment`, `footprint`, `sourceUniqueId`, `layerId`, `placement`, `heightIu/heightMm`, `fitted` |
 | `padStacks` | `PadStack` → `PadShape` | `id`, `shapes`; shape: `id`, `kind`, `layerId`, `width`, `height`, `cornerRadius`, `vertices` |
@@ -813,6 +813,47 @@ Board occurrence добавляется в `.SLDASM` отдельно и фик�
 - измеренная толщина не подменяется nominal и компоненты не сдвигаются;
 - после save/reopen проверяются board occurrence, fixed flag, native path и
   transform residual вместе с компонентными occurrences.
+
+### 6.8 Полнота контура и согласование вырезов (BRIDGE-000020)
+
+`board.outline.completeness` — обязательное доказательство полноты извлечения контура:
+
+- `complete` — аналитический и геометрический Outer сопоставлены точно, все контуры
+  `eRegionKind_BoardCutout` классифицированы и учтены, клиппер не дал ошибок,
+  признаков `unmatched`/`ambiguous`/`partial`/`fallback`/`omitted` нет;
+- `incomplete` — любое звено цепочки (`GetBoardOutline`, аналитические циклы,
+  Board Cutout, `ClipWithPolyRegShapes`, экспорт) дало ошибку или неподтверждённое
+  сопоставление;
+- `unknown` — поле отсутствует в старом пакете; никогда не трактуется как `complete`.
+
+Capability `board-3d-model` требует `complete` и при записи, и при чтении; иначе
+пакет отклоняется с `EMB-PKG-031`. Smoke-отчёт повторяет `boardModelRequested`,
+`outlineCompleteness`, `outlineComplete` и включает completeness в `success`.
+
+`BoardProperties.originX/originY` хранят начало координат платы Altium (C-121)
+парой IU/мм. STEP-геометрия board body задана в board-local координатах;
+SOLIDWORKS добавляет origin к измеренным `BoundingBox`-значениям перед сравнением
+с контуром пакета. Никакое выравнивание по центру, масштабирование или подстановка
+границ не применяется. Каждый solid body получает собственную Z-толщину из
+измеренного box; ожидаемый объём body — площадь Outer минус Hole, отсечённая этим
+box, умноженная на его толщину. Пороги `SW-BRD-008` (bounds, 0.05 mm) и
+`SW-BRD-010` (volume, `max(5 mm³, 2%)`) не изменялись.
+
+`eRegionKind_BoardCutout` — доказательство наличия выреза, а не готовый Hole.
+Каждый контур каждого такого region получает роль `BoardShape`, `Hole` или
+`Unrelated` через `BoardOutlineTopology` в Core; сопоставление с клипнутыми
+циклами — многие-ко-многим, но каждый source contour и каждый экспортированный
+loop должны быть учтены ровно один раз. Геометрия берётся только из координат
+пакета; новые координаты не изобретаются. `Sample`/`Clip`/area/inside в
+`BoardOutlineTopology` используют аналитические дуги пакета и отсечение по
+измеренным box-ам.
+
+Tessellation SOLIDWORKS обрабатывается строго: `GetTessellation`, `Tessellate`,
+vertex/fin/facet/index проверяются для каждого body; любая ошибка (`SW-BRD-017`,
+`SW-BRD-022`…`SW-BRD-026`) делает mesh непригодным целиком, частичный mesh не
+используется. Для каждого Outer и каждого Hole создаётся probe с его точным
+`ContourId`; несколько независимых Outer поддерживаются и должны быть все
+проверены (`SW-BRD-019`).
 
 ## 7. Обработка ошибок и логирование
 

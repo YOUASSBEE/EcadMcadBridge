@@ -28,10 +28,13 @@ internal static class PlanTestFixture
                 Id = "board-solidworks-test",
                 Name = "SOLIDWORKS test",
                 Thickness = LengthValue.FromIu(1_600_000),
+                OriginX = LengthValue.FromIu(0),
+                OriginY = LengthValue.FromIu(0),
             },
             Outline = new BoardOutline
             {
                 Id = "outline-solidworks-test",
+                Completeness = OutlineCompleteness.Complete,
                 Contours = new[]
                 {
                     new Contour

@@ -72,6 +72,14 @@ public static class ExchangePackageWriter
                 "The board-3d-model capability requires a board model.");
         }
 
+        if (boardRequested && snapshot.Outline?.Completeness != OutlineCompleteness.Complete)
+        {
+            return Fail(
+                PackageDiagnosticCodes.BoardOutlineNotComplete,
+                "board.outline.completeness",
+                "The board-3d-model capability requires a confirmed complete board outline.");
+        }
+
         string root;
         try
         {

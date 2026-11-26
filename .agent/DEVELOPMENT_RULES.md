@@ -150,6 +150,33 @@ tests/
 - Успех сборки требует ровно одного board occurrence, всех компонентных
   occurrences, save/reopen, fixed flag, residual в допуске и cleanup `Verified`.
 
+### 4.4 Полнота контура и вырезов (BRIDGE-000020)
+
+- `board.outline.completeness` обязателен для capability `board-3d-model`:
+  запись и чтение пакета с `incomplete`/`unknown` отклоняются (`EMB-PKG-031`).
+  Пакеты без поля имеют только `Unknown` и никогда не считаются `Complete`.
+- Не экспортировать `board-3d-model` при fallback, omitted, unmatched,
+  ambiguous, partial, clip-error или неучтённом Board Cutout контуре.
+  Completeness вычисляется из этих счётчиков, а не назначается «на всякий случай».
+- `eRegionKind_BoardCutout` не означает Hole: каждый контур классифицируется
+  геометрически как `BoardShape`, `Hole` или `Unrelated`; каждый исходный контур
+  и каждый клипнутый цикл должны быть учтены. Копировать координаты или подбирать
+  совпадение по центрам/bounds запрещено.
+- Frame origin берётся из подтверждённых `GetState_XOrigin/YOrigin` (C-121) и
+  сохраняется парой IU/мм; SOLIDWORKS сравнивает STEP с контуром только после
+  прибавления origin. Масштаб, подстановка границ и выравнивание по центру
+  запрещены.
+- Каждый импортированный solid body использует собственную измеренную
+  Z-толщину; ожидаемый объём считается из Outer/Hole, отсечённых измеренным box
+  этого body. Пороги `SW-BRD-008` и `SW-BRD-010` не ослабляются для прохождения
+  smoke.
+- Tessellation проверяется строго для каждого body: `GetTessellation`,
+  `Tessellate`, vertex/fin/facet/index. Один неверный index/vertex/fin/facet
+  делает весь mesh непригодным; частичный mesh не используется для probe.
+- Probe должен подтвердить каждый Outer и каждый Hole по точному `ContourId`;
+  для нескольких Outer создаётся по одной независимой точке. Smoke `success`
+  требует `outlineComplete=true`.
+
 ## 5. Работа с API и данными
 
 - Чтение платы — только через документированные `PCB.IPCB_*` интерфейсы.
