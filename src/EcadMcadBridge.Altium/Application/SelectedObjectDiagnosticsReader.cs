@@ -9,10 +9,26 @@ internal static class SelectedObjectDiagnosticsReader
 {
     private const string SchemaVersion = "1.0";
 
+    // SDK 4.0.1 cannot prove that the board from GetCurrentPCBBoard() belongs to the command's view.
+    private const bool BoardOwnershipProven = false;
+
     public static SelectedObjectDiagnosticsReport Read(IServerDocumentView? view)
     {
         var measuredAt = DateTimeOffset.UtcNow;
         var documentType = ReadDocumentType(view);
+        if (!TryValidateContext(documentType, BoardOwnershipProven, out var contextError))
+        {
+            return new SelectedObjectDiagnosticsReport(
+                SchemaVersion,
+                measuredAt,
+                documentType,
+                0,
+                0,
+                0,
+                DiagnosticValue.Unavailable(contextError!),
+                Array.Empty<SelectedObjectDiagnostic>());
+        }
+
         var noObjects = Array.Empty<SelectedObjectDiagnostic>();
         var boardResult = TryGetBoard();
 
@@ -79,6 +95,34 @@ internal static class SelectedObjectDiagnosticsReader
             after,
             readStatus,
             objects);
+    }
+
+    internal static bool TryValidateContext(
+        DiagnosticValue documentType,
+        bool boardOwnershipProven,
+        out string? reason)
+    {
+        if (documentType.Status != "available")
+        {
+            reason = "Document context is unavailable: " + documentType.Reason;
+            return false;
+        }
+
+        if (!string.Equals(documentType.Value, "PCB", StringComparison.OrdinalIgnoreCase))
+        {
+            reason = "The supplied document is not a PCB document.";
+            return false;
+        }
+
+        if (!boardOwnershipProven)
+        {
+            reason = "Document/board ownership cannot be proven with documented SDK 4.0.1 APIs; " +
+                "refusing to read the global current board.";
+            return false;
+        }
+
+        reason = null;
+        return true;
     }
 
     private static DiagnosticValue ReadDocumentType(IServerDocumentView? view)

@@ -128,6 +128,62 @@ public sealed class SelectedObjectDiagnosticsJsonTests
         }
     }
 
+    [Fact]
+    public void Context_AcceptsPcbDocumentWithProvenBoard()
+    {
+        Assert.True(SelectedObjectDiagnosticsReader.TryValidateContext(
+            DiagnosticValue.Available("PCB"),
+            boardOwnershipProven: true,
+            out var reason));
+        Assert.Null(reason);
+    }
+
+    [Fact]
+    public void Context_RejectsIncompleteDocumentContext()
+    {
+        Assert.False(SelectedObjectDiagnosticsReader.TryValidateContext(
+            DiagnosticValue.Unavailable("No owner document was supplied by the host."),
+            boardOwnershipProven: true,
+            out var reason));
+        Assert.Contains("Document context is unavailable", reason);
+    }
+
+    [Fact]
+    public void Context_RejectsNonPcbDocument()
+    {
+        Assert.False(SelectedObjectDiagnosticsReader.TryValidateContext(
+            DiagnosticValue.Available("SCH"),
+            boardOwnershipProven: true,
+            out var reason));
+        Assert.Contains("not a PCB document", reason);
+    }
+
+    [Fact]
+    public void Context_RejectsUnprovenDocumentBoardLinkAndSerializesReason()
+    {
+        Assert.False(SelectedObjectDiagnosticsReader.TryValidateContext(
+            DiagnosticValue.Available("PCB"),
+            boardOwnershipProven: false,
+            out var reason));
+        Assert.Contains("cannot be proven", reason);
+
+        var report = new SelectedObjectDiagnosticsReport(
+            "1.0",
+            MeasuredAt,
+            DiagnosticValue.Available("PCB"),
+            0,
+            0,
+            0,
+            DiagnosticValue.Unavailable(reason!),
+            Array.Empty<SelectedObjectDiagnostic>());
+
+        using var document = JsonDocument.Parse(SelectedObjectDiagnosticsJson.Serialize(report));
+        var status = document.RootElement.GetProperty("readStatus");
+        Assert.Equal("unavailable", status.GetProperty("status").GetString());
+        Assert.Equal(reason, status.GetProperty("reason").GetString());
+        Assert.Equal(0, document.RootElement.GetProperty("objectCount").GetInt32());
+    }
+
     private static SelectedObjectDiagnosticsReport Report(
         DiagnosticValue documentType,
         IReadOnlyList<SelectedObjectDiagnostic> objects) =>
