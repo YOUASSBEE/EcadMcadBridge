@@ -19,9 +19,15 @@ internal sealed record AltiumRegionContour(
     bool IsHole,
     IReadOnlyList<Point2D> Points,
     string Source = "unknown",
-    int SourceIndex = -1);
+    int SourceIndex = -1,
+    int ContourIndex = -1);
 
-internal readonly record struct SkippedRegionContour(int Index, IReadOnlyList<Point2D> Points);
+internal readonly record struct RegionContourProbe(bool IsHole, IReadOnlyList<Point2D> Points);
+
+internal readonly record struct SkippedRegionContour(
+    int Index,
+    bool? IsHole,
+    IReadOnlyList<Point2D> Points);
 
 internal enum AltiumReadIssueKind
 {
@@ -830,6 +836,19 @@ internal static class AltiumBoardSnapshotAdapter
             }
         }
 
+        void RecordContourError(int index, string reason)
+        {
+            // A per-contour failure is recoverable until reconciliation proves otherwise.
+            // BoardCutoutContourReadErrors is reserved for an unreadable whole source.
+            diagnostics.AddIssue(
+                AltiumReadIssueKind.RegionContourReadError,
+                "RegionGeometricPolygon",
+                index,
+                reason);
+            if (isBoardCutout)
+                diagnostics.UnresolvedCutoutSources.Add(SkippedContourKey(regionIndex, index));
+        }
+
         var result = new List<AltiumRegionContour>();
         var skipped = new List<SkippedRegionContour>();
         var polygonUnavailable = false;
@@ -845,20 +864,53 @@ internal static class AltiumBoardSnapshotAdapter
                     "RegionGeometricPolygon",
                     regionIndex,
                     "Region geometric polygon is null or empty.");
+                if (isBoardCutout)
+                    diagnostics.UnresolvedCutoutSources.Add(SkippedContourKey(regionIndex, -1));
             }
             else
             {
                 for (var i = 0; i < count; i++)
                 {
-                    var contour = polygon.GetState_Contour(i);
-                    if (contour is null)
+                    bool? isHole = null;
+                    try
                     {
-                        RecordError("RegionGeometricPolygon", i, "Contour is null.");
-                        skipped.Add(new SkippedRegionContour(i, Array.Empty<Point2D>()));
+                        isHole = polygon.GetState_IsHole(i);
+                    }
+                    catch (Exception ex)
+                    {
+                        warnings.Add(
+                            $"Region geometric contour {i} role read failed: {ex.GetType().Name}.");
+                    }
+
+                    if (isHole is null)
+                    {
+                        RecordContourError(i, "Contour role is unavailable.");
+                        skipped.Add(new SkippedRegionContour(i, null, Array.Empty<Point2D>()));
                         continue;
                     }
 
-                    var points = ReadContourPoints(contour);
+                    var contour = polygon.GetState_Contour(i);
+                    if (contour is null)
+                    {
+                        RecordContourError(i, "Contour is null.");
+                        skipped.Add(new SkippedRegionContour(i, isHole, Array.Empty<Point2D>()));
+                        continue;
+                    }
+
+                    IReadOnlyList<Point2D> points;
+                    try
+                    {
+                        points = ReadContourPoints(contour);
+                    }
+                    catch (Exception ex)
+                    {
+                        RecordContourError(
+                            i,
+                            "Point read failed: " + ex.GetType().Name + ".");
+                        skipped.Add(new SkippedRegionContour(i, isHole, Array.Empty<Point2D>()));
+                        continue;
+                    }
+
                     if (points.Count < 2)
                     {
                         diagnostics.AddIssue(
@@ -866,16 +918,17 @@ internal static class AltiumBoardSnapshotAdapter
                             "RegionGeometricPolygon",
                             i,
                             $"Contour has {points.Count} point(s); at least two are required.");
-                        skipped.Add(new SkippedRegionContour(i, points));
+                        skipped.Add(new SkippedRegionContour(i, isHole, points));
                         if (isBoardCutout)
                             diagnostics.UnresolvedCutoutSources.Add(SkippedContourKey(regionIndex, i));
                         continue;
                     }
 
                     result.Add(new AltiumRegionContour(
-                        polygon.GetState_IsHole(i),
+                        isHole.Value,
                         points,
                         "RegionGeometricPolygon",
+                        i,
                         i));
                 }
             }
@@ -915,55 +968,127 @@ internal static class AltiumBoardSnapshotAdapter
             }
         }
 
-        return ReconcileFallbackContours(
+        return RecoverRegionContours(
             regionIndex,
             isBoardCutout,
             result,
             skipped,
             fallback,
+            index => TryReReadRegionContour(region, index),
             warnings,
             diagnostics);
     }
 
     /// <summary>
-    /// Pure reconciliation of geometric-polygon contours with the main/hole fallback source.
-    /// An exact recovery is forwarded into the result with its fallback provenance preserved;
-    /// an exact duplicate is explicitly accounted without a second export. Nothing is removed
-    /// from source accounting unless one of those two outcomes is proven.
+    /// Re-reads the same geometric-polygon contour index. A skipped contour can only be
+    /// recovered when this independent request still yields the original geometry; a
+    /// missing or short second read leaves the source unresolved.
     /// </summary>
-    internal static IReadOnlyList<AltiumRegionContour> ReconcileFallbackContours(
+    private static RegionContourProbe? TryReReadRegionContour(IPCB_Region region, int index)
+    {
+        try
+        {
+            var polygon = region.GetGeometricPolygon();
+            if (polygon is null || index < 0 || index >= polygon.GetState_Count())
+                return null;
+
+            var contour = polygon.GetState_Contour(index);
+            if (contour is null)
+                return null;
+
+            var points = ReadContourPoints(contour);
+            if (points.Count < 2)
+                return null;
+
+            return new RegionContourProbe(polygon.GetState_IsHole(index), points);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Recovers only production-reachable skipped contours: the original contour index must
+    /// still be readable on a second request, its role must match, and the main/hole fallback
+    /// must contain one unique exact geometric match with the same topological role.
+    /// Nothing is removed from source accounting unless exact geometry and role are proven.
+    /// </summary>
+    internal static IReadOnlyList<AltiumRegionContour> RecoverRegionContours(
         int regionIndex,
         bool isBoardCutout,
         IReadOnlyList<AltiumRegionContour> geometricContours,
         IReadOnlyList<SkippedRegionContour> skipped,
         IReadOnlyList<AltiumRegionContour> fallback,
+        Func<int, RegionContourProbe?> reReadContour,
         List<string> warnings,
         AltiumAdapterDiagnostics diagnostics)
     {
         var result = new List<AltiumRegionContour>(geometricContours);
 
+        void MarkUnproven(SkippedRegionContour item, string reason)
+        {
+            if (!isBoardCutout)
+                return;
+
+            diagnostics.AddIssue(
+                AltiumReadIssueKind.RegionContourUnproven,
+                "RegionGeometricPolygon",
+                item.Index,
+                reason);
+            diagnostics.BoardCutoutUnprovenSkippedContours++;
+            diagnostics.UnresolvedCutoutSources.Add(SkippedContourKey(regionIndex, item.Index));
+        }
+
         foreach (var item in skipped)
         {
             var skippedKey = SkippedContourKey(regionIndex, item.Index);
-            var fallbackIndex = FindExactContourIndex(item.Points, fallback);
-            if (fallbackIndex < 0)
+            if (item.IsHole is not bool role)
             {
-                if (isBoardCutout)
-                {
-                    diagnostics.AddIssue(
-                        AltiumReadIssueKind.RegionContourUnproven,
-                        "RegionGeometricPolygon",
-                        item.Index,
-                        "Skipped contour was not reproduced by the main/hole contour source.");
-                    diagnostics.BoardCutoutUnprovenSkippedContours++;
-                    diagnostics.UnresolvedCutoutSources.Add(skippedKey);
-                }
-
+                MarkUnproven(item, "Skipped contour topological role is unavailable.");
                 continue;
             }
 
-            var recovered = fallback[fallbackIndex];
-            var duplicateOf = FindExactContourIndex(recovered.Points, result);
+            RegionContourProbe? probe;
+            try
+            {
+                probe = reReadContour(item.Index);
+            }
+            catch
+            {
+                probe = null;
+            }
+
+            if (probe is null || probe.Value.Points.Count < 2)
+            {
+                MarkUnproven(
+                    item,
+                    "Skipped contour could not be re-read with at least two points.");
+                continue;
+            }
+
+            if (probe.Value.IsHole != role)
+            {
+                MarkUnproven(
+                    item,
+                    "Re-read contour has a different topological role from the skipped contour.");
+                continue;
+            }
+
+            var fallbackIndex = FindUniqueExactContourIndex(
+                probe.Value.Points,
+                role,
+                fallback);
+            if (fallbackIndex < 0)
+            {
+                MarkUnproven(
+                    item,
+                    "No unique exact main/hole contour with the same topological role was found.");
+                continue;
+            }
+
+            var recovered = fallback[fallbackIndex] with { ContourIndex = item.Index };
+            var duplicateOf = FindExactContourIndex(recovered.Points, recovered.IsHole, result);
             diagnostics.UnresolvedCutoutSources.Remove(skippedKey);
 
             if (duplicateOf >= 0)
@@ -997,13 +1122,36 @@ internal static class AltiumBoardSnapshotAdapter
         return result;
     }
 
+    private static int FindUniqueExactContourIndex(
+        IReadOnlyList<Point2D> points,
+        bool isHole,
+        IReadOnlyList<AltiumRegionContour> candidates)
+    {
+        var found = -1;
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            var candidate = candidates[i];
+            if (candidate.IsHole != isHole || !ContourPointsEqual(points, candidate.Points))
+                continue;
+
+            if (found >= 0)
+                return -1;
+
+            found = i;
+        }
+
+        return found;
+    }
+
     private static int FindExactContourIndex(
         IReadOnlyList<Point2D> points,
+        bool isHole,
         IReadOnlyList<AltiumRegionContour> candidates)
     {
         for (var i = 0; i < candidates.Count; i++)
         {
-            if (ContourPointsEqual(points, candidates[i].Points))
+            var candidate = candidates[i];
+            if (candidate.IsHole == isHole && ContourPointsEqual(points, candidate.Points))
                 return i;
         }
 

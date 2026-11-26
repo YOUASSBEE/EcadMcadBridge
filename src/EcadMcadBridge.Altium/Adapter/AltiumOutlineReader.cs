@@ -468,7 +468,10 @@ internal static class AltiumOutlineReader
             for (var contourIndex = 0; contourIndex < region.Contours.Count; contourIndex++)
             {
                 var contour = region.Contours[contourIndex];
-                var key = new CutoutSourceKey(region.Index, contourIndex);
+                var sourceContourIndex = contour.ContourIndex >= 0
+                    ? contour.ContourIndex
+                    : contourIndex;
+                var key = new CutoutSourceKey(region.Index, sourceContourIndex);
                 var role = BoardOutlineTopology.ClassifyRegionContour(
                     ToCoreContour(contour.Points),
                     outerContours,
