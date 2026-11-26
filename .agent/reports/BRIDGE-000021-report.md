@@ -5,11 +5,11 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T16:35:46+03:00
-updated: 2026-11-26T16:35:46+03:00
+updated: 2026-11-26T16:39:30+03:00
 base: source
 branch: task/BRIDGE-000021-bottom-placement
-commit: <pending>
-pr: <pending>
+commit: 94fbc639b28cac7ad1afca3aa34fbcfd6af84247
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/20
 related: [BRIDGE-000016, BRIDGE-000017, BRIDGE-000018, BRIDGE-000020, BRIDGE-000021]
 ---
 
@@ -80,9 +80,10 @@ D-023 принят как разрешение на пересмотр архи�
 
 ## 6. Commit SHA и PR
 
-- Commit (docs/report): `<pending>`
-- PR: `<pending>`
+- Code/docs commit: `94fbc639b28cac7ad1afca3aa34fbcfd6af84247` — `docs(bridge-000021): accept D-023 research scope for Bottom placement`.
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/20 — открыт в `source`, не смержен; ветка `task/BRIDGE-000021-bottom-placement` сохранена.
 
 ## 7. История изменений
 
 - 2026-11-26: исходная постановка была остановлена как конфликтующая с D-022; Оператор выбрал D-023 с уточнением research-only scope. Подготовлены согласованные документы, проект контракта калибровки и настоящий отчёт. Production-код не изменялся.
+- 2026-11-26: открыт PR #20 в `source`; в отдельном коммите добавлены финальный SHA и URL PR. PR не смержен.
