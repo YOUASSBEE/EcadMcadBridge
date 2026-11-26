@@ -5,10 +5,10 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T04:00:00+03:00
-updated: 2026-11-26T11:25:00+03:00
+updated: 2026-11-26T11:31:00+03:00
 base: source
 branch: agent/BRIDGE-000019-board-substrate-assembly
-commit: e152c91296433a827b76bd273acd2f59074f564e
+commit: 6e4d4d6020a118e5c2391cbdde1935831989d75e
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/18
 related: [BRIDGE-000019, BRIDGE-000018]
 ---
@@ -21,7 +21,8 @@ related: [BRIDGE-000019, BRIDGE-000018]
 - Branch: `agent/BRIDGE-000019-board-substrate-assembly`.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/18, base `source`, открыт, merge не выполнялся.
 - FIX-001 commit: `e152c91296433a827b76bd273acd2f59074f564e` (execution), затем
-  отдельный docs-commit с финальным SHA в front matter.
+  docs-коммиты `6e4d4d6020a118e5c2391cbdde1935831989d75e` (PIN) и финальный
+  docs-commit с хэшем установленной сборки (HEAD PR).
 - Runtime: Altium Designer 26.12.2.9; SOLIDWORKS 2026 SP3.2, interop 34.3.2.3.
 
 ## 2. Подтверждённый board-only API
@@ -336,8 +337,13 @@ Runtime AD26.12.2.9, временная копия MiniPC (не пользова
 - Empty-selection export отдельно: `success=true`, `0/0`, `GetModified=false`,
   JSON SHA-256 `012AD7BCB1C7EA3EF5524F99C0250A9511D4BEB12FA66D70B8E01D0BC5A8EA0E`,
   board STEP SHA-256 `6F9BF1BB…C02DAA3`.
-- Временный probe-обработчик удалён до коммита; установленный extension
-  восстановлен с финальной сборкой `C824F538557491B963236BED243B3CC93E9FD069CDA7AE7D39CA1678082078FE`;
+- Временный probe-обработчик удалён до коммита. Runtime-проверка выделения
+  выполнялась со сборкой `C824F538557491B963236BED243B3CC93E9FD069CDA7AE7D39CA1678082078FE`
+  (без probe-обработчика в установленном extension). После финальных docs-коммитов
+  пересборка изменила только MVID сборок (`Deterministic`/line endings), код не
+  изменился; установленный extension обновлён до
+  `EcadMcadBridge.dll` `791098D2AC805F88534ACE41D44A0744B7A9040D008DB7F1A6463357D0E1C74A`
+  и `EcadMcadBridge.Core.dll` `DA6C99E285436BBD2D10D19C766322140CBF5D515300E7B6AE6733CD98A03C46`;
   `.ins` и постоянные preferences не менялись.
 
 ### FIX-B — обязательная проверка каждого cutout
