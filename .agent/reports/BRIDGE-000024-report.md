@@ -8,7 +8,7 @@ created: 2026-11-26T18:06:48+03:00
 updated: 2026-11-26T20:21:39+03:00
 base: source
 branch: task/BRIDGE-000024-readonly-diagnostics
-commit: 608a9c1dcc177121ad5f44ecdba283bc50bed14c
+commit: d8f265449a84554f9a0ec2e6089eb17e91041e4a
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/23
 related: [BRIDGE-000024]
 ---
@@ -273,11 +273,12 @@ D-024.
 ## 9. Commit SHA и PR
 
 - Commit, на котором открыт PR: `b5d082c80098160d71d3921d3706796e047c4050`.
-- Финальный commit: `608a9c1dcc177121ad5f44ecdba283bc50bed14c` (обновление отчёта после
- runtime-расследования; будет заменён SHA этого коммита после push).
+- Финальный commit с кодом и обновлённым отчётом:
+  `d8f265449a84554f9a0ec2e6089eb17e91041e4a`. Следующий meta-коммит меняет только ссылки
+  на PR/SHA в этом разделе.
 - PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/23 — открыт из
   `task/BRIDGE-000024-readonly-diagnostics` в `source`; `state=open`, `merged=false`, head
-  `608a9c1dcc177121ad5f44ecdba283bc50bed14c`. PR не мержится по условию задачи.
+  `d8f265449a84554f9a0ec2e6089eb17e91041e4a`. PR не мержится по условию задачи.
 - URL PR и финальный commit SHA добавлены отдельным коммитом после создания PR.
 
 ## 10. История изменений
