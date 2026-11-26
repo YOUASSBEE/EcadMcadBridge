@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using EcadMcadBridge.Altium.Application;
 using Xunit;
 
@@ -182,6 +183,19 @@ public sealed class SelectedObjectDiagnosticsJsonTests
         Assert.Equal("unavailable", status.GetProperty("status").GetString());
         Assert.Equal(reason, status.GetProperty("reason").GetString());
         Assert.Equal(0, document.RootElement.GetProperty("objectCount").GetInt32());
+    }
+
+    [Fact]
+    public void ThreadTrace_IncludesRequiredFieldsWithoutExtraData()
+    {
+        var trace = ReadSelectedObjectDiagnosticsHandler.FormatThreadTrace(
+            "ENTER",
+            42,
+            ApartmentState.STA,
+            false,
+            null);
+
+        Assert.Equal("phase=ENTER threadId=42 apartment=STA threadPool=false", trace);
     }
 
     private static SelectedObjectDiagnosticsReport Report(
