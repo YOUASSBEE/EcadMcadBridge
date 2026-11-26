@@ -39,6 +39,7 @@ related: [BRIDGE-000034, BRIDGE-000028, BRIDGE-000029, BRIDGE-000030, BRIDGE-000
 - `OT` — `src/EcadMcadBridge.Altium/Adapter/AltiumBodyOrdinalTracker.cs`
 - `CM` — `src/EcadMcadBridge.Core/Model/ComponentModels.cs`
 - `SW` — `src/EcadMcadBridge.SolidWorks/Placement/SolidWorksPlacementRequestBuilder.cs`
+- `PTB` — `src/EcadMcadBridge.Core/Placement/PlacementTransformBuilder.cs`
 - `L` — `.agent/SDK_API_LEDGER.md`
 - `D` — `.agent/DECISIONS.md`
 - `R28/R29/R30/R33` — отчёты BRIDGE-000028/000029/000030/000033.
