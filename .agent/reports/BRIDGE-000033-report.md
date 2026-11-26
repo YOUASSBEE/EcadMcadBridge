@@ -5,10 +5,10 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T23:36:30+03:00
-updated: 2026-11-26T23:36:30+03:00
+updated: 2026-11-26T23:40:34+03:00
 base: source
 branch: task/BRIDGE-000031-sdk-diagnostic-host
-commit: pending
+commit: cf1e724bf7f3971c87d3b27b05c3f98adc6aecaa
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/27
 related: [BRIDGE-000031, BRIDGE-000032, BRIDGE-000033]
 ---
@@ -302,9 +302,11 @@ Evidence: `%TEMP%\opencode\bridge-000033\evidence\restore-result.json`, `before-
 
 ## 12. Commit and PR
 
-- Reviewed implementation/report commit: `pending`.
-- PR: <https://github.com/YOUASSBEE/EcadMcadBridge/pull/27>, open, unmerged, base `source` @ `ea817c9b1e52b6a86e5eb541cf814a578887a7d5`.
-- Final commit SHA and PR state will be added after commit/push.
+- Reviewed implementation/report commit: `cf1e724bf7f3971c87d3b27b05c3f98adc6aecaa`.
+- PR: <https://github.com/YOUASSBEE/EcadMcadBridge/pull/27>, `state=open`, `merged=false`, base
+  `source` @ `ea817c9b1e52b6a86e5eb541cf814a578887a7d5`, head branch
+  `task/BRIDGE-000031-sdk-diagnostic-host`. The reviewed SHA above is the implementation/report
+  commit; later metadata commits do not change the reviewed code.
 
 ## 13. History
 
@@ -312,4 +314,4 @@ Evidence: `%TEMP%\opencode\bridge-000033\evidence\restore-result.json`, `before-
 2. Minimal handler trace and its formatter test added; build/tests passed.
 3. Controlled install of the trace build, restart, native menu listing, menu-search check, command dispatch, thread/apartment capture, and JSON/fail-closed verification completed.
 4. Original extension files and registry restored; final Altium session and hashes verified.
-5. Final commit/push metadata will be added after review checks.
+5. Separate metadata commit added the reviewed SHA and confirmed the open, unmerged PR after push.
