@@ -5,10 +5,10 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T23:20:30+03:00
-updated: 2026-11-26T23:20:30+03:00
+updated: 2026-11-26T23:23:00+03:00
 base: source
 branch: task/BRIDGE-000031-sdk-diagnostic-host
-commit: pending
+commit: 8260335fa01cac510301f8e850cfdef84bc507c2
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/27
 related: [BRIDGE-000031, BRIDGE-000032]
 ---
@@ -299,9 +299,11 @@ blocked because document↔board ownership cannot be proven with documented publ
 
 ## 15. Commit and PR
 
-- Reviewed commit: `pending`.
-- PR: <https://github.com/YOUASSBEE/EcadMcadBridge/pull/27>, base `source`, not merged.
-- PR URL and reviewed SHA will be finalized in a separate metadata commit after push.
+- Reviewed commit: `8260335fa01cac510301f8e850cfdef84bc507c2`.
+- PR: <https://github.com/YOUASSBEE/EcadMcadBridge/pull/27>, `state=open`, `merged=false`, base
+  `source` @ `ea817c9b1e52b6a86e5eb541cf814a578887a7d5`, head branch
+  `task/BRIDGE-000031-sdk-diagnostic-host`. The reviewed SHA above is the implementation/report
+  commit; later metadata commits do not change the reviewed code.
 
 ## 16. History
 
@@ -311,4 +313,4 @@ blocked because document↔board ownership cannot be proven with documented publ
    `GetModified()` measurements completed.
 3. Original DLL/deps/.ins/.rcs and registry restored, Altium restarted in original configuration,
    final hashes and PID recorded.
-4. Final PR metadata will be added after commit/push.
+4. Separate metadata commit added the reviewed SHA and confirmed the open, unmerged PR after push.
