@@ -5,7 +5,7 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T04:00:00+03:00
-updated: 2026-11-26T05:00:00+03:00
+updated: 2026-11-26T11:25:00+03:00
 base: source
 branch: agent/BRIDGE-000019-board-substrate-assembly
 commit: 703717255a11e75649387287e9c833629bd97d9b
@@ -35,12 +35,19 @@ SDK 4.0.1 / AD26 `Altium.SDK.Interfaces.dll`:
   `SetState_IncludeMechanicalPadHoles`, `SetState_IncludeElectricalPadHoles`,
   `SetState_IncludeFreePadHoles`, `SetState_IncludeCoverLayer`,
   `SetState_ExportPadAndViaBarrelsOnly`;
-- `IPCB_Board.SelectedObjectsCount()`,
-  `SelectedObjects_BeginUpdate()/Clear()/EndUpdate()`.
+- `IPCB_Board.SelectedObjectsCount()`, `GetState_SelectecObjectCount()`,
+  `SelectedObjects_BeginUpdate()/Clear()/EndUpdate()`;
+- `IPCB_BoardHelper.GetState_SelectecObject(this IPCB_Board, int)` → `IPCB_Primitive`,
+  `IPCB_BoardHelper.SelectedObjects_Add(this IPCB_Board, IPCB_Primitive)`,
+  `IPCB_Primitive.GetState_Identifier()` (C-120).
 
 В SDK нет переключателя «экспортировать без компонентов»: единственный
 board-only режим — `SelectedComponents` при проверенном пустом selection.
 `SelectedComponents` без очистки selection экспортировал бы выбранные тела.
+FIX-001 использует **exact restore**: исходные объекты сохраняются, selection
+очищается только на время экспорта и восстанавливается тем же набором
+identifier. Fail-closed включается до очистки, если count расходятся или
+объекты не имеют уникального identifier; reflection/dynamic не применяются.
 
 ## 3. Настройки экспорта
 
@@ -59,8 +66,10 @@ board-only режим — `SelectedComponents` при проверенном п�
 
 Сохранённые пользовательские preferences не читаются. После экспорта
 проверяются файл, AP214 header, SHA-256 и неизменность `GetModified`.
-Если board STEP не создан или не AP214, capability `board-3d-model` не
-объявляется, пакет остаётся без board asset.
+Исходное выделение восстанавливается при любом исходе: успех, отсутствие STEP,
+неверный header, исключение exporter и ошибка hash; `EndUpdate` гарантирован
+через `finally`. Если board STEP не создан или не AP214, capability
+`board-3d-model` не объявляется, пакет остаётся без board asset.
 
 ## 4. Board asset
 
@@ -162,8 +171,11 @@ region не записались на диск. Поэтому fixture не ис
 
 Проверка cutout выполняется по фактической tessellation импортированного тела
 (замкнутый triangle mesh, ray parity), а не по наличию контура в snapshot.
-Точка внутри платы должна подтвердить материал; точка внутри каждого
-тестируемого сквозного выреза — отсутствие материала.
+FIX-001 требует probe для **каждого** `ContourRole.Hole` snapshot: результат
+содержит `ContourId` и координаты, `InsideSolid=false`; число probes точно
+равно числу Hole contours. Неполученная interior point или материал в вырезе
+дают Error (`SW-BRD-012`/`SW-BRD-013`), а итоговая проверка `SW-BRD-015`
+сравнивает множества ContourId. Точка внутри платы обязательна (`SW-BRD-014`).
 
 ## 8. Сборка и transforms
 
@@ -189,7 +201,7 @@ Tz = BoardSnapshot.Thickness / 2 - measuredTopZ
 
 Измеренная толщина не меняется; компоненты не сдвигаются.
 
-Desktop cutout board (`smoke-b3`, `--max-components 1`):
+Desktop cutout board (`smoke-b4`, `--max-components 1`):
 
 - 1 component SLDPRT + board, 2 occurrences (1 component + 1 board);
 - board transform: `Tx=34.4`, `Ty=12`, `Tz=0.39824787` mm, выведен из измеренных
@@ -210,7 +222,12 @@ Desktop cutout board (`smoke-b3`, `--max-components 1`):
   - `smoke-a4` JSON `57E96E701F4019BB211EEA4173926A744C21EE75E1C5B771456BF310D7178B92`,
     assembly `965358459E73712DB3176C272D85C9DB2683A1CE94FEE59DACF7DAEF7362AAFA`;
   - `smoke-b3` JSON `F8F2DFDD9AD6A9744EC56E0786BDB95C79BAA28A1EA5813C138BA6029134D3EA`,
-    assembly `98FA80D886FC4F7817EAB2CE02D7ED764C86C7030301C1EF12F2C80502850266`.
+    assembly `98FA80D886FC4F7817EAB2CE02D7ED764C86C7030301C1EF12F2C80502850266`;
+- FIX-001:
+  - `smoke-a5` JSON `01D953A86A7B9BE6901819D7D08988262A3DB4107B5F6106A2CC74F17C01FD51`,
+    assembly `F1FAFF143C31499D746FB14529AB0553157DB049B9265CF4F2FD5E8D0F3B47CA`;
+  - `smoke-b4` JSON `CF73DDE39A225F3D22DF8DDC717960D9D34DAAD0DA9F75EA9D79C5E6800EB23C`,
+    assembly `C4F8ABCAE16680720CED63FA6E1C5477BDDA064C110FA0E0133AECD7D3F8995E`.
 - Board fixed flag и transform проверяются после reopen отдельно.
 - Пользовательские документы baseline не закрываются; no-overwrite guard
   сохранён.
@@ -233,11 +250,11 @@ Desktop board использован как первый cutout fixture. Его 
 ## 11. Сборка и тесты
 
 - `dotnet build -c Release`: 0 warnings / 0 errors.
-- `dotnet test -c Release --no-build`: Core `208/208`, Altium `156/156`,
-  SolidWorks `75/75`, всего `439/439`.
-- `git diff --check`: OK.
-- Runtime smoke: MiniPC 20 + board (`smoke-a4`), Desktop cutout board
-  (`smoke-b3`, diagnostic), см. разделы 6–9.
+- `dotnet test -c Release --no-build`: Core `208/208`, Altium `162/162`,
+  SolidWorks `81/81`, всего `451/451`.
+- `git diff --check`: OK (Git предупреждает о конверсии LF → CRLF для новых файлов).
+- Runtime smoke FIX-001: MiniPC 20 + board (`smoke-a5`), Desktop cutout board
+  (`smoke-b4`, diagnostic), selection-preservation probe, см. разделы 6–9 и 15.
 - Повторный MiniPC/R3 smoke BRIDGE-000018 не выполнялся: формулы компонентов не
   менялись; component transforms проверены в smoke-a4.
 
@@ -283,3 +300,56 @@ snapshot outline неполный и поэтому production inspector её о
 
 Рекомендация: вариант 1, отдельная задача на outline adapter; не ослаблять
 production geometry gate и не объявлять Desktop board полностью валидированной.
+
+## 15. BRIDGE-000019-FIX-001
+
+### FIX-A — сохранение выделения
+
+Выбрана стратегия **exact restore** (не fail-closed). Подтверждённый typed API
+C-120 позволяет прочитать выбранные `IPCB_Primitive`, снять выделение и добавить
+те же объекты обратно; идентичность 확인няется по `GetState_Identifier()`.
+Reflection, dynamic, DelphiScript и Legacy API не используются.
+
+- `AltiumSelectionPreserver` всегда создаёт пару `BeginUpdate`/`EndUpdate` через
+  `finally` и восстанавливает выделение при успехе, отсутствии STEP, неверном
+  header, исключении exporter и ошибке hash.
+- Если `SelectedObjectsCount()`, `GetState_SelectecObjectCount()` и фактический
+  список расходятся, identifier пустой/не уникален или restore изменил набор —
+  board model объявляется fail-closed с отдельной диагностикой.
+- Пакет без board STEP публикуется с остальными данными; capability
+  `board-3d-model` не добавляется.
+
+Runtime AD26.12.2.9, временная копия MiniPC (не пользовательский файл):
+
+| Проверка | Результат |
+|---|---|
+| Исходное выделение | `C59,J5`, `SelectedObjectsCount=2`, `GetState_SelectecObjectCount=2` |
+| board-only STEP | `13 075` bytes, SHA-256 `128B2EC4…659CAC8` |
+| После экспорта | тот же набор `C59,J5`, `2/2`, `exactRestored=true` |
+| `GetModified` | `false` |
+| SHA временной копии до/после | `50547E5E…4B5749A93` |
+
+- JSON nonempty-selection evidence: SHA-256
+  `4A35F310B09359C0B705F77D3793A8E611441800C11BCF76D75CD2F5B49D57D2`.
+- Empty-selection export отдельно: `success=true`, `0/0`, `GetModified=false`,
+  JSON SHA-256 `012AD7BCB1C7EA3EF5524F99C0250A9511D4BEB12FA66D70B8E01D0BC5A8EA0E`,
+  board STEP SHA-256 `6F9BF1BB…C02DAA3`.
+- Временный probe-обработчик удалён до коммита; установленный extension
+  восстановлен с финальной сборкой `C824F538557491B963236BED243B3CC93E9FD069CDA7AE7D39CA1678082078FE`;
+  `.ins` и постоянные preferences не менялись.
+
+### FIX-B — обязательная проверка каждого cutout
+
+`SW-BRD-012` теперь Error, `SW-BRD-015` сравнивает точное множество ContourId
+проверенных cutout probes с Hole contours snapshot. `SW-BRD-008/010` и допуски
+не менялись. Material probe внутри платы обязателен (`SW-BRD-014`).
+
+- Desktop board (`smoke-b4`): оба snapshot cutout contour проверены, оба
+  `InsideSolid=false`; material probe `InsideSolid=true`; `SW-BRD-012/013/015`
+  отсутствуют. `success=false` только из-за `SW-BRD-008/010` неполного outline.
+- MiniPC (`smoke-a5`): `success=true`, 21/21 occurrences, 1 solid, geometry gate
+  пройден; Hole contours отсутствуют.
+- Новые unit-тесты: 6 тестов `AltiumSelectionPreserverTests`, 6 тестов
+  `SolidWorksBoardGeometryInspectorTests` (включая два cutout, пропущенную
+  точку, материал в вырезе и отсутствие material probe). `TriangleMeshTests`
+  не регрессировали.

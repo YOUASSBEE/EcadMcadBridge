@@ -785,9 +785,14 @@ Altium export использует тот же `IPCB_Board`. `IPCB_Board3DModelE
 явные настройки (STEP, `SelectedComponents`, `AllHoles`, `CopperNone`, без folded
 board, без component suffix, без pad/cavity holes и cover layers). Board-only
 режим доказывается `SelectedComponents` + проверенным пустым `IPCB_Board`
-selection; SDK не имеет отдельного «no components» переключателя. Сохранённые
-Altium preferences не читаются. Если board STEP не создан или не AP214, capability
-не объявляется, а пакет остаётся совместимым с предыдущим поведением.
+selection; SDK не имеет отдельного «no components» переключателя. Исходное
+выделение пользователя снимается только на время экспорта и восстанавливается
+точным набором объектов (по `IPCB_Primitive.GetState_Identifier()`); при
+отсутствии уникальных identifier или рассогласовании count экспорт board model
+fail-closed без очистки selection. `BeginUpdate`/`EndUpdate` всегда парные через
+`finally`. Сохранённые Altium preferences не читаются. Если board STEP не создан
+или не AP214, capability не объявляется, а пакет остаётся совместимым с
+предыдущим поведением.
 
 SOLIDWORKS импортирует board asset как отдельный native `board.SLDPRT`, тем же
 `LoadFile4`; STEP может открыться как part или assembly, assembly сохраняется в
@@ -796,8 +801,10 @@ part без смешивания с компонентами. Измеряютс
 XY bounds сверяются с `BoardOutlineBounds`, объём — с площадью Outer/Hole contours
 × измеренной толщиной; nominal `BoardProperties.Thickness` только диагностируется.
 Точки внутри платы и внутри каждого hole contour проверяются ray-casting по
-фактической tessellation; cutout считается подтверждённым только при отсутствии
-материала.
+фактической tessellation. Каждый `ContourRole.Hole` snapshot обязан дать probe с
+`ContourId` и координатами; число проверенных cutout probes должно точно
+совпадать с числом Hole contours. Неполученная точка или наличие материала в
+вырезе — Error. Точка внутри платы тоже обязательна.
 
 Board occurrence добавляется в `.SLDASM` отдельно и фиксируется:
 

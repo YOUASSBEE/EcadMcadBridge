@@ -18,7 +18,8 @@ internal sealed record AltiumBoardModelExportResult(
 /// <summary>
 /// Exports the PCB substrate only. Altium's exporter has no "no components" option, so the
 /// board-only contract is expressed by SelectedComponents plus a verified empty selection.
-/// All exporter switches are set explicitly; saved user preferences are not read.
+/// The original user selection is restored exactly after the export; all exporter switches
+/// are set explicitly and saved user preferences are not read.
 /// </summary>
 internal static class AltiumBoardModelExporter
 {
@@ -32,6 +33,29 @@ internal static class AltiumBoardModelExporter
         if (board is null)
             return Failure("The PCB board is unavailable for board model export.", warnings);
 
+        AltiumBoardModelExportResult? core = null;
+        var preservation = AltiumSelectionPreserver.Execute(
+            new PcbBoardSelectionStore(board),
+            () => core = ExportCore(board, exportDirectory, warnings));
+
+        var mergedWarnings = core is null
+            ? new List<string>(warnings)
+            : new List<string>(core.Warnings);
+        mergedWarnings.AddRange(preservation.Warnings);
+
+        if (!preservation.Success)
+            return Failure(preservation.Error ?? "PCB selection preservation failed.", mergedWarnings);
+        if (core is null)
+            return Failure("Board model export did not return a result.", mergedWarnings);
+
+        return core with { Warnings = mergedWarnings };
+    }
+
+    private static AltiumBoardModelExportResult ExportCore(
+        IPCB_Board board,
+        string exportDirectory,
+        List<string> warnings)
+    {
         try
         {
             Directory.CreateDirectory(exportDirectory);
@@ -49,20 +73,9 @@ internal static class AltiumBoardModelExporter
             Configure(exporter);
 
             // SelectedComponents is the only SDK option that can exclude component bodies.
-            // The export is board-only only while the board selection is empty.
+            // AltiumSelectionPreserver guarantees an empty selection for the whole export.
             if (board.SelectedObjectsCount() != 0)
-            {
-                board.SelectedObjects_BeginUpdate();
-                board.SelectedObjects_Clear();
-                board.SelectedObjects_EndUpdate();
-            }
-
-            if (board.SelectedObjectsCount() != 0)
-            {
-                return Failure(
-                    "PCB selection could not be cleared; board-only export is not provable.",
-                    warnings);
-            }
+                return Failure("PCB selection is not empty; board-only export is not provable.", warnings);
 
             exporter.ExportBoard3DModel(
                 stepPath,
@@ -84,9 +97,6 @@ internal static class AltiumBoardModelExporter
             {
                 return Failure("Board STEP SHA-256 is not a lowercase hexadecimal digest.", warnings);
             }
-
-            if (board.SelectedObjectsCount() != 0)
-                warnings.Add("PCB selection changed during board model export.");
 
             return new AltiumBoardModelExportResult(stepPath, hash.Sha256, hash.Size, warnings, null);
         }

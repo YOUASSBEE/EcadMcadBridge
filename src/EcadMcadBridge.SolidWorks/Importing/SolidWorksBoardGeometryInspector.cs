@@ -219,73 +219,22 @@ internal static class SolidWorksBoardGeometryInspector
         {
             var midZ = (minZ + maxZ) / 2.0;
             var outerPoints = outerContours.Select(SampleContour).ToArray();
-            var holePoints = holeContours.Select(contour => (Contour: contour, Points: SampleContour(contour))).ToArray();
+            var holePoints = holeContours
+                .Select(contour => (contour.Id, Points: SampleContour(contour)))
+                .ToArray();
 
-            if (TryFindSolidPoint(outerPoints, holePoints.Select(item => item.Points).ToArray(), out var solidX, out var solidY))
-            {
-                var localX = solidX - bounds.MinX;
-                var localY = solidY - bounds.MinY;
-                probes.Add(new SolidWorksBoardProbe(
-                    "board",
-                    "outer",
-                    localX,
-                    localY,
-                    midZ,
-                    true,
-                    mesh.Contains(localX, localY, midZ)));
-            }
-            else
-            {
-                Error("SW-BRD-011", "board", "No interior board probe point could be found.", diagnostics);
-            }
-
-            foreach (var (contour, points) in holePoints)
-            {
-                if (!TryInteriorPoint(points, out var holeX, out var holeY))
-                {
-                    diagnostics.Add(new SolidWorksDiagnostic(
-                        "SW-BRD-012",
-                        SolidWorksDiagnosticSeverity.Warning,
-                        contour.Id,
-                        "Cutout interior point could not be derived; the cutout was not probed."));
-                    continue;
-                }
-
-                var localX = holeX - bounds.MinX;
-                var localY = holeY - bounds.MinY;
-                probes.Add(new SolidWorksBoardProbe(
-                    "cutout",
-                    contour.Id,
-                    localX,
-                    localY,
-                    midZ,
-                    false,
-                    mesh.Contains(localX, localY, midZ)));
-            }
-
-            foreach (var probe in probes)
-            {
-                if (probe.InsideSolid == probe.ExpectedInsideSolid)
-                    continue;
-
-                Error(
-                    "SW-BRD-013",
-                    probe.ContourId,
-                    probe.Kind + " probe insideSolid=" + probe.InsideSolid.ToString() +
-                    "; expected " + probe.ExpectedInsideSolid.ToString() + ".",
-                    diagnostics);
-            }
-
-            if (!probes.Any(probe => probe.Kind == "board" && probe.InsideSolid))
-            {
-                Error("SW-BRD-014", "board", "The solid board probe did not confirm material.", diagnostics);
-            }
-
-            if (holePoints.Length > 0
-                && !probes.Any(probe => probe.Kind == "cutout" && !probe.InsideSolid))
-            {
-                Error("SW-BRD-015", "board", "No through cutout was confirmed empty.", diagnostics);
-            }
+            probes.AddRange(ProbeGeometry(
+                mesh,
+                bounds.MinX,
+                bounds.MinY,
+                midZ,
+                outerPoints,
+                holePoints,
+                diagnostics));
+            ValidateProbes(
+                probes,
+                holeContours.Select(contour => contour.Id).ToArray(),
+                diagnostics);
         }
         else
         {
@@ -314,6 +263,113 @@ internal static class SolidWorksBoardGeometryInspector
             zTopResidual,
             probes);
         return new SolidWorksBoardGeometryResult(geometry, diagnostics);
+    }
+
+    internal static IReadOnlyList<SolidWorksBoardProbe> ProbeGeometry(
+        TriangleMesh mesh,
+        double minX,
+        double minY,
+        double midZ,
+        IReadOnlyList<IReadOnlyList<(double X, double Y)>> outerPoints,
+        IReadOnlyList<(string Id, IReadOnlyList<(double X, double Y)> Points)> holePoints,
+        List<SolidWorksDiagnostic> diagnostics)
+    {
+        var probes = new List<SolidWorksBoardProbe>();
+        if (TryFindSolidPoint(outerPoints, holePoints.Select(item => item.Points).ToArray(), out var solidX, out var solidY))
+        {
+            var localX = solidX - minX;
+            var localY = solidY - minY;
+            probes.Add(new SolidWorksBoardProbe(
+                "board",
+                "outer",
+                localX,
+                localY,
+                midZ,
+                true,
+                mesh.Contains(localX, localY, midZ)));
+        }
+        else
+        {
+            Error("SW-BRD-011", "board", "No interior board probe point could be found.", diagnostics);
+        }
+
+        foreach (var (id, points) in holePoints)
+        {
+            if (BuildCutoutProbe(id, points, mesh, minX, minY, midZ, diagnostics) is { } probe)
+                probes.Add(probe);
+        }
+
+        return probes;
+    }
+
+    internal static SolidWorksBoardProbe? BuildCutoutProbe(
+        string contourId,
+        IReadOnlyList<(double X, double Y)> points,
+        TriangleMesh mesh,
+        double minX,
+        double minY,
+        double midZ,
+        List<SolidWorksDiagnostic> diagnostics)
+    {
+        if (!TryInteriorPoint(points, out var holeX, out var holeY))
+        {
+            Error(
+                "SW-BRD-012",
+                contourId,
+                "Cutout interior point could not be derived; the cutout was not probed.",
+                diagnostics);
+            return null;
+        }
+
+        var localX = holeX - minX;
+        var localY = holeY - minY;
+        return new SolidWorksBoardProbe(
+            "cutout",
+            contourId,
+            localX,
+            localY,
+            midZ,
+            false,
+            mesh.Contains(localX, localY, midZ));
+    }
+
+    internal static void ValidateProbes(
+        IReadOnlyList<SolidWorksBoardProbe> probes,
+        IReadOnlyList<string> holeContourIds,
+        List<SolidWorksDiagnostic> diagnostics)
+    {
+        foreach (var probe in probes)
+        {
+            if (probe.InsideSolid == probe.ExpectedInsideSolid)
+                continue;
+
+            Error(
+                "SW-BRD-013",
+                probe.ContourId,
+                probe.Kind + " probe insideSolid=" + probe.InsideSolid.ToString() +
+                "; expected " + probe.ExpectedInsideSolid.ToString() + ".",
+                diagnostics);
+        }
+
+        if (!probes.Any(probe => probe.Kind == "board" && probe.InsideSolid))
+        {
+            Error("SW-BRD-014", "board", "The solid board probe did not confirm material.", diagnostics);
+        }
+
+        var cutoutIds = probes.Where(probe => probe.Kind == "cutout")
+            .Select(probe => probe.ContourId)
+            .ToArray();
+        if (cutoutIds.Length != holeContourIds.Count
+            || !cutoutIds.ToHashSet(StringComparer.Ordinal).SetEquals(holeContourIds))
+        {
+            Error(
+                "SW-BRD-015",
+                "board",
+                "Verified " + cutoutIds.Length.ToString(CultureInfo.InvariantCulture) +
+                " cutout probes; expected " + holeContourIds.Count.ToString(CultureInfo.InvariantCulture) +
+                " Hole contours.",
+                diagnostics);
+        }
     }
 
     private static TriangleMesh? BuildMesh(IReadOnlyList<Body2> bodies, List<SolidWorksDiagnostic> diagnostics)
