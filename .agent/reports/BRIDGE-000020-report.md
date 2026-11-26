@@ -5,10 +5,10 @@ status: ready_for_review
 from: local-agent
 to: operator
 created: 2026-11-26T13:25:00+03:00
-updated: 2026-11-26T14:41:00+03:00
+updated: 2026-11-26T15:01:00+03:00
 base: source
 branch: agent/BRIDGE-000020-board-outline-completeness
-commit: aefa45227f16c95a0ed291c1016ac41fe1382a14
+commit: a3ea50d933d258ca266cf7b73043556063182b68
 pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/19
 related: [BRIDGE-000020, BRIDGE-000019, BRIDGE-000018]
 ---
@@ -489,3 +489,178 @@ SHA-256 `C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000019\minipc.P
   task-файл BRIDGE-000020 в репозитории отсутствует.
 - Ни proprietary DLL, ни лицензии, ни PCB/STEP/SLDASM/SLDPRT, ни данные заказчика в
   Git не добавлены. PR #19 остаётся открытым и неслитым; `source` не изменялся.
+
+## 9. REVIEW-FIX-002 — сохранение восстановленных контуров Region в PR #19
+
+Работа выполнена как продолжение REVIEW-FIX-001 в той же ветке
+`agent/BRIDGE-000020-board-outline-completeness` и том же PR #19. Новый PR не создавался,
+`source` не изменялся, REVIEW-FIX-001 не переоткрывался. Отдельного task-файла
+REVIEW-FIX-002 в `.agent/tasks/` нет; изменение сделано в рамках BRIDGE-000020 по результату
+ревью. Код зафиксирован коммитом `a3ea50d933d258ca266cf7b73043556063182b68`.
+
+### 9.1 Причина и принятый алгоритм
+
+В `ReadRegionContours()` при частично прочитанном `GetGeometricPolygon()` вызывался fallback
+`GetMainContour()`/`GetHole()`. Точное совпадение пропущенного контура доказывалось через
+`ContourPointsEqual()`, после чего ключ удалялся из `UnresolvedCutoutSources`, но сам
+восстановленный контур **не добавлялся** в `result`. Контур исчезал из
+`AltiumRegionInfo.Contours` и, следовательно, из последующего учёта cutout-источников.
+
+Исправление вынесено в чистую функцию `ReconcileFallbackContours()`:
+
+1. Для каждого пропущенного контура ищется только **точное** совпадение в fallback-наборе
+   (`FindExactContourIndex` → `ContourPointsEqual`). Сравнение по IU осталось точным, с
+   учётом замыкающего points, стартовой точки и направления обхода; сравнения только по
+   bounds/area/centre/count не используется. Пороги и правила топологии не изменены:
+   `SW-BRD-008` — `0.05 mm`, `SW-BRD-010` — `max(5 mm³, 2%)`.
+2. При точном совпадении ключ снимается с учёта только после одного из двух доказанных
+   исходов: восстановленный контур добавляется в результат **как есть** (`IsHole`, `Source`,
+   `SourceIndex` сохраняются) и уходит в геометрию; либо он доказан как точный дубль уже
+   присутствующего контура и учитывается через `DuplicateCutoutSources` без второго export.
+3. При отсутствии точного совпадения или пустом fallback (в том числе после исключения при
+   чтении) ключ остаётся в `UnresolvedCutoutSources`, добавляется `RegionContourUnproven`,
+   инкрементируется `boardCutoutUnprovenSkipped` — результат `Incomplete`.
+4. В `ADAPTER_SUMMARY` добавлены счётчики `regionContourRecovered` и
+   `regionContourRecoveryDuplicates`; diagnostic-issue kinds `RegionContourRecovered` и
+   `RegionContourRecoveryDuplicate` дают проверяемый след каждого исхода.
+
+Новые ADR и новые вызовы SDK не потребовались; `SDK_API_LEDGER.md` не менялся.
+
+### 9.2 Изменённые файлы
+
+- `src/EcadMcadBridge.Altium/Adapter/AltiumBoardSnapshotAdapter.cs` — новая pure-функция
+  сверки fallback, сохранение `Source`/`SourceIndex`/`IsHole`, явный учёт дублей и
+  fail-closed для недоказанных контуров; нормализация замыкающего points в точном сравнении.
+- `tests/EcadMcadBridge.Altium.Tests/RegionContourRecoveryTests.cs` — новый файл, 7 тестов без
+  Altium host; покрывает все требуемые сценарии ревью.
+
+### 9.3 Unit-тесты
+
+| Тест | Проверяемый исход |
+|---|---|
+| `ContourPointsEqual_IgnoresClosureStartPointAndDirection` | точное совпадение ring при разном closure/старте/направлении; разные ring не совпадают |
+| `SkippedContour_ExactFallbackRecovery_IsForwardedAndAccounted` | восстановленный контур присутствует в финальной коллекции, provenance сохранён, ключ снят с учёта |
+| `FallbackExactDuplicateOfExistingContour_IsAccountedWithoutSecondExport` | точный дубль учтён, второй контур не экспортируется |
+| `FallbackDoesNotReproduceSkippedContour_RemainsIncomplete` | невоспроизводимый fallback → `Incomplete` |
+| `FallbackReadFailure_KeepsWholeReadSourceUnresolved` | исключение/отсутствие fallback → весь источник остаётся unresolved, `Incomplete` |
+| `RecoveredHoleContour_PreservesHoleFlagAndSourceIndex` | Hole-флаг, `Source` и `SourceIndex` переносятся в результат |
+| `MixedSkippedContours_RecoveredForwardedAndUnresolvedFailClosed` | один контур восстановлен, другой остался unresolved; итог `Incomplete` |
+
+`dotnet build -c Release --nologo`: 0 warning, 0 error. `dotnet test -c Release --nologo
+--no-build`: Core 229/229, Altium 191/191, SOLIDWORKS 94/94, всего 514/514.
+
+### 9.4 Проверка на реальных CAD-хостах
+
+После сборки установленный ALTium extension был перезапущен (процесс `X2`, удерживавший DLL,
+остановлен) и DLL скопированы в
+`C:\ProgramData\Altium\Altium Designer {B4282C90-18BF-448F-BF1A-9E36AE887190}\Extensions\EcadMcadBridge`:
+
+- `EcadMcadBridge.dll` SHA-256 `674E1E50BDBBBBAE64ED63C8DAEDC76FFBF0D03F471716C2768042D90B707446`;
+- `EcadMcadBridge.Core.dll` SHA-256 `3613AC750FB4086180155AC72FCF308FF84170ADEED5A9BE3CE19EA718DF82DB`.
+
+#### Desktop export + Smoke B
+
+Экспорт выполнен из копии
+`C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000020\board-with-cutout.PcbDoc`
+скриптом `run-export-b-002.ps1`. Package `0569d4fa-a61a-4b08-a05f-f7c36c03a2c8` в
+`C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000020\packages-b-reviewfix-002\0569d4fa-a61a-4b08-a05f-f7c36c03a2c8`.
+
+- `board.snapshot.json` SHA-256 `0A0416CB57B37C18CB27A29BC020C8B14A85FD8164451BECC61997A4A66D59CC`,
+  `board.outline.completeness=complete`; capability `board-3d-model` присутствует.
+- `manifest.json` SHA-256 `045413E407521B0A67F04102279C36F2BEF22A445813EF0BEC2F48A2241DAF60`;
+  `checksums.sha256` SHA-256 `ABF7388A4CFF46AF49106AA30B505F295A688CBB3A87F8DE4E3143E3770C83F8`;
+  `board.model.json` SHA-256 `57FBF5A2D774296FA054EDB18F11446B78949AFBE3DF7CC6A6530DFEB52E830F`.
+- Контуры: `altium:contour:0` Outer (12 segments), `altium:contour:cutout:clip:1` Hole
+  (7 segments), `altium:contour:cutout:clip:2` Hole (9 segments). Origin
+  `originXIu=603848426/originXMm=1533.77500204`,
+  `originYIu=388464566/originYMm=986.6999976399999`.
+- `PACKAGE_EXPORT_OK`: layers=17, components=73, pads=224, nets=57, bodies=152,
+  stepAssets=152, exportFailures=0, fallbacks=0, adapterWarnings=14, modelWarnings=0,
+  packageWarnings=28.
+- `ADAPTER_SUMMARY` (2026-11-26T11:54:34Z):
+  `regionContourRecovered=0 regionContourRecoveryDuplicates=0
+  boardCutoutUnprovenSkipped=0 unresolvedSources=0 unresolvedLoops=0
+  clipReusedSources=0 exportedCutoutContours=2 boardCutoutContours=5 boardCutoutHoles=2`.
+
+**Важно:** реальный AD26-прогон не воспроизвёл ветку fallback-recovery: счётчики
+`regionContourRecovered` и `regionContourRecoveryDuplicates` равны нулю. Поэтому новая ветка
+проверена unit-тестами, а CAD-прогоны подтверждают только отсутствие регрессии и прежнюю
+полноту контура; выдавать синтетические тесты за runtime-проверку recovery нельзя.
+
+Smoke B запущен после ручного старта SOLIDWORKS:
+
+```powershell
+dotnet tools\EcadMcadBridge.SolidWorks.Smoke\bin\Release\net10.0-windows\EcadMcadBridge.SolidWorks.Smoke.dll `
+  --package 'C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000020\packages-b-reviewfix-002\0569d4fa-a61a-4b08-a05f-f7c36c03a2c8' `
+  --output 'C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000020\smoke-b11' `
+  --placed-assembly --max-components 1 `
+  --template 'C:\ProgramData\SOLIDWORKS\SOLIDWORKS 2026\templates\gost-assy.asmdot'
+```
+
+`smoke-b11\smoke-result.json` SHA-256
+`963CAFD2C808CB82CD33E805B4705DF547FBCFE8354E26742E7EF4DC32B0681D`.
+`success=true`, `packageReadSuccess=true`, `boardModelRequested=true`,
+`outlineCompleteness=Complete`, `outlineComplete=true`, `geometryValid=true`; 3 solid body,
+bounds `80 x 54.999999999999886 x 0.79649574 mm`. Geometry gate пройден:
+
+| Проверка | Значение | Допуск |
+|---|---:|---|
+| `SW-BRD-008` XY residual | `2.9000002541579306e-06 mm` | `0.05 mm` |
+| Z top residual | `0 mm` | `0.05 mm` |
+| Thickness delta | `1.1102230246251565e-16 mm` | nominal `0.7964957399999999 mm` |
+| `SW-BRD-010` volume | measured `848.1995991811365 mm³`, expected `847.0143327901454 mm³`, residual `1.1852663909910461 mm³` | `max(5 mm³, 2%) = 16.9402866558029 mm³` |
+
+Per-body measurement (все тела — solid, строгая tessellation прочитана):
+
+| Body | Thickness mm | Measured mm³ | Expected mm³ | Residual mm³ | Triangles |
+|---|---:|---:|---:|---:|---:|
+| 1 strip | `0.08449818` | `27.8843994` | `27.88441127` | `-1.18703e-05` | 44 |
+| 2 lobe | `0.79649574` | `402.5628560` | `401.96817871` | `0.59467728` | 392 |
+| 3 lobe | `0.79649574` | `417.75234378` | `417.16174281` | `0.59060098` | 260 |
+
+Probes: `board` / `altium:contour:0` expected=true actual=true; `cutout` / `clip:1` и
+`cutout` / `clip:2` expected=false actual=false. Geometry diagnostics — только ожидаемый
+Warning `SW-BRD-005` о 3 solid body; Error-диагностик нет. Placed assembly
+`smoke-b11\assembly\smoke-placed-assembly.SLDASM` SHA-256
+`380879CD063D8C412FDFF48BBDC0DD64E6405284C6F4E5A5D20D8F4BFCBF877B`; 2/2 occurrences,
+save/reopen=true, transformsVerified=true, board `board-1` fixed=true/verified=true,
+translation/rotation residual `0`. Cleanup import и placedAssembly `Verified`,
+`RemainingCreatedDocuments=0`, `remainingDocuments` пуст. SHA-256 `.PcbDoc` до export и после
+smoke: `ED624C68DC315A3E022E96979C5A7B2B32F5BBAD3DB722BE0CCA2EB9C8647753` (без изменений).
+
+#### MiniPC Smoke A
+
+```powershell
+dotnet tools\EcadMcadBridge.SolidWorks.Smoke\bin\Release\net10.0-windows\EcadMcadBridge.SolidWorks.Smoke.dll `
+  --package 'C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000020\packages-minipc\4a4fb429-c8b5-434f-8653-fd60de329fd6' `
+  --output 'C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000020\smoke-a9' `
+  --placed-assembly --template 'C:\ProgramData\SOLIDWORKS\SOLIDWORKS 2026\templates\gost-assy.asmdot'
+```
+
+`smoke-a9\smoke-result.json` SHA-256
+`49526EFE5E7B8446F7C288E3039BC88FBD349034AA7711D570ED9D75C15D6EEF`.
+`success=true`, `outlineCompleteness=Complete`, `outlineComplete=true`,
+`geometryValid=true`; 1 solid body, bounds
+`175.00000000000003 x 155 x 2.0080020800000002 mm`, volume
+`54097.58403728001 mm³`, expected `54097.58403888647 mm³`, residual
+`-1.6064586816355586e-06 mm³`, XY residual `5.1999995775986463e-07 mm`.
+Geometry diagnostics пусты. 21/21 occurrences, save/reopen=true, transformsVerified=true,
+board fixed=true, translation/rotation residual `0`, cleanup import/placedAssembly `Verified`,
+`RemainingCreatedDocuments=0`. Assembly
+`smoke-a9\assembly\smoke-placed-assembly.SLDASM` SHA-256
+`CEF6A59B3DC5333C45C377BE9CE87F06E6D4BAD58E4066D3030D2D9804F7A5F6`. SHA-256
+`C:\Users\Anton\AppData\Local\Temp\EcadMcadBridge\BRIDGE-000019\minipc.PcbDoc` до и после
+smoke: `50547E5ED4AA84C430CD1F3B3F5EDBF2ED6FB013E8C076A871C9BDE4B5749A93` (без изменений).
+
+### 9.5 Итог REVIEW-FIX-002
+
+- `dotnet build -c Release` — 0 warning, 0 error; `dotnet test -c Release` — 514/514.
+- `git diff --check` — без ошибок; после финальных коммитов рабочее дерево чистое.
+- Commit с кодом и тестами: `a3ea50d933d258ca266cf7b73043556063182b68`; PR #19
+  `https://github.com/YOUASSBEE/EcadMcadBridge/pull/19` остаётся `open`, `merged=false`,
+  base `source`.
+- Архитектура, стек/TFM, `Complete`/`Incomplete`/`Unknown`, правило `board-3d-model` только при
+  `Complete`, пороги совпадения и допуски, публичный формат пакета не изменены.
+- Риски: ветка fallback-recovery не воспроизведена реальным AD26-прогоном; покрытие этой
+  ветки — только изолированные unit-тесты. Остальные ранее зафиксированные риски
+  REVIEW-FIX-001 сохраняются в силе.
