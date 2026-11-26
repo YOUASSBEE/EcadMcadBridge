@@ -5,11 +5,11 @@ status: blocked
 from: local-agent
 to: operator
 created: 2026-11-26T21:14:11+03:00
-updated: 2026-11-26T21:32:03+03:00
+updated: 2026-11-26T21:35:27+03:00
 base: source
 base_sha: bdff118b288454be68c7c590d875142620a139e2
 branch: task/BRIDGE-000027-controlled-hot-reload
-commit: pending
+commit: 1fa649b9103932783ec32f588002c626af9a4cf8
 pr: none
 related:
   - BRIDGE-000024
@@ -454,7 +454,8 @@ HotReload `1.0.1`, template `1.1.0`, bridge script `2026.11.25.1`.
 - branch: `task/BRIDGE-000027-controlled-hot-reload`
 - content commit: `2edd26a87531347e85cd3814ff43cd3da6314254`
 - meta commit 1: `062b6fd5bc01d9055c8cfed190fcad571a211879`
-- final report commit: `<pending>`
+- final report content commit: `1fa649b9103932783ec32f588002c626af9a4cf8`
+- meta commit 2 (фиксация SHA): текущий HEAD; его SHA не включается в текст во избежание рекурсии
 - PR для BRIDGE-000027: не создаётся по условию задачи
 - PR #23: https://github.com/YOUASSBEE/EcadMcadBridge/pull/23 — `open`, `merged=false`,
   head `e28881486c69f0fb689f3181f9abda38deefe481`
