@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using DXP;
 using EcadMcadBridge.Altium.Adapter;
 using EcadMcadBridge.Core.Model;
@@ -14,6 +16,9 @@ internal static class ExportBoardSnapshotHandler
     private const string AddInVersion = "0.4.0";
     private const string Caption = "EcadMcadBridge";
     private const string ProducerComponent = "EcadMcadBridge.Altium";
+
+    private static readonly ExportRequestCoordinator Requests =
+        new((level, code, message) => BridgeLogger.Write(level, code, message));
 
     private static readonly string[] Capabilities =
     {
@@ -36,7 +41,7 @@ internal static class ExportBoardSnapshotHandler
         bool warning;
         try
         {
-            (message, warning) = Export(view);
+            (message, warning) = Export(view, parameters);
         }
         catch (Exception ex)
         {
@@ -59,107 +64,128 @@ internal static class ExportBoardSnapshotHandler
             DXP.Utils.ShowInfo(message, Caption);
     }
 
-    private static (string Message, bool Warning) Export(IServerDocumentView view)
+    private static (string Message, bool Warning) Export(IServerDocumentView view, string parameters)
     {
         var document = view?.GetOwnerDocument();
-        if (!AltiumDocumentStateReader.TryRead(document, out var before, out var stateError)
-            || before is null)
-        {
-            BridgeLogger.Write("WARN", "E_SOURCE_STATE", stateError);
-            return (stateError, true);
-        }
+        var requestId = ResolveRequestId(parameters, document?.GetFileName() ?? string.Empty);
+        AltiumDocumentState? state = null;
 
-        if (before.IsModified)
-        {
-            const string unsaved = "The active PCB has unsaved changes; save it and retry the export.";
-            BridgeLogger.Write("WARN", "E_SOURCE_MODIFIED", unsaved);
-            return (unsaved, true);
-        }
-
-        BridgeLogger.Write(
-            "INFO",
-            "SOURCE_STATE",
-            $"doc={Path.GetFileName(before.FilePath)} kind={before.DocumentKind} " +
-            "modified=false pathRooted=true");
-
-        var data = AltiumBoardSnapshotAdapter.Read(view);
-        foreach (var adapterWarning in data.Warnings)
-            BridgeLogger.Write("WARN", "ADAPTER", adapterWarning);
-        BridgeLogger.Write("INFO", "ADAPTER_SUMMARY", data.Diagnostics.Summary());
-
-        string? tempDirectory = null;
-        try
-        {
-            tempDirectory = AltiumModelExportWorkspace.Create();
-            var modelStopwatch = Stopwatch.StartNew();
-            AltiumComponentModelResult modelResult;
-            try
+        var result = new ExportRequestPipeline(
+            Requests,
+            () =>
             {
-                modelResult = AltiumComponentModelReader.Read(
-                    data.Board,
-                    data.Snapshot,
-                    data.ComponentIdentities,
-                    tempDirectory);
-            }
-            catch (AltiumModelInventoryException ex)
-            {
-                BridgeLogger.Write("ERROR", "E_MODEL_INVENTORY", ex.Message);
-                return (
-                    "3D component model inventory is incomplete; the Exchange Package was not created.\n" +
-                    ex.Message,
-                    true);
-            }
-            finally
-            {
-                modelStopwatch.Stop();
+                if (!AltiumDocumentStateReader.TryRead(document, out var before, out var stateError)
+                    || before is null)
+                {
+                    BridgeLogger.Write("WARN", "E_SOURCE_STATE", stateError);
+                    return ExportGateResult.Reject(stateError);
+                }
+
+                if (before.IsModified)
+                {
+                    const string unsaved =
+                        "The active PCB has unsaved changes; save it and retry the export.";
+                    BridgeLogger.Write("WARN", "E_SOURCE_MODIFIED", unsaved);
+                    return ExportGateResult.Reject(unsaved);
+                }
+
                 BridgeLogger.Write(
                     "INFO",
-                    "MODEL_EXPORT_MS",
-                    modelStopwatch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture));
-            }
-
-            foreach (var modelWarning in modelResult.Warnings)
-                BridgeLogger.Write("WARN", "MODEL_WARNING", modelWarning);
-            BridgeLogger.Write("INFO", "MODEL_EXPORT_SUMMARY", modelResult.Diagnostics.Summary());
-
-            var capabilities = Capabilities.ToList();
-            var boardModelResult = AltiumBoardModelExporter.Export(data.Board, tempDirectory);
-            foreach (var warning in boardModelResult.Warnings)
-                BridgeLogger.Write("WARN", "BOARD_MODEL", warning);
-            if (boardModelResult.IsSuccess)
+                    "SOURCE_STATE",
+                    $"doc={Path.GetFileName(before.FilePath)} kind={before.DocumentKind} " +
+                    "modified=false pathRooted=true");
+                state = before;
+                return ExportGateResult.Allow();
+            },
+            () =>
             {
-                capabilities.Add(BoardModelDescriptor.Capability);
-                BridgeLogger.Write(
-                    "INFO",
-                    "BOARD_MODEL_EXPORT",
-                    $"boardStepSize={boardModelResult.Size} boardStepSha={boardModelResult.Sha256}");
-            }
-            else
+                var resolved = PackageRootResolver.Resolve();
+                if (!resolved.IsSuccess || resolved.Root is null)
+                {
+                    BridgeLogger.Write("WARN", "E_PACKAGE_ROOT", resolved.Message);
+                    return ExportPackageRootResult.Reject(resolved.Message);
+                }
+
+                return ExportPackageRootResult.Allow(resolved.Root);
+            },
+            () => AltiumModelExportWorkspace.Create(),
+            directory =>
             {
-                BridgeLogger.Write("WARN", "E_BOARD_MODEL", boardModelResult.Error ?? "Board model export failed.");
+                var cleanupWarnings = new List<string>();
+                AltiumModelExportWorkspace.TryDelete(directory, cleanupWarnings);
+                foreach (var cleanupWarning in cleanupWarnings)
+                    BridgeLogger.Write("WARN", "MODEL_CLEANUP", cleanupWarning);
+            },
+            () => AltiumBoardSnapshotAdapter.Read(view),
+            (snapshot, directory) =>
+            {
+                var stopwatch = Stopwatch.StartNew();
+                try
+                {
+                    return AltiumComponentModelReader.Read(
+                        snapshot.Board,
+                        snapshot.Snapshot,
+                        snapshot.ComponentIdentities,
+                        directory);
+                }
+                finally
+                {
+                    stopwatch.Stop();
+                    BridgeLogger.Write(
+                        "INFO",
+                        "MODEL_EXPORT_MS",
+                        stopwatch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture));
+                }
+            },
+            (snapshot, directory) => AltiumBoardModelExporter.Export(snapshot.Board, directory),
+            WritePackage,
+            Capabilities,
+            (level, code, message) => BridgeLogger.Write(level, code, message))
+            .Execute(requestId);
+
+        if (result.Outcome.Status == ExportRequestStatus.DuplicateRejected)
+        {
+            return (
+                "This export request was already processed; no second Exchange Package was created.\n" +
+                Correlation(result.Outcome),
+                true);
+        }
+
+        if (result.Outcome.Status != ExportRequestStatus.Completed)
+        {
+            return (
+                "Exchange Package export did not complete.\n" + Correlation(result.Outcome) + "\n" +
+                result.Message,
+                true);
+        }
+
+        return (result.Message, result.Warning);
+
+        ExportInvocationResult WritePackage(
+            ExportPackageWriteRequest request,
+            ExportInvocation invocation)
+        {
+            if (state is null)
+            {
+                const string missing = "The active PCB state was not captured.";
+                BridgeLogger.Write("WARN", "E_SOURCE_CHANGED", missing);
+                return new ExportInvocationResult(ExportRequestStatus.Failed, missing);
             }
 
-            if (!AltiumDocumentStateReader.TryRecheck(document, before, out var recheckError))
+            if (!AltiumDocumentStateReader.TryRecheck(document, state, out var recheckError))
             {
                 BridgeLogger.Write("WARN", "E_SOURCE_CHANGED", recheckError);
-                return (recheckError, true);
+                return new ExportInvocationResult(ExportRequestStatus.Failed, recheckError);
             }
 
-            var source = PackageSourceMetadataReader.Read(before.FilePath, isModified: false);
-            if (!source.IsSuccess || source.Metadata is null)
+            var sourceResult = PackageSourceMetadataReader.Read(state.FilePath, isModified: false);
+            if (!sourceResult.IsSuccess || sourceResult.Metadata is null)
             {
-                BridgeLogger.Write("WARN", "E_SOURCE_HASH", source.Message);
-                return (source.Message, true);
+                BridgeLogger.Write("WARN", "E_SOURCE_HASH", sourceResult.Message);
+                return new ExportInvocationResult(ExportRequestStatus.Failed, sourceResult.Message);
             }
 
-            var packageRoot = PackageRootResolver.Resolve();
-            if (!packageRoot.IsSuccess || packageRoot.Root is null)
-            {
-                BridgeLogger.Write("WARN", "E_PACKAGE_ROOT", packageRoot.Message);
-                return (packageRoot.Message, true);
-            }
-
-            var packageId = Guid.NewGuid();
+            var packageId = Guid.Parse(invocation.InvocationId);
             var options = new PackageWriteOptions
             {
                 PackageId = packageId,
@@ -172,19 +198,19 @@ internal static class ExportBoardSnapshotHandler
                 Source = new PackageSource
                 {
                     Cad = "altium",
-                    DocumentSha256 = source.Metadata.Sha256,
+                    DocumentSha256 = sourceResult.Metadata.Sha256,
                 },
-                Capabilities = capabilities.ToArray(),
+                Capabilities = request.Capabilities,
             };
 
-            var boardRequest = boardModelResult.IsSuccess
-                ? new BoardModelWriteRequest { SourcePath = boardModelResult.StepPath! }
+            var boardRequest = request.BoardModel.IsSuccess
+                ? new BoardModelWriteRequest { SourcePath = request.BoardModel.StepPath! }
                 : null;
             var package = ExchangePackageWriter.Write(
-                packageRoot.Root,
-                data.Snapshot,
+                request.PackageRoot,
+                request.Snapshot.Snapshot,
                 options,
-                modelResult.Request,
+                request.Model.Request,
                 boardRequest);
             if (!package.IsSuccess)
             {
@@ -200,15 +226,15 @@ internal static class ExportBoardSnapshotHandler
                     ? package.Errors[0].Code + " at " + package.Errors[0].Path +
                       ": " + package.Errors[0].Message
                     : "Package writer returned failure without a diagnostic.";
-                return ("Exchange Package export failed.\n" + first, true);
+                return new ExportInvocationResult(ExportRequestStatus.Failed, first);
             }
 
             var packageDirectory = package.PackageDirectory ??
-                Path.Combine(packageRoot.Root, packageId.ToString("D"));
+                Path.Combine(request.PackageRoot, packageId.ToString("D"));
             var read = ExchangePackageReader.Read(packageDirectory);
             if (!read.IsSuccess
                 || read.Models is null
-                || read.Models.Components.Count != data.Snapshot.Components.Count
+                || read.Models.Components.Count != request.Snapshot.Snapshot.Components.Count
                 || (boardRequest is not null && read.BoardModel is null))
             {
                 foreach (var diagnostic in read.Errors)
@@ -224,44 +250,47 @@ internal static class ExportBoardSnapshotHandler
                     ? read.Errors[0].Code + " at " + read.Errors[0].Path +
                       ": " + read.Errors[0].Message
                     : "Core Reader did not return the expected component model catalog.";
-                return ("Exchange Package verification failed; the package was removed.\n" + first, true);
+                return new ExportInvocationResult(
+                    ExportRequestStatus.Uncertain,
+                    "Exchange Package verification failed; cleanup was requested.\n" + first);
             }
 
-            var partial = modelResult.Diagnostics.BodiesWithoutAsset > 0
-                || modelResult.Warnings.Count > 0
-                || !boardModelResult.IsSuccess;
+            var partial = request.Model.Diagnostics.BodiesWithoutAsset > 0
+                || request.Model.Warnings.Count > 0
+                || !request.BoardModel.IsSuccess;
             var message =
                 "Exchange Package written to:\n" + packageDirectory +
                 "\npackageId=" + packageId.ToString("D") +
-                $"\nlayers={data.Snapshot.Layers.Count} components={data.Snapshot.Components.Count} " +
-                $"pads={data.Snapshot.Pads.Count} nets={data.Snapshot.Nets.Count}" +
-                $"\nbodies={modelResult.Diagnostics.BodiesDetected} " +
-                $"stepAssets={modelResult.Diagnostics.StepExportsSucceeded} " +
-                $"bodiesWithoutAsset={modelResult.Diagnostics.BodiesWithoutAsset}" +
-                $"\nboardStep={boardModelResult.Size} bytes sha256={boardModelResult.Sha256}" +
-                $"\nadapterWarnings={data.Warnings.Count} modelWarnings={modelResult.Warnings.Count} " +
+                "\nrequestId=" + invocation.RequestId +
+                "\ncorrelationId=" + invocation.CorrelationId +
+                $"\nlayers={request.Snapshot.Snapshot.Layers.Count} " +
+                $"components={request.Snapshot.Snapshot.Components.Count} " +
+                $"pads={request.Snapshot.Snapshot.Pads.Count} nets={request.Snapshot.Snapshot.Nets.Count}" +
+                $"\nbodies={request.Model.Diagnostics.BodiesDetected} " +
+                $"stepAssets={request.Model.Diagnostics.StepExportsSucceeded} " +
+                $"bodiesWithoutAsset={request.Model.Diagnostics.BodiesWithoutAsset}" +
+                $"\nboardStep={request.BoardModel.Size} bytes sha256={request.BoardModel.Sha256}" +
+                $"\nadapterWarnings={request.Snapshot.Warnings.Count} " +
+                $"modelWarnings={request.Model.Warnings.Count} " +
                 $"packageWarnings={package.Warnings.Count}";
             BridgeLogger.Write(
                 "INFO",
                 "PACKAGE_EXPORT_OK",
-                $"addin={AddInVersion} cad=26 doc={Path.GetFileName(before.FilePath)} " +
-                $"packageId={packageId:D} layers={data.Snapshot.Layers.Count} " +
-                $"components={data.Snapshot.Components.Count} pads={data.Snapshot.Pads.Count} " +
-                $"nets={data.Snapshot.Nets.Count} " + modelResult.Diagnostics.Summary() + " " +
-                $"boardStepSize={boardModelResult.Size} boardStepSha={boardModelResult.Sha256} " +
-                $"adapterWarnings={data.Warnings.Count} modelWarnings={modelResult.Warnings.Count} " +
+                $"addin={AddInVersion} cad=26 doc={Path.GetFileName(state.FilePath)} " +
+                $"packageId={packageId:D} requestId={invocation.RequestId} " +
+                $"correlationId={invocation.CorrelationId} invocationId={invocation.InvocationId} " +
+                $"layers={request.Snapshot.Snapshot.Layers.Count} " +
+                $"components={request.Snapshot.Snapshot.Components.Count} " +
+                $"pads={request.Snapshot.Snapshot.Pads.Count} nets={request.Snapshot.Snapshot.Nets.Count} " +
+                request.Model.Diagnostics.Summary() + " " +
+                $"boardStepSize={request.BoardModel.Size} boardStepSha={request.BoardModel.Sha256} " +
+                $"adapterWarnings={request.Snapshot.Warnings.Count} " +
+                $"modelWarnings={request.Model.Warnings.Count} " +
                 $"packageWarnings={package.Warnings.Count}");
-            return (message, partial);
-        }
-        finally
-        {
-            if (tempDirectory is not null)
-            {
-                var cleanupWarnings = new List<string>();
-                AltiumModelExportWorkspace.TryDelete(tempDirectory, cleanupWarnings);
-                foreach (var cleanupWarning in cleanupWarnings)
-                    BridgeLogger.Write("WARN", "MODEL_CLEANUP", cleanupWarning);
-            }
+            return new ExportInvocationResult(
+                ExportRequestStatus.Completed,
+                Message: message,
+                Partial: partial);
         }
     }
 
@@ -277,6 +306,20 @@ internal static class ExportBoardSnapshotHandler
         enabled = true;
         visible = true;
     }
+
+    internal static string ResolveRequestId(string parameters, string filePath)
+    {
+        if (Guid.TryParse(parameters.Trim(), out var explicitId))
+            return explicitId.ToString("D");
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(filePath));
+        return "doc-" + Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string Correlation(ExportRequestResult result) =>
+        "requestId=" + result.RequestId +
+        " correlationId=" + result.CorrelationId +
+        (result.InvocationId is null ? string.Empty : " invocationId=" + result.InvocationId);
 
     private static void TryDeletePackage(string packageDirectory)
     {
