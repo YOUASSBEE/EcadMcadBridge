@@ -8,8 +8,8 @@ created: 2026-11-27T16:00:00+03:00
 updated: 2026-11-27T16:00:00+03:00
 base: source
 branch: task/BRIDGE-000043-top-only-export-hardening
-commit: pending
-pr: pending
+commit: 502de39650f8c1596430b4d215ed2a618b74a2da
+pr: https://github.com/YOUASSBEE/EcadMcadBridge/pull/29
 related: [BRIDGE-000042, BRIDGE-000041, BRIDGE-000040, BRIDGE-000035]
 runtime_status: not_authorized
 smoke_status: not_executed
@@ -201,8 +201,8 @@ package ID. Это исключает версию «один export, дубли
 ## 9. Commit и PR
 
 - Implementation commit: `8f620af09e33222d9df0567407fd2100d9ad9a1a`
-- Commit: `pending`
-- PR: `pending`
+- Report metadata commit: `502de39650f8c1596430b4d215ed2a618b74a2da`
+- PR: https://github.com/YOUASSBEE/EcadMcadBridge/pull/29
 
 ## 10. История изменений
 
