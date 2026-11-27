@@ -13,7 +13,8 @@ internal sealed record AltiumBoardSnapshotResult(
     IReadOnlyList<AltiumComponentIdentity> ComponentIdentities,
     IReadOnlyList<string> Warnings,
     IReadOnlyList<AltiumRegionInfo> Regions,
-    AltiumAdapterDiagnostics Diagnostics);
+    AltiumAdapterDiagnostics Diagnostics,
+    IReadOnlySet<string>? AllowedComponentIds = null);
 
 internal sealed record AltiumRegionContour(
     bool IsHole,

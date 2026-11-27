@@ -69,7 +69,15 @@ internal static class AltiumComponentModelReader
         IPCB_Board board,
         BoardSnapshot snapshot,
         IReadOnlyList<AltiumComponentIdentity> identities,
-        string exportDirectory)
+        string exportDirectory) =>
+        Read(board, snapshot, identities, exportDirectory, null);
+
+    public static AltiumComponentModelResult Read(
+        IPCB_Board board,
+        BoardSnapshot snapshot,
+        IReadOnlyList<AltiumComponentIdentity> identities,
+        string exportDirectory,
+        IReadOnlySet<string>? allowedComponentIds)
     {
         ArgumentNullException.ThrowIfNull(board);
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -117,6 +125,9 @@ internal static class AltiumComponentModelReader
                 var ownerKey = CreateOwnerKey(owner);
                 var resolution = resolver.Resolve(ownerKey);
                 var componentId = AltiumComponentResolutionGuard.RequireComponentId(resolution);
+                if (allowedComponentIds is not null && !allowedComponentIds.Contains(componentId))
+                    continue;
+
                 var ordinal = ordinals.Next(componentId);
                 diagnostics.BodiesDetected++;
                 var label = Label(ownerKey.Designator, ordinal);

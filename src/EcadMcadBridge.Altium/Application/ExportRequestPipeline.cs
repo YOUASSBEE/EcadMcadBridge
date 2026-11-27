@@ -38,7 +38,8 @@ internal sealed record ExportPackageWriteRequest(
 internal sealed record ExportPipelineResult(
     ExportRequestResult Outcome,
     string Message,
-    bool Warning);
+    bool Warning,
+    TopOnlyFilterResult? Selection = null);
 
 /// <summary>
 /// Whole-request export operation. Reservation happens in <see cref="ExportRequestCoordinator"/>
@@ -60,6 +61,7 @@ internal sealed class ExportRequestPipeline
     private readonly ExportPackageWriter _writePackage;
     private readonly IReadOnlyList<string> _baseCapabilities;
     private readonly Action<string, string, string> _write;
+    private readonly ExportTopOnlyFilter? _topOnlyFilter;
 
     public ExportRequestPipeline(
         ExportRequestCoordinator coordinator,
@@ -72,7 +74,8 @@ internal sealed class ExportRequestPipeline
         ExportBoardModelExporter exportBoardModel,
         ExportPackageWriter writePackage,
         IReadOnlyList<string> baseCapabilities,
-        Action<string, string, string> write)
+        Action<string, string, string> write,
+        ExportTopOnlyFilter? topOnlyFilter = null)
     {
         _coordinator = coordinator;
         _gate = gate;
@@ -85,6 +88,7 @@ internal sealed class ExportRequestPipeline
         _writePackage = writePackage;
         _baseCapabilities = baseCapabilities;
         _write = write;
+        _topOnlyFilter = topOnlyFilter;
     }
 
     public ExportPipelineResult Execute(string requestId)
@@ -94,7 +98,8 @@ internal sealed class ExportRequestPipeline
         return new ExportPipelineResult(
             outcome,
             message,
-            outcome.Status != ExportRequestStatus.Completed || outcome.Partial);
+            outcome.Status != ExportRequestStatus.Completed || outcome.Partial,
+            outcome.Selection);
     }
 
     private ExportInvocationResult Run(ExportInvocation invocation)
@@ -106,11 +111,15 @@ internal sealed class ExportRequestPipeline
                 gate.Error ?? "Export gate rejected the request.");
 
         string? tempDirectory = null;
+        TopOnlyFilterResult? selection = null;
         var secondaryErrors = new List<string>();
         ExportInvocationResult result;
         try
         {
-            result = RunCore(invocation, directory => tempDirectory = directory);
+            result = RunCore(
+                invocation,
+                directory => tempDirectory = directory,
+                filtered => selection = filtered);
         }
         catch (AltiumModelInventoryException ex)
         {
@@ -144,6 +153,9 @@ internal sealed class ExportRequestPipeline
             }
         }
 
+        if (selection is not null)
+            result = result with { Selection = selection };
+
         if (secondaryErrors.Count == 0)
             return result;
 
@@ -155,8 +167,27 @@ internal sealed class ExportRequestPipeline
 
     private ExportInvocationResult RunCore(
         ExportInvocation invocation,
-        Action<string> captureWorkspace)
+        Action<string> captureWorkspace,
+        Action<TopOnlyFilterResult?> captureSelection)
     {
+        captureSelection(null);
+        AltiumBoardSnapshotResult? snapshot = null;
+        if (_topOnlyFilter is not null)
+        {
+            var source = _readSnapshot()
+                ?? throw new InvalidOperationException("Snapshot reader returned no result.");
+            LogAdapterWarnings(source);
+
+            var filtered = _topOnlyFilter(source)
+                ?? throw new InvalidOperationException("Top-only filter returned no result.");
+            captureSelection(filtered);
+            if (!filtered.Allowed || filtered.Snapshot is null)
+                return new ExportInvocationResult(
+                    ExportRequestStatus.GateRejected,
+                    filtered.Error ?? "Top-only selection was rejected.");
+            snapshot = filtered.Snapshot;
+        }
+
         var root = _resolvePackageRoot()
             ?? throw new InvalidOperationException("Package root resolver returned no result.");
         if (!root.Allowed || root.Root is null)
@@ -171,11 +202,12 @@ internal sealed class ExportRequestPipeline
                 ExportRequestStatus.Failed,
                 "Model export workspace is unavailable.");
 
-        var snapshot = _readSnapshot()
-            ?? throw new InvalidOperationException("Snapshot reader returned no result.");
-        foreach (var warning in snapshot.Warnings)
-            _write("WARN", "ADAPTER", warning);
-        _write("INFO", "ADAPTER_SUMMARY", snapshot.Diagnostics.Summary());
+        if (snapshot is null)
+        {
+            snapshot = _readSnapshot()
+                ?? throw new InvalidOperationException("Snapshot reader returned no result.");
+            LogAdapterWarnings(snapshot);
+        }
 
         var model = _readComponentModels(snapshot, tempDirectory)
             ?? throw new InvalidOperationException("Component model reader returned no result.");
@@ -212,5 +244,12 @@ internal sealed class ExportRequestPipeline
                        capabilities.ToArray()),
                    invocation)
                ?? throw new InvalidOperationException("Package writer returned no result.");
+    }
+
+    private void LogAdapterWarnings(AltiumBoardSnapshotResult snapshot)
+    {
+        foreach (var warning in snapshot.Warnings)
+            _write("WARN", "ADAPTER", warning);
+        _write("INFO", "ADAPTER_SUMMARY", snapshot.Diagnostics.Summary());
     }
 }
