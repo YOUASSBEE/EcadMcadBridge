@@ -67,7 +67,7 @@ internal static class ExportBoardSnapshotHandler
     private static (string Message, bool Warning) Export(IServerDocumentView view, string parameters)
     {
         var document = view?.GetOwnerDocument();
-        var requestId = ResolveRequestId(parameters, document?.GetFileName() ?? string.Empty);
+        var requestId = ResolveWorkflowRequestId(parameters);
         AltiumDocumentState? state = null;
 
         var result = new ExportRequestPipeline(
@@ -126,7 +126,8 @@ internal static class ExportBoardSnapshotHandler
                         snapshot.Board,
                         snapshot.Snapshot,
                         snapshot.ComponentIdentities,
-                        directory);
+                        directory,
+                        snapshot.AllowedComponentIds);
                 }
                 finally
                 {
@@ -140,26 +141,33 @@ internal static class ExportBoardSnapshotHandler
             (snapshot, directory) => AltiumBoardModelExporter.Export(snapshot.Board, directory),
             WritePackage,
             Capabilities,
-            (level, code, message) => BridgeLogger.Write(level, code, message))
+            (level, code, message) => BridgeLogger.Write(level, code, message),
+            snapshot => TopOnlySelectionFilter.Apply(snapshot, AltiumTopOnlySelectionReader.Read(snapshot.Board)))
             .Execute(requestId);
 
         if (result.Outcome.Status == ExportRequestStatus.DuplicateRejected)
         {
             return (
+                "status=DuplicateRejected\n" +
                 "This export request was already processed; no second Exchange Package was created.\n" +
-                Correlation(result.Outcome),
+                Correlation(result.Outcome) + DescribeSecondary(result.Outcome),
                 true);
         }
 
         if (result.Outcome.Status != ExportRequestStatus.Completed)
         {
             return (
-                "Exchange Package export did not complete.\n" + Correlation(result.Outcome) + "\n" +
-                result.Message,
+                "Exchange Package export did not complete.\n" +
+                "status=" + result.Outcome.Status + "\n" +
+                Correlation(result.Outcome) + "\n" +
+                result.Message + DescribeSelection(result.Selection) + DescribeSecondary(result.Outcome),
                 true);
         }
 
-        return (result.Message, result.Warning);
+        return (
+            "status=Completed\n" + result.Message + DescribeSelection(result.Selection) +
+            DescribeSecondary(result.Outcome),
+            result.Warning || (result.Selection?.Skipped.Count ?? 0) > 0);
 
         ExportInvocationResult WritePackage(
             ExportPackageWriteRequest request,
@@ -232,9 +240,11 @@ internal static class ExportBoardSnapshotHandler
             var packageDirectory = package.PackageDirectory ??
                 Path.Combine(request.PackageRoot, packageId.ToString("D"));
             var read = ExchangePackageReader.Read(packageDirectory);
+            var selectionError = read.IsSuccess
+                ? TopOnlyPackageVerifier.Verify(read, request.Snapshot.Snapshot)
+                : null;
             if (!read.IsSuccess
-                || read.Models is null
-                || read.Models.Components.Count != request.Snapshot.Snapshot.Components.Count
+                || selectionError is not null
                 || (boardRequest is not null && read.BoardModel is null))
             {
                 foreach (var diagnostic in read.Errors)
@@ -246,10 +256,11 @@ internal static class ExportBoardSnapshotHandler
                 }
 
                 TryDeletePackage(packageDirectory);
-                var first = read.Errors.Count > 0
-                    ? read.Errors[0].Code + " at " + read.Errors[0].Path +
-                      ": " + read.Errors[0].Message
-                    : "Core Reader did not return the expected component model catalog.";
+                var first = selectionError
+                    ?? (read.Errors.Count > 0
+                        ? read.Errors[0].Code + " at " + read.Errors[0].Path +
+                          ": " + read.Errors[0].Message
+                        : "Core Reader did not return the expected Top-only package.");
                 return new ExportInvocationResult(
                     ExportRequestStatus.Uncertain,
                     "Exchange Package verification failed; cleanup was requested.\n" + first);
@@ -316,6 +327,40 @@ internal static class ExportBoardSnapshotHandler
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(filePath));
         return "doc-" + Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// A command invocation is a new operation by default; an explicit GUID keeps controlled
+    /// duplicate rejection. The document-hash fallback is retained only for compatibility tests.
+    /// </summary>
+    internal static string ResolveWorkflowRequestId(string parameters) =>
+        Guid.TryParse(parameters.Trim(), out var explicitId)
+            ? explicitId.ToString("D")
+            : Guid.NewGuid().ToString("D");
+
+    private static string DescribeSelection(TopOnlyFilterResult? selection)
+    {
+        if (selection is null)
+            return string.Empty;
+
+        var exported = string.Join(", ", selection.Exported.Select(item => item.Reference));
+        var skipped = selection.Skipped
+            .Select(item => item.Reference + ": " + item.Reason);
+        return
+            $"\nselected={selection.Selected.Count} exported={selection.Exported.Count} " +
+            $"skipped={selection.Skipped.Count}" +
+            "\nexportedComponents=" + (exported.Length == 0 ? "none" : exported) +
+            "\nskippedComponents=" + (selection.Skipped.Count == 0
+                ? "none"
+                : string.Join("; ", skipped));
+    }
+
+    private static string DescribeSecondary(ExportRequestResult result)
+    {
+        if (result.SecondaryErrors is null || result.SecondaryErrors.Count == 0)
+            return "\nsecondaryErrors=none";
+
+        return "\nsecondaryErrors=" + string.Join("; ", result.SecondaryErrors);
     }
 
     private static string Correlation(ExportRequestResult result) =>

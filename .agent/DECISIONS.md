@@ -31,6 +31,7 @@
 | D-020 | SOLIDWORKS backend: local interop, per-asset STEP import в native SLDPRT, без Add-in registration и placement | Accepted | 2026-11-25 |
 | D-021 | Component Model Catalog 1.1.0: BodyProjection, Standoff/Overall heights, ModelStateSource; совместимость с 1.0.0 | Accepted | 2026-11-26 |
 | D-022 | Первый Top placed assembly: Core transform → SOLIDWORKS occurrence, board-local XY, ±T/2, save/reopen verification | Accepted | 2026-11-26 |
+| D-025 | Repeatable Top-only selected-package workflow with fresh request IDs | Accepted | 2026-11-27 |
 
 ---
 
@@ -839,6 +840,59 @@ native `.SLDPRT`; save/reopen, count/mapping, transform readback, board fixed,
   критерии будущей валидации, а не является основанием для ослабления ключа.
 - Затронутые документы: `DECISIONS.md`, `ARCHITECTURE.md`,
   `DEVELOPMENT_RULES.md`, `PROJECT_CONTEXT.md`, `AGENTS.md`, `README.md`.
+
+---
+
+## D-025 — Repeatable Top-only selected-package workflow
+
+**Статус:** Accepted (code contract; CAD runtime activation remains operator-gated).
+
+**Контекст.** BRIDGE-000041 зафиксировал, что повторяемый Top-only workflow требует отдельного
+решения. BRIDGE-000042 показал практический отказ: два успешных `PACKAGE_EXPORT_OK` для одной
+сессии. BRIDGE-000043/000044/000050 добавили in-process at-most-once dispatch, terminal state
+и изоляцию вторичных ошибок, но оставили fallback request ID на основе хэша пути документа,
+что блокирует повтор экспорта того же `.PcbDoc`.
+
+**Решение.**
+
+1. Каждый вызов команды `ExportBoardSnapshot` создаёт новый operation request ID (`Guid.NewGuid`).
+   Явный GUID в параметрах сохраняется и используется для управляемой проверки дубликатов.
+   Хэш пути документа остаётся только в совместимой helper-функции и в workflow не применяется.
+   Гарантия — at-most-once dispatch в рамках процесса; exactly-once не заявляется.
+2. Выборка берётся из текущего PCB-выделения через подтверждённые типизированные SDK-вызовы
+   без изменения выделения. Объект отображается на `ComponentInstance.Id` через существующий
+   ownership resolver; если владение недоступно или недоказуемо, компонент пропускается с
+   причиной. Компоненты не-Top и тела с projection не-Top не попадают в пакет.
+3. Внутри Altium Add-in добавляется чистый фильтр выделения и фильтрация snapshot/model по
+   разрешённым component ID. Если не осталось ни одного подходящего Top-компонента, операция
+   reject до package root, workspace, model, board и writer. Никакие Bottom-объекты не
+   экспортируются в пакет этой команды.
+4. После записи `ExchangePackageReader.Read` возвращает пакет; дополнительно проверяется точное
+   совпадение component ID с approval set и отсутствие не-Top component/body. Расхождение даёт
+   `Uncertain`, удаление пакета и отсутствие `PACKAGE_EXPORT_OK`. Успех объявляется только после
+   этой проверки.
+5. Результат оператору содержит `status`, package ID/path, выбранные/экспортированные/пропущенные
+   компоненты с причинами, счётчики warning и вторичные ошибки. Пропущенные компоненты поднимают
+   warning-флаг; вторичные ошибки логирования/cleanup не понижают подтверждённый `Completed`.
+6. Границы компонентов не меняются: Core остаётся без CAD SDK, Add-in не ссылаются друг на друга.
+   D-023/D-024, fail-closed ownership, transform conventions, `SW-PLC-006/007` и отклонение Bottom
+   в SOLIDWORKS остаются без изменений.
+
+**Последствия.**
+
+- Последовательности A → B → A создают три независимых request/invocation/package ID; повтор
+  явного request ID отвергается без повторного dispatch.
+- Автоматические тесты покрывают orchestration, package readback и отказ от Bottom-содержимого;
+  реальный CAD smoke в BRIDGE-000053 не выполнялся и требует разрешения оператора.
+- Production код команды теперь придерживается Top-only контракта, но допуска к реальным PCB,
+  STEP и SOLIDWORKS в рамках этого PR нет; runtime-статус остаётся `not_authorized`.
+
+**Альтернативы.**
+
+- Оставить fallback request ID на хэше документа: отклонено — повтор того же `.PcbDoc` недоступен.
+- Продолжать whole-board пакет и фильтровать только в SOLIDWORKS: отклонено — пакет содержал бы
+  Bottom-ссылки и не давал проверяемого selected-package контракта.
+- Пропускать компоненты без объяснения: отклонено — результат оператору обязан содержать причины.
 
 ---
 

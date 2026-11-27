@@ -24,7 +24,8 @@ internal sealed record ExportInvocationResult(
     string? Error = null,
     string? Message = null,
     bool Partial = false,
-    IReadOnlyList<string>? SecondaryErrors = null);
+    IReadOnlyList<string>? SecondaryErrors = null,
+    TopOnlyFilterResult? Selection = null);
 
 internal sealed record ExportRequestResult(
     string RequestId,
@@ -35,7 +36,8 @@ internal sealed record ExportRequestResult(
     string? Error,
     string? Message = null,
     bool Partial = false,
-    IReadOnlyList<string>? SecondaryErrors = null);
+    IReadOnlyList<string>? SecondaryErrors = null,
+    TopOnlyFilterResult? Selection = null);
 
 /// <summary>
 /// Request-scoped at-most-once dispatch. The request and its invocation are reserved before the
@@ -138,7 +140,9 @@ internal sealed class ExportRequestCoordinator
             Invoked: true,
             result.Error,
             result.Message,
-            result.Partial);
+            result.Partial,
+            result.SecondaryErrors,
+            result.Selection);
         var level = result.Status == ExportRequestStatus.Completed ? "INFO" : "WARN";
         var endError = SecondaryFailureGuard.TryWrite(
             _write,
