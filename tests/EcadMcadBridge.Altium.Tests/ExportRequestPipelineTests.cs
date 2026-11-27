@@ -238,17 +238,17 @@ public sealed class ExportRequestPipelineTests
     }
 
     [Fact]
-    public void BottomRequest_IsRejectedBeforeAnyBoundary()
+    public void RejectedGate_DoesNotInvokeExportBoundaries()
     {
         var counts = new BoundaryCounts();
         var pipeline = CreatePipeline(
             counts,
-            gateResult: ExportGateResult.Reject("Only Top BodyProjection is supported. (SW-PLC-007)"));
+            gateResult: ExportGateResult.Reject("export gate rejected"));
 
-        var result = pipeline.Execute("bottom-request");
+        var result = pipeline.Execute("rejected-gate");
 
         Assert.Equal(ExportRequestStatus.GateRejected, result.Outcome.Status);
-        Assert.Contains("SW-PLC-007", result.Message, StringComparison.Ordinal);
+        Assert.Contains("export gate rejected", result.Message, StringComparison.Ordinal);
         Assert.Equal(0, counts.PackageRoot);
         Assert.Equal(0, counts.Workspace);
         Assert.Equal(0, counts.Snapshot);
