@@ -106,77 +106,111 @@ internal sealed class ExportRequestPipeline
                 gate.Error ?? "Export gate rejected the request.");
 
         string? tempDirectory = null;
+        var secondaryErrors = new List<string>();
+        ExportInvocationResult result;
         try
         {
-            var root = _resolvePackageRoot()
-                ?? throw new InvalidOperationException("Package root resolver returned no result.");
-            if (!root.Allowed || root.Root is null)
-                return new ExportInvocationResult(
-                    ExportRequestStatus.Failed,
-                    root.Error ?? "Package root is unavailable.");
-
-            tempDirectory = _createWorkspace();
-            if (string.IsNullOrWhiteSpace(tempDirectory))
-                return new ExportInvocationResult(
-                    ExportRequestStatus.Failed,
-                    "Model export workspace is unavailable.");
-
-            var snapshot = _readSnapshot()
-                ?? throw new InvalidOperationException("Snapshot reader returned no result.");
-            foreach (var warning in snapshot.Warnings)
-                _write("WARN", "ADAPTER", warning);
-            _write("INFO", "ADAPTER_SUMMARY", snapshot.Diagnostics.Summary());
-
-            var model = _readComponentModels(snapshot, tempDirectory)
-                ?? throw new InvalidOperationException("Component model reader returned no result.");
-            foreach (var warning in model.Warnings)
-                _write("WARN", "MODEL_WARNING", warning);
-            _write("INFO", "MODEL_EXPORT_SUMMARY", model.Diagnostics.Summary());
-
-            var boardModel = _exportBoardModel(snapshot, tempDirectory)
-                ?? throw new InvalidOperationException("Board model exporter returned no result.");
-            foreach (var warning in boardModel.Warnings)
-                _write("WARN", "BOARD_MODEL", warning);
-            if (boardModel.IsSuccess)
-            {
-                _write(
-                    "INFO",
-                    "BOARD_MODEL_EXPORT",
-                    $"boardStepSize={boardModel.Size} boardStepSha={boardModel.Sha256}");
-            }
-            else
-            {
-                _write("WARN", "E_BOARD_MODEL", boardModel.Error ?? "Board model export failed.");
-            }
-
-            var capabilities = _baseCapabilities.ToList();
-            if (boardModel.IsSuccess)
-                capabilities.Add(BoardModelDescriptor.Capability);
-
-            return _writePackage(
-                       new ExportPackageWriteRequest(
-                           snapshot,
-                           model,
-                           boardModel,
-                           root.Root,
-                           capabilities.ToArray()),
-                       invocation)
-                   ?? throw new InvalidOperationException("Package writer returned no result.");
+            result = RunCore(invocation, directory => tempDirectory = directory);
         }
         catch (AltiumModelInventoryException ex)
         {
-            return new ExportInvocationResult(ExportRequestStatus.Failed, InventoryMessage + ex.Message);
+            result = new ExportInvocationResult(
+                ExportRequestStatus.Failed,
+                InventoryMessage + ex.Message);
         }
         catch (Exception ex)
         {
-            return new ExportInvocationResult(
+            result = new ExportInvocationResult(
                 ExportRequestStatus.Failed,
-                ex.GetType().Name + ": " + ex.Message);
+                SecondaryFailureGuard.Failure(ex));
         }
         finally
         {
             if (tempDirectory is not null)
-                _cleanupWorkspace(tempDirectory);
+            {
+                try
+                {
+                    _cleanupWorkspace(tempDirectory);
+                }
+                catch (Exception ex)
+                {
+                    secondaryErrors.Add("MODEL_CLEANUP failed: " + SecondaryFailureGuard.Failure(ex));
+                    SecondaryFailureGuard.TryWrite(
+                        _write,
+                        "ERROR",
+                        "SECONDARY_OPERATION_FAILED",
+                        "MODEL_CLEANUP: " + SecondaryFailureGuard.Failure(ex));
+                }
+            }
         }
+
+        if (secondaryErrors.Count == 0)
+            return result;
+
+        return result with
+        {
+            SecondaryErrors = SecondaryFailureGuard.Combine(result.SecondaryErrors, secondaryErrors),
+        };
+    }
+
+    private ExportInvocationResult RunCore(
+        ExportInvocation invocation,
+        Action<string> captureWorkspace)
+    {
+        var root = _resolvePackageRoot()
+            ?? throw new InvalidOperationException("Package root resolver returned no result.");
+        if (!root.Allowed || root.Root is null)
+            return new ExportInvocationResult(
+                ExportRequestStatus.Failed,
+                root.Error ?? "Package root is unavailable.");
+
+        var tempDirectory = _createWorkspace();
+        captureWorkspace(tempDirectory);
+        if (string.IsNullOrWhiteSpace(tempDirectory))
+            return new ExportInvocationResult(
+                ExportRequestStatus.Failed,
+                "Model export workspace is unavailable.");
+
+        var snapshot = _readSnapshot()
+            ?? throw new InvalidOperationException("Snapshot reader returned no result.");
+        foreach (var warning in snapshot.Warnings)
+            _write("WARN", "ADAPTER", warning);
+        _write("INFO", "ADAPTER_SUMMARY", snapshot.Diagnostics.Summary());
+
+        var model = _readComponentModels(snapshot, tempDirectory)
+            ?? throw new InvalidOperationException("Component model reader returned no result.");
+        foreach (var warning in model.Warnings)
+            _write("WARN", "MODEL_WARNING", warning);
+        _write("INFO", "MODEL_EXPORT_SUMMARY", model.Diagnostics.Summary());
+
+        var boardModel = _exportBoardModel(snapshot, tempDirectory)
+            ?? throw new InvalidOperationException("Board model exporter returned no result.");
+        foreach (var warning in boardModel.Warnings)
+            _write("WARN", "BOARD_MODEL", warning);
+        if (boardModel.IsSuccess)
+        {
+            _write(
+                "INFO",
+                "BOARD_MODEL_EXPORT",
+                $"boardStepSize={boardModel.Size} boardStepSha={boardModel.Sha256}");
+        }
+        else
+        {
+            _write("WARN", "E_BOARD_MODEL", boardModel.Error ?? "Board model export failed.");
+        }
+
+        var capabilities = _baseCapabilities.ToList();
+        if (boardModel.IsSuccess)
+            capabilities.Add(BoardModelDescriptor.Capability);
+
+        return _writePackage(
+                   new ExportPackageWriteRequest(
+                       snapshot,
+                       model,
+                       boardModel,
+                       root.Root,
+                       capabilities.ToArray()),
+                   invocation)
+               ?? throw new InvalidOperationException("Package writer returned no result.");
     }
 }

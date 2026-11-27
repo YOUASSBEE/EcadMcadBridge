@@ -273,7 +273,8 @@ internal static class ExportBoardSnapshotHandler
                 $"\nadapterWarnings={request.Snapshot.Warnings.Count} " +
                 $"modelWarnings={request.Model.Warnings.Count} " +
                 $"packageWarnings={package.Warnings.Count}";
-            BridgeLogger.Write(
+            var successLogError = SecondaryFailureGuard.TryWrite(
+                (level, code, logMessage) => BridgeLogger.Write(level, code, logMessage),
                 "INFO",
                 "PACKAGE_EXPORT_OK",
                 $"addin={AddInVersion} cad=26 doc={Path.GetFileName(state.FilePath)} " +
@@ -290,7 +291,8 @@ internal static class ExportBoardSnapshotHandler
             return new ExportInvocationResult(
                 ExportRequestStatus.Completed,
                 Message: message,
-                Partial: partial);
+                Partial: partial,
+                SecondaryErrors: SecondaryFailureGuard.WithError(null, successLogError));
         }
     }
 
