@@ -19,7 +19,11 @@ internal sealed record ExportGateResult(bool Allowed, string? Error = null)
 
 internal sealed record ExportInvocation(string RequestId, string CorrelationId, string InvocationId);
 
-internal sealed record ExportInvocationResult(ExportRequestStatus Status, string? Error = null);
+internal sealed record ExportInvocationResult(
+    ExportRequestStatus Status,
+    string? Error = null,
+    string? Message = null,
+    bool Partial = false);
 
 internal sealed record ExportRequestResult(
     string RequestId,
@@ -27,12 +31,14 @@ internal sealed record ExportRequestResult(
     string? InvocationId,
     ExportRequestStatus Status,
     bool Invoked,
-    string? Error);
+    string? Error,
+    string? Message = null,
+    bool Partial = false);
 
 /// <summary>
-/// Request-scoped at-most-once dispatch for the package export boundary. A request keeps its
-/// terminal state for the lifetime of the process; retries and duplicate command dispatches
-/// are rejected instead of creating a second package.
+/// Request-scoped at-most-once dispatch. The request and its invocation are reserved before the
+/// operation delegate is called, so a duplicate cannot reach any pipeline boundary. A request keeps
+/// its terminal state for the lifetime of the process; uncertainty is never retried automatically.
 /// </summary>
 internal sealed class ExportRequestCoordinator
 {
@@ -56,12 +62,12 @@ internal sealed class ExportRequestCoordinator
 
     public ExportRequestResult Execute(
         string requestId,
-        Func<ExportGateResult> gate,
-        Func<ExportInvocation, ExportInvocationResult> export)
+        Func<ExportInvocation, ExportInvocationResult> operation)
     {
         ArgumentException.ThrowIfNullOrEmpty(requestId);
 
         Entry entry;
+        ExportInvocation invocation;
         lock (_sync)
         {
             if (_entries.TryGetValue(requestId, out var existing))
@@ -77,63 +83,34 @@ internal sealed class ExportRequestCoordinator
                 return duplicate;
             }
 
-            entry = new Entry(Guid.NewGuid().ToString("D"));
+            invocation = new ExportInvocation(
+                requestId,
+                Guid.NewGuid().ToString("D"),
+                Guid.NewGuid().ToString("D"));
+            entry = new Entry(invocation.CorrelationId) { InvocationId = invocation.InvocationId };
             _entries.Add(requestId, entry);
         }
 
         _write("INFO", "EXPORT_REQUEST_START", Describe(entry, requestId));
 
-        ExportGateResult gateResult;
-        try
-        {
-            gateResult = gate() ?? throw new InvalidOperationException("Export gate returned no result.");
-        }
-        catch (Exception ex)
-        {
-            return Complete(entry, requestId, new ExportInvocationResult(
-                ExportRequestStatus.Failed,
-                Failure(ex)),
-                Invoked: false);
-        }
-
-        if (!gateResult.Allowed)
-        {
-            return Complete(entry, requestId, new ExportInvocationResult(
-                ExportRequestStatus.GateRejected,
-                gateResult.Error ?? "Export gate rejected the request."),
-                Invoked: false);
-        }
-
-        var invocation = new ExportInvocation(
-            requestId,
-            entry.CorrelationId,
-            Guid.NewGuid().ToString("D"));
-        lock (_sync)
-        {
-            entry.InvocationId = invocation.InvocationId;
-        }
-
         ExportInvocationResult result;
         try
         {
-            result = export(invocation) ?? throw new InvalidOperationException("Export returned no result.");
+            result = operation(invocation)
+                ?? throw new InvalidOperationException("Export operation returned no result.");
         }
         catch (Exception ex)
         {
-            return Complete(entry, requestId, new ExportInvocationResult(
-                ExportRequestStatus.Failed,
-                Failure(ex)),
-                Invoked: true);
+            result = new ExportInvocationResult(ExportRequestStatus.Failed, Failure(ex));
         }
 
-        return Complete(entry, requestId, result, Invoked: true);
+        return Complete(entry, requestId, result);
     }
 
     private ExportRequestResult Complete(
         Entry entry,
         string requestId,
-        ExportInvocationResult result,
-        bool Invoked)
+        ExportInvocationResult result)
     {
         lock (_sync)
         {
@@ -145,8 +122,10 @@ internal sealed class ExportRequestCoordinator
             entry.CorrelationId,
             entry.InvocationId,
             result.Status,
-            Invoked,
-            result.Error);
+            Invoked: true,
+            result.Error,
+            result.Message,
+            result.Partial);
         var level = result.Status == ExportRequestStatus.Completed ? "INFO" : "WARN";
         _write(level, "EXPORT_REQUEST_END", Describe(response));
         return response;

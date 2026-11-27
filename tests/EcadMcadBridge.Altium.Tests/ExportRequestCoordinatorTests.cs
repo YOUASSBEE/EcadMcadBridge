@@ -6,32 +6,25 @@ namespace EcadMcadBridge.Altium.Tests;
 public sealed class ExportRequestCoordinatorTests
 {
     [Fact]
-    public void SingleRequest_InvokesExportBoundaryOnceAndLogsAllIdentifiers()
+    public void SingleRequest_ReservesBeforeOperationAndLogsAllIdentifiers()
     {
         var logs = new List<LogEntry>();
         var coordinator = CreateCoordinator(logs);
-        var gateCalls = 0;
-        var exportCalls = 0;
+        var operationCalls = 0;
         ExportInvocation? invocation = null;
 
         var result = coordinator.Execute(
             "request-1",
-            () =>
-            {
-                gateCalls++;
-                return ExportGateResult.Allow();
-            },
             request =>
             {
-                exportCalls++;
+                operationCalls++;
                 invocation = request;
                 return new ExportInvocationResult(ExportRequestStatus.Completed);
             });
 
         Assert.Equal(ExportRequestStatus.Completed, result.Status);
         Assert.True(result.Invoked);
-        Assert.Equal(1, gateCalls);
-        Assert.Equal(1, exportCalls);
+        Assert.Equal(1, operationCalls);
         Assert.NotNull(invocation);
         Assert.Equal("request-1", invocation!.RequestId);
         Assert.False(string.IsNullOrWhiteSpace(invocation.CorrelationId));
@@ -43,6 +36,7 @@ public sealed class ExportRequestCoordinatorTests
         var end = Assert.Single(logs, x => x.Code == "EXPORT_REQUEST_END");
         Assert.Contains("requestId=request-1", start.Message, StringComparison.Ordinal);
         Assert.Contains("correlationId=" + result.CorrelationId, start.Message, StringComparison.Ordinal);
+        Assert.Contains("invocationId=" + result.InvocationId, start.Message, StringComparison.Ordinal);
         Assert.Contains("outcome=" + nameof(ExportRequestStatus.InProgress), start.Message, StringComparison.Ordinal);
         Assert.Contains("requestId=request-1", end.Message, StringComparison.Ordinal);
         Assert.Contains("correlationId=" + result.CorrelationId, end.Message, StringComparison.Ordinal);
@@ -51,28 +45,28 @@ public sealed class ExportRequestCoordinatorTests
     }
 
     [Fact]
-    public void SameRequestIdRetry_IsRejectedWithoutSecondExport()
+    public void SameRequestIdRetry_IsRejectedWithoutSecondOperation()
     {
         var logs = new List<LogEntry>();
         var coordinator = CreateCoordinator(logs);
-        var exportCalls = 0;
-        ExportInvocationResult Export(ExportInvocation _)
+        var operationCalls = 0;
+
+        ExportInvocationResult Operation(ExportInvocation _)
         {
-            exportCalls++;
+            operationCalls++;
             return new ExportInvocationResult(ExportRequestStatus.Completed);
         }
 
-        var first = coordinator.Execute("duplicate", ExportGateResult.Allow, Export);
+        var first = coordinator.Execute("duplicate", Operation);
         var second = coordinator.Execute(
             "duplicate",
-            () => throw new InvalidOperationException("gate must not run on duplicate"),
-            _ => throw new InvalidOperationException("export must not run on duplicate"));
+            _ => throw new InvalidOperationException("operation must not run on duplicate"));
 
         Assert.Equal(ExportRequestStatus.Completed, first.Status);
         Assert.Equal(ExportRequestStatus.DuplicateRejected, second.Status);
         Assert.False(second.Invoked);
         Assert.Equal(first.CorrelationId, second.CorrelationId);
-        Assert.Equal(1, exportCalls);
+        Assert.Equal(1, operationCalls);
         Assert.Contains(
             logs,
             x => x.Code == "EXPORT_DUPLICATE_REJECTED"
@@ -91,22 +85,14 @@ public sealed class ExportRequestCoordinatorTests
         var coordinator = CreateCoordinator(logs);
         var invocationIds = new List<string>();
 
-        var first = coordinator.Execute(
-            "request-a",
-            ExportGateResult.Allow,
-            request =>
-            {
-                invocationIds.Add(request.InvocationId);
-                return new ExportInvocationResult(ExportRequestStatus.Completed);
-            });
-        var second = coordinator.Execute(
-            "request-b",
-            ExportGateResult.Allow,
-            request =>
-            {
-                invocationIds.Add(request.InvocationId);
-                return new ExportInvocationResult(ExportRequestStatus.Completed);
-            });
+        ExportInvocationResult Operation(ExportInvocation request)
+        {
+            invocationIds.Add(request.InvocationId);
+            return new ExportInvocationResult(ExportRequestStatus.Completed);
+        }
+
+        var first = coordinator.Execute("request-a", Operation);
+        var second = coordinator.Execute("request-b", Operation);
 
         Assert.Equal(ExportRequestStatus.Completed, first.Status);
         Assert.Equal(ExportRequestStatus.Completed, second.Status);
@@ -117,159 +103,113 @@ public sealed class ExportRequestCoordinatorTests
     }
 
     [Fact]
-    public async Task ConcurrentSameRequestId_HasExactlyOneExportBoundaryCall()
+    public async Task ConcurrentSameRequestId_HasExactlyOneOperation()
     {
         var coordinator = CreateCoordinator(new List<LogEntry>());
-        using var exportEntered = new ManualResetEventSlim(false);
-        using var releaseExport = new ManualResetEventSlim(false);
-        var gateCalls = 0;
-        var exportCalls = 0;
+        using var operationEntered = new ManualResetEventSlim(false);
+        using var releaseOperation = new ManualResetEventSlim(false);
+        var operationCalls = 0;
 
         var first = Task.Run(() => coordinator.Execute(
             "concurrent",
-            () =>
-            {
-                Interlocked.Increment(ref gateCalls);
-                return ExportGateResult.Allow();
-            },
             _ =>
             {
-                Interlocked.Increment(ref exportCalls);
-                exportEntered.Set();
-                Assert.True(releaseExport.Wait(TimeSpan.FromSeconds(5)));
+                Interlocked.Increment(ref operationCalls);
+                operationEntered.Set();
+                Assert.True(releaseOperation.Wait(TimeSpan.FromSeconds(5)));
                 return new ExportInvocationResult(ExportRequestStatus.Completed);
             }));
 
-        Assert.True(exportEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.True(operationEntered.Wait(TimeSpan.FromSeconds(5)));
         var second = coordinator.Execute(
             "concurrent",
-            () =>
-            {
-                Interlocked.Increment(ref gateCalls);
-                return ExportGateResult.Allow();
-            },
             _ =>
             {
-                Interlocked.Increment(ref exportCalls);
+                Interlocked.Increment(ref operationCalls);
                 return new ExportInvocationResult(ExportRequestStatus.Completed);
             });
-        releaseExport.Set();
+        releaseOperation.Set();
         await first;
 
         Assert.Equal(ExportRequestStatus.Completed, (await first).Status);
         Assert.Equal(ExportRequestStatus.DuplicateRejected, second.Status);
-        Assert.Equal(1, gateCalls);
-        Assert.Equal(1, exportCalls);
+        Assert.Equal(1, operationCalls);
     }
 
     [Fact]
-    public void GateRejection_DoesNotCallExportBoundaryAndRemainsTerminal()
+    public void GateRejectedOutcome_IsTerminal()
     {
         var coordinator = CreateCoordinator(new List<LogEntry>());
-        var exportCalls = 0;
+        var operationCalls = 0;
 
-        var first = coordinator.Execute(
-            "gate-rejected",
-            () => ExportGateResult.Reject("document validation failed"),
-            _ =>
-            {
-                exportCalls++;
-                return new ExportInvocationResult(ExportRequestStatus.Completed);
-            });
-        var second = coordinator.Execute(
-            "gate-rejected",
-            ExportGateResult.Allow,
-            _ =>
-            {
-                exportCalls++;
-                return new ExportInvocationResult(ExportRequestStatus.Completed);
-            });
+        ExportInvocationResult Operation(ExportInvocation _)
+        {
+            operationCalls++;
+            return new ExportInvocationResult(
+                ExportRequestStatus.GateRejected,
+                "document validation failed");
+        }
+
+        var first = coordinator.Execute("gate-rejected", Operation);
+        var second = coordinator.Execute("gate-rejected", Operation);
 
         Assert.Equal(ExportRequestStatus.GateRejected, first.Status);
         Assert.Equal("document validation failed", first.Error);
         Assert.Equal(ExportRequestStatus.DuplicateRejected, second.Status);
-        Assert.Equal(0, exportCalls);
+        Assert.Equal(1, operationCalls);
     }
 
     [Fact]
-    public void ExceptionBeforeExport_FailsClosedWithoutExportBoundaryCall()
+    public void OperationException_FailsClosedAndRejectsRetry()
     {
         var coordinator = CreateCoordinator(new List<LogEntry>());
-        var exportCalls = 0;
-
-        var result = coordinator.Execute(
-            "gate-exception",
-            () => throw new IOException("state check failed"),
-            _ =>
-            {
-                exportCalls++;
-                return new ExportInvocationResult(ExportRequestStatus.Completed);
-            });
-
-        Assert.Equal(ExportRequestStatus.Failed, result.Status);
-        Assert.False(result.Invoked);
-        Assert.Equal(0, exportCalls);
-        Assert.Contains("IOException: state check failed", result.Error, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void ExceptionDuringExport_FailsClosedAndRejectsRetry()
-    {
-        var coordinator = CreateCoordinator(new List<LogEntry>());
-        var exportCalls = 0;
+        var operationCalls = 0;
 
         var first = coordinator.Execute(
-            "export-exception",
-            ExportGateResult.Allow,
+            "operation-exception",
             _ =>
             {
-                exportCalls++;
-                throw new InvalidOperationException("writer failed");
+                operationCalls++;
+                throw new InvalidOperationException("pipeline failed");
             });
         var second = coordinator.Execute(
-            "export-exception",
-            ExportGateResult.Allow,
+            "operation-exception",
             _ =>
             {
-                exportCalls++;
+                operationCalls++;
                 return new ExportInvocationResult(ExportRequestStatus.Completed);
             });
 
         Assert.Equal(ExportRequestStatus.Failed, first.Status);
-        Assert.True(first.Invoked);
         Assert.Equal(ExportRequestStatus.DuplicateRejected, second.Status);
-        Assert.Equal(1, exportCalls);
-        Assert.Contains("InvalidOperationException: writer failed", first.Error, StringComparison.Ordinal);
+        Assert.Equal(1, operationCalls);
+        Assert.Contains("InvalidOperationException: pipeline failed", first.Error, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void UncertainExportOutcome_IsTerminalAndRejectsRetry()
+    public void UncertainOutcome_IsTerminalAndRejectsRetry()
     {
         var coordinator = CreateCoordinator(new List<LogEntry>());
-        var exportCalls = 0;
+        var operationCalls = 0;
 
         var first = coordinator.Execute(
             "uncertain",
-            ExportGateResult.Allow,
             _ =>
             {
-                exportCalls++;
-                return new ExportInvocationResult(
-                    ExportRequestStatus.Uncertain,
-                    "verification failed");
+                operationCalls++;
+                return new ExportInvocationResult(ExportRequestStatus.Uncertain, "verification failed");
             });
         var second = coordinator.Execute(
             "uncertain",
-            ExportGateResult.Allow,
             _ =>
             {
-                exportCalls++;
+                operationCalls++;
                 return new ExportInvocationResult(ExportRequestStatus.Completed);
             });
 
         Assert.Equal(ExportRequestStatus.Uncertain, first.Status);
         Assert.Equal(ExportRequestStatus.DuplicateRejected, second.Status);
-        Assert.Equal(1, exportCalls);
+        Assert.Equal(1, operationCalls);
     }
 
     [Fact]
