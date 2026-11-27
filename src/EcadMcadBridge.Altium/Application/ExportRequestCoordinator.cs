@@ -23,7 +23,8 @@ internal sealed record ExportInvocationResult(
     ExportRequestStatus Status,
     string? Error = null,
     string? Message = null,
-    bool Partial = false);
+    bool Partial = false,
+    IReadOnlyList<string>? SecondaryErrors = null);
 
 internal sealed record ExportRequestResult(
     string RequestId,
@@ -33,12 +34,14 @@ internal sealed record ExportRequestResult(
     bool Invoked,
     string? Error,
     string? Message = null,
-    bool Partial = false);
+    bool Partial = false,
+    IReadOnlyList<string>? SecondaryErrors = null);
 
 /// <summary>
 /// Request-scoped at-most-once dispatch. The request and its invocation are reserved before the
 /// operation delegate is called, so a duplicate cannot reach any pipeline boundary. A request keeps
 /// its terminal state for the lifetime of the process; uncertainty is never retried automatically.
+/// Logging is a secondary boundary: its failure is diagnosed but never changes a confirmed outcome.
 /// </summary>
 internal sealed class ExportRequestCoordinator
 {
@@ -66,6 +69,7 @@ internal sealed class ExportRequestCoordinator
     {
         ArgumentException.ThrowIfNullOrEmpty(requestId);
 
+        var diagnostics = new List<string>();
         Entry entry;
         ExportInvocation invocation;
         lock (_sync)
@@ -79,8 +83,15 @@ internal sealed class ExportRequestCoordinator
                     ExportRequestStatus.DuplicateRejected,
                     Invoked: false,
                     "Original request is " + existing.Status + ".");
-                _write("WARN", "EXPORT_DUPLICATE_REJECTED", Describe(duplicate));
-                return duplicate;
+                var duplicateError = SecondaryFailureGuard.TryWrite(
+                    _write,
+                    "WARN",
+                    "EXPORT_DUPLICATE_REJECTED",
+                    Describe(duplicate));
+                return duplicate with
+                {
+                    SecondaryErrors = SecondaryFailureGuard.WithError(null, duplicateError),
+                };
             }
 
             invocation = new ExportInvocation(
@@ -91,7 +102,12 @@ internal sealed class ExportRequestCoordinator
             _entries.Add(requestId, entry);
         }
 
-        _write("INFO", "EXPORT_REQUEST_START", Describe(entry, requestId));
+        var startError = SecondaryFailureGuard.TryWrite(
+            _write,
+            "INFO",
+            "EXPORT_REQUEST_START",
+            Describe(entry, requestId));
+        diagnostics.AddIfNotNull(startError);
 
         ExportInvocationResult result;
         try
@@ -101,21 +117,18 @@ internal sealed class ExportRequestCoordinator
         }
         catch (Exception ex)
         {
-            result = new ExportInvocationResult(ExportRequestStatus.Failed, Failure(ex));
+            result = new ExportInvocationResult(
+                ExportRequestStatus.Failed,
+                SecondaryFailureGuard.Failure(ex));
         }
 
-        return Complete(entry, requestId, result);
-    }
-
-    private ExportRequestResult Complete(
-        Entry entry,
-        string requestId,
-        ExportInvocationResult result)
-    {
         lock (_sync)
         {
             entry.Status = result.Status;
         }
+
+        if (result.SecondaryErrors is not null)
+            diagnostics.AddRange(result.SecondaryErrors);
 
         var response = new ExportRequestResult(
             requestId,
@@ -127,11 +140,18 @@ internal sealed class ExportRequestCoordinator
             result.Message,
             result.Partial);
         var level = result.Status == ExportRequestStatus.Completed ? "INFO" : "WARN";
-        _write(level, "EXPORT_REQUEST_END", Describe(response));
-        return response;
-    }
+        var endError = SecondaryFailureGuard.TryWrite(
+            _write,
+            level,
+            "EXPORT_REQUEST_END",
+            Describe(response));
+        diagnostics.AddIfNotNull(endError);
 
-    private static string Failure(Exception ex) => ex.GetType().Name + ": " + ex.Message;
+        return response with
+        {
+            SecondaryErrors = diagnostics.Count > 0 ? diagnostics.ToArray() : null,
+        };
+    }
 
     private static string Describe(Entry entry, string requestId) => string.Concat(
         "requestId=", requestId,
@@ -145,4 +165,13 @@ internal sealed class ExportRequestCoordinator
         " invocationId=", result.InvocationId ?? "none",
         " outcome=", result.Status,
         string.IsNullOrEmpty(result.Error) ? string.Empty : " error=" + result.Error);
+}
+
+internal static class DiagnosticListExtensions
+{
+    public static void AddIfNotNull(this List<string> diagnostics, string? error)
+    {
+        if (error is not null)
+            diagnostics.Add(error);
+    }
 }
